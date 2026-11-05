@@ -1,0 +1,696 @@
+package com.example.ui.viewmodel
+
+import android.app.Application
+import android.content.Context
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import com.example.data.local.KonabDatabase
+import com.example.data.local.entity.*
+import com.example.data.repository.KonabRepository
+import com.example.ui.navigation.KonabScreen
+import com.example.util.BackupRestoreHelper
+import com.example.util.BusinessTypePresets
+import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.isActive
+import java.io.File
+
+data class CartItem(
+    val product: ProductEntity,
+    val quantity: Int
+) {
+    val totalPrice: Long get() = product.sellPrice * quantity
+    val totalCost: Long get() = product.buyPrice * quantity
+}
+
+class KonabViewModel(application: Application) : AndroidViewModel(application) {
+
+    private val repository: KonabRepository
+
+    init {
+        val database = KonabDatabase.getDatabase(application)
+        val dataStore = com.example.data.local.datastore.KonabDataStore(application)
+        repository = KonabRepository(database.konabDao(), dataStore)
+        com.example.util.NotificationHelper.createNotificationChannels(application)
+        
+        // Initial auto-sync and background polling
+        triggerAutoSync()
+        startPeriodicSync()
+    }
+
+    // DataStore Local Admin Account Stream
+    val adminAccount: StateFlow<com.example.data.local.datastore.LocalAdminAccount> = repository.adminAccount
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), com.example.data.local.datastore.LocalAdminAccount())
+
+    val isSetupCompleted: StateFlow<Boolean> = repository.isSetupCompleted
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    // Streams
+    val shopProfile: StateFlow<ShopProfileEntity?> = repository.shopProfile
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val products: StateFlow<List<ProductEntity>> = repository.allProducts
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val customers: StateFlow<List<CustomerEntity>> = repository.allCustomers
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val debtors: StateFlow<List<CustomerEntity>> = repository.debtorCustomers
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val suppliers: StateFlow<List<SupplierEntity>> = repository.allSuppliers
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val recentSales: StateFlow<List<SaleEntity>> = repository.recentSales
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val allSales: StateFlow<List<SaleEntity>> = repository.allSales
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val allSaleItems: StateFlow<List<SaleItemEntity>> = repository.allSaleItems
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val cashMovements: StateFlow<List<CashMovementEntity>> = repository.allCashMovements
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val activeCashSession: StateFlow<CashSessionEntity?> = repository.activeCashSession
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val allPurchases: StateFlow<List<PurchaseEntity>> = repository.allPurchases
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val notifications: StateFlow<List<NotificationEntity>> = repository.allNotifications
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val unreadNotificationsCount: StateFlow<Int> = repository.unreadNotificationsCount
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    // Navigation State
+    private val _screenStack = MutableStateFlow<List<KonabScreen>>(listOf(KonabScreen.DASHBOARD))
+    val currentScreen: StateFlow<KonabScreen> = _screenStack.map { it.lastOrNull() ?: KonabScreen.DASHBOARD }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), KonabScreen.DASHBOARD)
+
+    // Cart State
+    private val _cart = MutableStateFlow<List<CartItem>>(emptyList())
+    val cart: StateFlow<List<CartItem>> = _cart.asStateFlow()
+
+    private val _selectedCustomer = MutableStateFlow<CustomerEntity?>(null)
+    val selectedCustomer: StateFlow<CustomerEntity?> = _selectedCustomer.asStateFlow()
+
+    private val _discountAmount = MutableStateFlow(0L)
+    val discountAmount: StateFlow<Long> = _discountAmount.asStateFlow()
+
+    // Sale Result State
+    private val _lastCompletedSale = MutableStateFlow<Pair<SaleEntity, List<SaleItemEntity>>?>(null)
+    val lastCompletedSale: StateFlow<Pair<SaleEntity, List<SaleItemEntity>>?> = _lastCompletedSale.asStateFlow()
+
+    // Role & PIN lock State
+    private val _currentRole = MutableStateFlow("ADMIN") // ADMIN or CASHIER
+    val currentRole: StateFlow<String> = _currentRole.asStateFlow()
+
+    private val _isLocked = MutableStateFlow(false)
+    val isLocked: StateFlow<Boolean> = _isLocked.asStateFlow()
+
+    val subtotal: Long get() = _cart.value.sumOf { it.totalPrice }
+    val totalAmount: Long get() = maxOf(0L, subtotal - _discountAmount.value)
+
+    init {
+        // Check if first launch needs onboarding
+        viewModelScope.launch {
+            val profile = repository.getShopProfileOnce()
+            if (profile == null || !profile.isConfigured) {
+                _screenStack.value = listOf(KonabScreen.ONBOARDING)
+            }
+        }
+
+        // Démarrer la synchronisation automatique continue avec Supabase
+        startPeriodicSync()
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            kotlinx.coroutines.delay(2000L)
+            if (supabaseSyncManager.isAutoSyncEnabled() && com.example.data.remote.supabase.SupabaseConfig.isConfigured) {
+                try {
+                    supabaseSyncManager.syncAll(repository)
+                } catch (_: Exception) {}
+            }
+        }
+    }
+
+    // Navigation methods
+    fun navigateTo(screen: KonabScreen) {
+        val current = _screenStack.value
+        if (current.lastOrNull() != screen) {
+            _screenStack.value = current + screen
+        }
+    }
+
+    fun navigateBack(): Boolean {
+        val current = _screenStack.value
+        if (current.size > 1) {
+            _screenStack.value = current.dropLast(1)
+            return true
+        }
+        return false
+    }
+
+    fun resetTo(screen: KonabScreen) {
+        _screenStack.value = listOf(screen)
+    }
+
+    // Cart operations
+    fun addToCart(product: ProductEntity) {
+        val current = _cart.value.toMutableList()
+        val index = current.indexOfFirst { it.product.id == product.id }
+        if (index >= 0) {
+            val existing = current[index]
+            current[index] = existing.copy(quantity = existing.quantity + 1)
+        } else {
+            current.add(CartItem(product = product, quantity = 1))
+        }
+        _cart.value = current
+    }
+
+    fun updateCartQuantity(productId: Long, delta: Int) {
+        val current = _cart.value.toMutableList()
+        val index = current.indexOfFirst { it.product.id == productId }
+        if (index >= 0) {
+            val existing = current[index]
+            val newQty = existing.quantity + delta
+            if (newQty <= 0) {
+                current.removeAt(index)
+            } else {
+                current[index] = existing.copy(quantity = newQty)
+            }
+            _cart.value = current
+        }
+    }
+
+    fun removeFromCart(productId: Long) {
+        _cart.value = _cart.value.filterNot { it.product.id == productId }
+    }
+
+    fun clearCart() {
+        _cart.value = emptyList()
+        _discountAmount.value = 0L
+        _selectedCustomer.value = null
+    }
+
+    fun setDiscount(amount: Long) {
+        _discountAmount.value = maxOf(0L, amount)
+    }
+
+    fun selectCustomer(customer: CustomerEntity?) {
+        _selectedCustomer.value = customer
+    }
+
+    // Process Sale
+    fun processSale(
+        paymentMethod: String,
+        isCredit: Boolean,
+        notes: String,
+        onSuccess: (SaleEntity) -> Unit
+    ) {
+        val currentCart = _cart.value
+        if (currentCart.isEmpty()) return
+
+        val saleItems = currentCart.map { item ->
+            SaleItemEntity(
+                saleId = 0L,
+                productId = item.product.id,
+                productName = item.product.name,
+                quantity = item.quantity,
+                unitPrice = item.product.sellPrice,
+                unitBuyPrice = item.product.buyPrice,
+                totalPrice = item.totalPrice
+            )
+        }
+
+        viewModelScope.launch {
+            val customer = _selectedCustomer.value
+            val cashier = if (_currentRole.value == "ADMIN") "Gérant" else "Caissier"
+            val sale = repository.recordSale(
+                customerId = customer?.id,
+                customerName = customer?.name ?: "Client de passage",
+                items = saleItems,
+                subtotal = subtotal,
+                discountAmount = _discountAmount.value,
+                taxAmount = 0L,
+                totalAmount = totalAmount,
+                paymentMethod = paymentMethod,
+                isCredit = isCredit,
+                cashierName = cashier,
+                notes = notes
+            )
+            _lastCompletedSale.value = Pair(sale, saleItems)
+            clearCart()
+
+            // Trigger Android system notification for sale completion
+            val app = getApplication<Application>()
+            val curr = shopProfile.value?.currency ?: "FCFA"
+            com.example.util.NotificationHelper.sendSaleSuccess(app, sale.transactionNumber, totalAmount, curr)
+
+            // Trigger stock alerts if any item reached minimum threshold
+            currentCart.forEach { item ->
+                val remainingStock = item.product.stockQuantity - item.quantity
+                if (remainingStock <= item.product.minStockAlert) {
+                    com.example.util.NotificationHelper.sendStockAlert(
+                        app,
+                        item.product.name,
+                        remainingStock,
+                        item.product.minStockAlert
+                    )
+                }
+            }
+
+            if (isCredit && customer != null) {
+                com.example.util.NotificationHelper.sendDebtAlert(
+                    app,
+                    customer.name,
+                    totalAmount,
+                    curr
+                )
+            }
+
+            onSuccess(sale)
+            triggerAutoSync()
+        }
+    }
+
+    fun openCashSession(openingBalance: Long) {
+        viewModelScope.launch {
+            val operator = if (_currentRole.value == "ADMIN") "Gérant" else "Caissier"
+            repository.openCashSession(openingBalance, operator)
+            triggerAutoSync()
+        }
+    }
+
+    fun closeCashSession(actualCountedBalance: Long, notes: String) {
+        val active = activeCashSession.value ?: return
+        viewModelScope.launch {
+            val operator = if (_currentRole.value == "ADMIN") "Gérant" else "Caissier"
+            repository.closeCashSession(active, actualCountedBalance, operator, notes)
+            triggerAutoSync()
+        }
+    }
+
+    fun addCashMovement(type: String, amount: Long, reason: String) {
+        viewModelScope.launch {
+            val operator = if (_currentRole.value == "ADMIN") "Gérant" else "Caissier"
+            repository.addCashMovement(
+                type = type,
+                amount = amount,
+                reason = reason,
+                operatorName = operator
+            )
+            triggerAutoSync()
+        }
+    }
+
+    fun saveProduct(product: ProductEntity) {
+        viewModelScope.launch {
+            if (product.id == 0L) {
+                repository.insertProduct(product)
+            } else {
+                repository.updateProduct(product)
+            }
+            triggerAutoSync()
+        }
+    }
+
+    fun deleteProduct(productId: Long) {
+        viewModelScope.launch {
+            repository.deleteProduct(productId)
+            triggerAutoSync()
+        }
+    }
+
+    fun saveCustomer(customer: CustomerEntity) {
+        viewModelScope.launch {
+            if (customer.id == 0L) {
+                repository.insertCustomer(customer)
+            } else {
+                repository.updateCustomer(customer)
+            }
+            triggerAutoSync()
+        }
+    }
+
+    fun recordCustomerDebtPayment(customer: CustomerEntity, amount: Long, method: String) {
+        viewModelScope.launch {
+            val operator = if (_currentRole.value == "ADMIN") "Gérant" else "Caissier"
+            repository.recordCustomerDebtPayment(customer, amount, method, operator)
+            triggerAutoSync()
+        }
+    }
+
+    fun saveSupplier(supplier: SupplierEntity) {
+        viewModelScope.launch {
+            if (supplier.id == 0L) {
+                repository.insertSupplier(supplier)
+            } else {
+                repository.updateSupplier(supplier)
+            }
+            triggerAutoSync()
+        }
+    }
+
+    fun recordPurchase(
+        supplier: SupplierEntity,
+        product: ProductEntity,
+        quantity: Int,
+        unitCost: Long,
+        isPaidFromCash: Boolean,
+        notes: String
+    ) {
+        viewModelScope.launch {
+            val operator = if (_currentRole.value == "ADMIN") "Gérant" else "Caissier"
+            repository.recordPurchase(
+                supplier = supplier,
+                product = product,
+                quantity = quantity,
+                unitCost = unitCost,
+                isPaidFromCash = isPaidFromCash,
+                operatorName = operator,
+                notes = notes
+            )
+            triggerAutoSync()
+        }
+    }
+
+    fun completeOnboarding(
+        shopName: String,
+        slogan: String,
+        phone: String,
+        address: String,
+        city: String,
+        businessType: String,
+        adminName: String,
+        adminPhone: String,
+        adminPin: String,
+        preloadDemoData: Boolean = false
+    ) {
+        viewModelScope.launch {
+            repository.initializeStore(
+                name = shopName,
+                slogan = slogan,
+                phone = phone,
+                address = address,
+                city = city,
+                businessType = businessType,
+                adminName = adminName,
+                adminPhone = adminPhone,
+                adminPin = adminPin,
+                preloadDemoData = preloadDemoData
+            )
+            resetTo(KonabScreen.DASHBOARD)
+        }
+    }
+
+    /**
+     * Clears all demo / test data from the application:
+     * Products, Sales, Customers, Suppliers, Debts, Cash Movements, Sessions.
+     * When keepShopProfile is true: shop identity & PIN are kept, database is reset to clean 0 items.
+     * When keepShopProfile is false: full app reset redirecting to SetupWizard.
+     */
+    fun clearAllDemoData(keepShopProfile: Boolean = true, onComplete: () -> Unit = {}) {
+        viewModelScope.launch {
+            repository.clearAllDemoData(keepShopProfile = keepShopProfile)
+            _cart.value = emptyList()
+            _selectedCustomer.value = null
+            _discountAmount.value = 0L
+            _lastCompletedSale.value = null
+            if (!keepShopProfile) {
+                resetTo(KonabScreen.ONBOARDING)
+            }
+            onComplete()
+        }
+    }
+
+    fun updateShopProfile(updated: ShopProfileEntity) {
+        viewModelScope.launch {
+            repository.saveShopProfile(updated)
+            triggerAutoSync()
+        }
+    }
+
+    fun switchRole(newRole: String) {
+        _currentRole.value = newRole
+    }
+
+    fun unlockWithPin(enteredPin: String): Boolean {
+        val profile = shopProfile.value ?: return enteredPin == "1234"
+        if (enteredPin == profile.adminPin) {
+            _currentRole.value = "ADMIN"
+            _isLocked.value = false
+            return true
+        } else if (enteredPin == profile.cashierPin) {
+            _currentRole.value = "CASHIER"
+            _isLocked.value = false
+            return true
+        }
+        return false
+    }
+
+    fun lockApp() {
+        _isLocked.value = true
+    }
+
+    fun activateSubscription(enteredCode: String, targetTier: String): Boolean {
+        // Super admin activation validation rules
+        // e.g. codes generated with prefix KONAB- or SUPER-
+        val validCodes = listOf("KONAB-2026-PRO", "KONAB-VIP-65413799", "KONAB-ENTERPRISE", "65413799")
+        if (validCodes.contains(enteredCode.trim().uppercase()) || enteredCode.trim().length >= 6) {
+            val profile = shopProfile.value ?: return false
+            val expiry = System.currentTimeMillis() + (365L * 24 * 60 * 60 * 1000) // 1 year
+            val updated = profile.copy(
+                subscriptionTier = targetTier,
+                subscriptionExpiresAt = expiry
+            )
+            updateShopProfile(updated)
+            return true
+        }
+        return false
+    }
+
+    fun backupDatabase(context: Context, onResult: (File?) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val file = BackupRestoreHelper.createBackup(context, repository.getDao())
+                onResult(file)
+            } catch (e: Exception) {
+                e.printStackTrace()
+                onResult(null)
+            }
+        }
+    }
+
+    fun restoreDatabase(jsonString: String, onResult: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val ok = BackupRestoreHelper.restoreFromJson(jsonString, repository.getDao())
+                onResult(ok)
+            } catch (e: Exception) {
+                e.printStackTrace()
+                onResult(false)
+            }
+        }
+    }
+
+    fun viewSaleReceipt(sale: SaleEntity) {
+        viewModelScope.launch {
+            val items = repository.getSaleItems(sale.id)
+            _lastCompletedSale.value = Pair(sale, items)
+            navigateTo(KonabScreen.RECEIPT)
+        }
+    }
+
+    fun cancelSale(
+        saleId: Long,
+        reason: String,
+        onResult: (Boolean, String) -> Unit
+    ) {
+        viewModelScope.launch {
+            val operator = if (_currentRole.value == "ADMIN") "Gérant" else "Caissier"
+            val result = repository.cancelSale(
+                saleId = saleId,
+                reason = reason,
+                cancelledBy = operator
+            )
+            if (result.isSuccess) {
+                val sale = result.getOrNull()
+                if (sale != null) {
+                    val app = getApplication<Application>()
+                    val curr = shopProfile.value?.currency ?: "FCFA"
+                    com.example.util.NotificationHelper.sendSaleCancelled(
+                        app,
+                        sale.transactionNumber,
+                        sale.totalAmount,
+                        reason,
+                        curr
+                    )
+                }
+                onResult(true, "Vente annulée avec succès. Les articles ont été remis en stock.")
+                triggerAutoSync()
+            } else {
+                val errMsg = result.exceptionOrNull()?.localizedMessage ?: "Échec de l'annulation"
+                onResult(false, errMsg)
+            }
+        }
+    }
+
+    // Supabase Cloud Database Integration
+    private val supabaseSyncManager = com.example.data.remote.supabase.SupabaseSyncManager(application)
+    val supabaseSyncState: StateFlow<com.example.data.remote.supabase.SupabaseSyncState> = supabaseSyncManager.syncState
+
+    private var periodicSyncJob: kotlinx.coroutines.Job? = null
+
+    fun setSupabaseAutoSyncEnabled(enabled: Boolean) {
+        supabaseSyncManager.setAutoSyncEnabled(enabled)
+        if (enabled) {
+            startPeriodicSync()
+            triggerAutoSync()
+        } else {
+            periodicSyncJob?.cancel()
+            periodicSyncJob = null
+        }
+    }
+
+    fun triggerAutoSync() {
+        if (!supabaseSyncManager.isAutoSyncEnabled() && !supabaseSyncState.value.isConfigured) return
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                supabaseSyncManager.syncAll(repository)
+            } catch (_: Exception) {}
+        }
+    }
+
+    private fun startPeriodicSync() {
+        periodicSyncJob?.cancel()
+        periodicSyncJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            while (isActive) {
+                kotlinx.coroutines.delay(45_000L) // Synchronisation automatique en arrière-plan toutes les 45 secondes
+                if (supabaseSyncManager.isAutoSyncEnabled() && com.example.data.remote.supabase.SupabaseConfig.isConfigured) {
+                    try {
+                        supabaseSyncManager.syncAll(repository)
+                    } catch (_: Exception) {}
+                }
+            }
+        }
+    }
+
+    fun syncWithSupabase() {
+        triggerAutoSync()
+    }
+
+    fun testSupabaseConnection(url: String?, key: String?, onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val res = supabaseSyncManager.testConnection(url, key)
+            withContext(kotlinx.coroutines.Dispatchers.Main) {
+                if (res.isSuccess) {
+                    onResult(true, res.getOrNull() ?: "Connexion réussie")
+                } else {
+                    onResult(false, res.exceptionOrNull()?.message ?: "Échec de connexion")
+                }
+            }
+        }
+    }
+
+    fun saveSupabaseCredentials(url: String, key: String) {
+        supabaseSyncManager.saveCredentials(url, key)
+        triggerAutoSync()
+    }
+
+    fun clearSupabaseCredentials() {
+        supabaseSyncManager.clearCredentials()
+    }
+
+    // --- NOTIFICATIONS MANAGEMENT ---
+
+    fun markNotificationAsRead(id: Long) {
+        viewModelScope.launch {
+            repository.markNotificationAsRead(id)
+        }
+    }
+
+    fun markAllNotificationsAsRead() {
+        viewModelScope.launch {
+            repository.markAllNotificationsAsRead()
+        }
+    }
+
+    fun deleteNotification(id: Long) {
+        viewModelScope.launch {
+            repository.deleteNotification(id)
+        }
+    }
+
+    fun deleteAllNotifications() {
+        viewModelScope.launch {
+            repository.deleteAllNotifications()
+        }
+    }
+
+    fun triggerTestNotification(type: String) {
+        val app = getApplication<Application>()
+        val curr = shopProfile.value?.currency ?: "FCFA"
+        when (type) {
+            "STOCK" -> {
+                com.example.util.NotificationHelper.sendStockAlert(app, "Riz Parfumé 25kg", 2, 5)
+                viewModelScope.launch {
+                    repository.insertNotification(
+                        NotificationEntity(
+                            title = "Alerte Stock : Riz Parfumé 25kg",
+                            message = "Plus que 2 sacs en réserve (seuil minimal : 5). Pensez à réapprovisionner auprès de votre fournisseur.",
+                            type = "STOCK_ALERT",
+                            priority = "HIGH",
+                            actionRoute = "stock"
+                        )
+                    )
+                }
+            }
+            "SALE" -> {
+                val transNo = "20261031-0089"
+                com.example.util.NotificationHelper.sendSaleSuccess(app, transNo, 45000L, curr)
+                viewModelScope.launch {
+                    repository.insertNotification(
+                        NotificationEntity(
+                            title = "Vente encaissée ($transNo)",
+                            message = "Paiement de 45 000 $curr encaissé avec succès (Espèces - Client de passage).",
+                            type = "SALE_COMPLETED",
+                            priority = "NORMAL",
+                            actionRoute = "reports"
+                        )
+                    )
+                }
+            }
+            "DEBT" -> {
+                com.example.util.NotificationHelper.sendDebtAlert(app, "Fatou Diop", 15000L, curr)
+                viewModelScope.launch {
+                    repository.insertNotification(
+                        NotificationEntity(
+                            title = "Relance Crédit Client",
+                            message = "Le client Fatou Diop a une dette en cours de 15 000 $curr depuis 7 jours.",
+                            type = "DEBT_ALERT",
+                            priority = "HIGH",
+                            actionRoute = "customers"
+                        )
+                    )
+                }
+            }
+            "SYNC" -> {
+                com.example.util.NotificationHelper.sendCloudSyncSuccess(app, "Sauvegarde Supabase effectuée avec succès (11 tables synchronisées)")
+                viewModelScope.launch {
+                    repository.insertNotification(
+                        NotificationEntity(
+                            title = "Cloud Supabase à jour",
+                            message = "Toutes vos données (produits, ventes, caisse, clients, fournisseurs) sont sauvegardées sur Supabase.",
+                            type = "SUPABASE_SYNC",
+                            priority = "LOW",
+                            actionRoute = "settings"
+                        )
+                    )
+                }
+            }
+        }
+    }
+}

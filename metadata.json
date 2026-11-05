@@ -1,0 +1,6 @@
+{
+  "name": "Konab POS",
+  "description": "Application de caisse et de gestion commerciale 100% hors-ligne pour commerces et PME en Afrique francophone.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
