@@ -62,6 +62,7 @@ fun SettingsScreen(
     onClearDemoData: (keepShopProfile: Boolean, onResult: () -> Unit) -> Unit = { _, _ -> },
     supabaseSyncState: com.example.data.remote.supabase.SupabaseSyncState? = null,
     onSyncWithSupabase: () -> Unit = {},
+    onSyncFullStore: () -> Unit = {},
     onToggleAutoSync: (Boolean) -> Unit = {},
     onTestSupabase: (String?, String?) -> Unit = { _, _ -> },
     onSaveSupabaseCredentials: (String, String) -> Unit = { _, _ -> },
@@ -321,7 +322,7 @@ fun SettingsScreen(
                                 )
                                 Text(
                                     text = if (supabaseSyncState?.isConfigured == true) {
-                                        if (supabaseSyncState.isAutoSyncEnabled) "Auto-Sync Actif (Direct)" else "Cloud Connecté"
+                                        if (supabaseSyncState.isAutoSyncEnabled) "Config Auto Cloud" else "Cloud Connecté"
                                     } else "Mode Local",
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
@@ -465,7 +466,7 @@ fun SettingsScreen(
                         Column {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
-                                    "Synchronisation Automatique",
+                                    "Synchronisation Automatique Entreprise",
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 13.5.sp
                                 )
@@ -479,7 +480,7 @@ fun SettingsScreen(
                                 }
                             }
                             Text(
-                                "Envoie chaque vente, produit et caisse vers Supabase en direct et toutes les 45s",
+                                "Envoie automatiquement la configuration de l'entreprise vers Supabase (les ventes et stocks restent strictement locaux)",
                                 fontSize = 11.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -829,7 +830,7 @@ fun SettingsScreen(
                             receiptFooter = receiptFooter.trim()
                         )
                         onUpdateProfile(updated)
-                        Toast.makeText(context, "Informations de la boutique enregistrées", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "Boutique \"${updated.name}\" enregistrée et envoyée à Supabase", Toast.LENGTH_SHORT).show()
                         showEditInfoDialog = false
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = KonabGreen),
@@ -1326,6 +1327,7 @@ fun SettingsScreen(
             onTestConnection = onTestSupabase,
             onSaveAndSync = onSaveSupabaseCredentials,
             onSyncNow = onSyncWithSupabase,
+            onSyncFullStore = onSyncFullStore,
             onToggleAutoSync = onToggleAutoSync,
             onDismiss = { showSupabaseSyncModal = false }
         )

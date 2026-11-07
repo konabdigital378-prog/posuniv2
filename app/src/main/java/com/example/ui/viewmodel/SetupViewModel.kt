@@ -31,7 +31,10 @@ data class SetupUiState(
     val preloadDemoData: Boolean = false,
     val validationError: String? = null,
     val isSubmitting: Boolean = false,
-    val isCompleted: Boolean = false
+    val isCompleted: Boolean = false,
+    val cloudShopId: Long? = null,
+    val isCloudSyncSuccess: Boolean = false,
+    val cloudSyncMessage: String? = null
 )
 
 class SetupViewModel(application: Application) : AndroidViewModel(application) {
@@ -175,6 +178,11 @@ class SetupViewModel(application: Application) : AndroidViewModel(application) {
             }
 
             SetupWizardStep.READY -> {
+                _uiState.update { it.copy(currentStep = SetupWizardStep.REGISTER_SHOP, validationError = null) }
+                return true
+            }
+
+            SetupWizardStep.REGISTER_SHOP -> {
                 completeSetup(onComplete)
                 return true
             }
@@ -230,7 +238,49 @@ class SetupViewModel(application: Application) : AndroidViewModel(application) {
                 preloadDemoData = state.preloadDemoData
             )
 
-            _uiState.update { it.copy(isSubmitting = false, isCompleted = true) }
+            val profile = com.example.data.local.entity.ShopProfileEntity(
+                id = 1,
+                name = state.shopName.trim(),
+                slogan = state.slogan.trim(),
+                phone = state.phone.trim(),
+                address = state.address.trim(),
+                city = state.city.trim(),
+                currency = state.currency,
+                businessType = state.selectedBusinessType,
+                adminPin = state.adminPin,
+                cashierPin = "0000",
+                subscriptionTier = "Premium",
+                isConfigured = true,
+                receiptFooter = "Merci pour votre confiance ! À très bientôt !"
+            )
+            val syncManager = com.example.data.remote.supabase.SupabaseSyncManager(getApplication())
+            val cloudId = syncManager.getOrCreateCloudShopId()
+            var cloudSuccess = false
+            var cloudMsg = ""
+
+            try {
+                val syncResult = syncManager.pushShopProfileDirectly(profile, isNewShop = true)
+                if (syncResult.isSuccess) {
+                    cloudSuccess = true
+                    cloudMsg = "Boutique \"${profile.name}\" enregistrée avec succès dans la base Supabase (ID: #$cloudId)"
+                } else {
+                    cloudMsg = syncResult.exceptionOrNull()?.message ?: "Erreur envoi Supabase"
+                    android.util.Log.e("SetupViewModel", "Erreur envoi boutique vers Supabase: $cloudMsg")
+                }
+            } catch (e: Exception) {
+                cloudMsg = e.message ?: "Erreur de connexion"
+                android.util.Log.e("SetupViewModel", "Exception envoi direct boutique vers Supabase: ${e.message}", e)
+            }
+
+            _uiState.update { 
+                it.copy(
+                    isSubmitting = false, 
+                    isCompleted = true,
+                    cloudShopId = cloudId,
+                    isCloudSyncSuccess = cloudSuccess,
+                    cloudSyncMessage = cloudMsg
+                ) 
+            }
             onSuccess()
         }
     }

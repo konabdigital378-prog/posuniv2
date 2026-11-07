@@ -42,6 +42,7 @@ fun SupabaseSyncDialog(
     onTestConnection: (url: String?, key: String?) -> Unit = { _, _ -> },
     onSaveAndSync: (url: String, key: String) -> Unit = { _, _ -> },
     onSyncNow: () -> Unit = {},
+    onSyncFullStore: () -> Unit = {},
     onToggleAutoSync: (Boolean) -> Unit = {},
     onDismiss: () -> Unit
 ) {
@@ -94,7 +95,7 @@ fun SupabaseSyncDialog(
                     Spacer(modifier = Modifier.width(12.dp))
                     Column {
                         Text("Base de Données Supabase", fontWeight = FontWeight.Bold, fontSize = 17.sp)
-                        Text("Test de Connexion & Synchronisation Cloud", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Synchronisation automatique de la configuration d'entreprise", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
                 IconButton(onClick = onDismiss, modifier = Modifier.testTag("btn_close_supabase_modal")) {
@@ -241,7 +242,7 @@ fun SupabaseSyncDialog(
                     Column(modifier = Modifier.weight(1f)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                "Synchronisation Automatique Continue",
+                                "Synchronisation Automatique (Configuration Entreprise)",
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 13.sp,
                                 color = if (syncState.isAutoSyncEnabled) Color(0xFF047857) else MaterialTheme.colorScheme.onSurface
@@ -252,12 +253,12 @@ fun SupabaseSyncDialog(
                                     modifier = Modifier
                                         .size(7.dp)
                                         .background(Color(0xFF10B981), CircleShape)
-                                )
+                                 )
                             }
                         }
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            "Synchronise en temps réel à chaque vente, encaissement, stock ou client modifié, et toutes les 45 secondes en arrière-plan.",
+                            "Seules les informations de configuration de l'entreprise (nom boutique, téléphone, adresse, devise, reçus) sont envoyées sur Supabase Cloud. Vos ventes, stocks, clients et caisses restent 100% locaux et sécurisés.",
                             fontSize = 11.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -420,8 +421,23 @@ fun SupabaseSyncDialog(
                 ) {
                     Icon(Icons.Default.Sync, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Synchroniser", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    Text("Sync Entreprise", fontSize = 13.sp, fontWeight = FontWeight.Bold)
                 }
+            }
+
+            // Optionnel : Synchronisation complète de tout le magasin
+            OutlinedButton(
+                onClick = { onSyncFullStore() },
+                enabled = !syncState.isSyncing && syncState.isConfigured,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(44.dp)
+                    .testTag("btn_sync_full_store"),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Icon(Icons.Default.CloudUpload, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color(0xFF0284C7))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Synchroniser Tout le Magasin (Produits, Ventes, Caisse)", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
             }
 
             // SQL Schema Section

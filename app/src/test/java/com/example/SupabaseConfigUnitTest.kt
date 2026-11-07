@@ -38,4 +38,12 @@ class SupabaseConfigUnitTest {
         val url = SupabaseConfig.restBaseUrl
         assertTrue(url.endsWith("/rest/v1"))
     }
+
+    @Test
+    fun testDefaultSupabaseConfigurationIsConfigured() {
+        assertTrue(SupabaseConfig.isConfigured)
+        assertTrue(SupabaseConfig.rawUrl.startsWith("https://"))
+        assertTrue(SupabaseConfig.rawAnonKey.isNotBlank())
+        assertEquals("https://ttvjrkqkbnktyvpbmwdg.supabase.co", SupabaseConfig.rawUrl)
+    }
 }

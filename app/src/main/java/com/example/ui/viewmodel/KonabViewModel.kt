@@ -27,16 +27,37 @@ data class CartItem(
 class KonabViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository: KonabRepository
+    private val supabaseSyncManager: com.example.data.remote.supabase.SupabaseSyncManager =
+        com.example.data.remote.supabase.SupabaseSyncManager(application)
+    val supabaseSyncState: StateFlow<com.example.data.remote.supabase.SupabaseSyncState> =
+        supabaseSyncManager.syncState
+
+    private var periodicSyncJob: kotlinx.coroutines.Job? = null
 
     init {
         val database = KonabDatabase.getDatabase(application)
         val dataStore = com.example.data.local.datastore.KonabDataStore(application)
         repository = KonabRepository(database.konabDao(), dataStore)
         com.example.util.NotificationHelper.createNotificationChannels(application)
-        
-        // Initial auto-sync and background polling
-        triggerAutoSync()
+
+        // Vérification non-bloquante du premier lancement
+        viewModelScope.launch {
+            val profile = repository.getShopProfileOnce()
+            if (profile == null || !profile.isConfigured) {
+                _screenStack.value = listOf(KonabScreen.ONBOARDING)
+            }
+        }
+
+        // Démarrage de la synchronisation automatique continue
         startPeriodicSync()
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            kotlinx.coroutines.delay(2000L)
+            try {
+                if (supabaseSyncManager.isAutoSyncEnabled() && com.example.data.remote.supabase.SupabaseConfig.isConfigured) {
+                    supabaseSyncManager.syncAll(repository)
+                }
+            } catch (_: Exception) {}
+        }
     }
 
     // DataStore Local Admin Account Stream
@@ -114,27 +135,6 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
 
     val subtotal: Long get() = _cart.value.sumOf { it.totalPrice }
     val totalAmount: Long get() = maxOf(0L, subtotal - _discountAmount.value)
-
-    init {
-        // Check if first launch needs onboarding
-        viewModelScope.launch {
-            val profile = repository.getShopProfileOnce()
-            if (profile == null || !profile.isConfigured) {
-                _screenStack.value = listOf(KonabScreen.ONBOARDING)
-            }
-        }
-
-        // Démarrer la synchronisation automatique continue avec Supabase
-        startPeriodicSync()
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            kotlinx.coroutines.delay(2000L)
-            if (supabaseSyncManager.isAutoSyncEnabled() && com.example.data.remote.supabase.SupabaseConfig.isConfigured) {
-                try {
-                    supabaseSyncManager.syncAll(repository)
-                } catch (_: Exception) {}
-            }
-        }
-    }
 
     // Navigation methods
     fun navigateTo(screen: KonabScreen) {
@@ -272,7 +272,6 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
             }
 
             onSuccess(sale)
-            triggerAutoSync()
         }
     }
 
@@ -280,7 +279,6 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val operator = if (_currentRole.value == "ADMIN") "Gérant" else "Caissier"
             repository.openCashSession(openingBalance, operator)
-            triggerAutoSync()
         }
     }
 
@@ -289,7 +287,6 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val operator = if (_currentRole.value == "ADMIN") "Gérant" else "Caissier"
             repository.closeCashSession(active, actualCountedBalance, operator, notes)
-            triggerAutoSync()
         }
     }
 
@@ -302,7 +299,6 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
                 reason = reason,
                 operatorName = operator
             )
-            triggerAutoSync()
         }
     }
 
@@ -313,14 +309,12 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
             } else {
                 repository.updateProduct(product)
             }
-            triggerAutoSync()
         }
     }
 
     fun deleteProduct(productId: Long) {
         viewModelScope.launch {
             repository.deleteProduct(productId)
-            triggerAutoSync()
         }
     }
 
@@ -331,7 +325,6 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
             } else {
                 repository.updateCustomer(customer)
             }
-            triggerAutoSync()
         }
     }
 
@@ -339,7 +332,6 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val operator = if (_currentRole.value == "ADMIN") "Gérant" else "Caissier"
             repository.recordCustomerDebtPayment(customer, amount, method, operator)
-            triggerAutoSync()
         }
     }
 
@@ -350,7 +342,6 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
             } else {
                 repository.updateSupplier(supplier)
             }
-            triggerAutoSync()
         }
     }
 
@@ -373,7 +364,6 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
                 operatorName = operator,
                 notes = notes
             )
-            triggerAutoSync()
         }
     }
 
@@ -390,6 +380,21 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
         preloadDemoData: Boolean = false
     ) {
         viewModelScope.launch {
+            val profile = com.example.data.local.entity.ShopProfileEntity(
+                id = 1,
+                name = shopName.trim(),
+                slogan = slogan.trim(),
+                phone = phone.trim(),
+                address = address.trim(),
+                city = city.trim(),
+                currency = "FCFA",
+                businessType = businessType,
+                adminPin = adminPin,
+                cashierPin = "0000",
+                subscriptionTier = "Premium",
+                isConfigured = true,
+                receiptFooter = "Merci pour votre confiance ! À très bientôt !"
+            )
             repository.initializeStore(
                 name = shopName,
                 slogan = slogan,
@@ -402,6 +407,13 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
                 adminPin = adminPin,
                 preloadDemoData = preloadDemoData
             )
+            withContext(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    supabaseSyncManager.pushShopProfileDirectly(profile, isNewShop = true)
+                } catch (e: Exception) {
+                    android.util.Log.e("KonabPOS", "Erreur envoi initial boutique vers Supabase: ${e.message}", e)
+                }
+            }
             resetTo(KonabScreen.DASHBOARD)
         }
     }
@@ -420,6 +432,7 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
             _discountAmount.value = 0L
             _lastCompletedSale.value = null
             if (!keepShopProfile) {
+                supabaseSyncManager.resetCloudShopId()
                 resetTo(KonabScreen.ONBOARDING)
             }
             onComplete()
@@ -429,7 +442,13 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
     fun updateShopProfile(updated: ShopProfileEntity) {
         viewModelScope.launch {
             repository.saveShopProfile(updated)
-            triggerAutoSync()
+            withContext(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    supabaseSyncManager.pushShopProfileDirectly(updated, isNewShop = false)
+                } catch (e: Exception) {
+                    android.util.Log.e("KonabPOS", "Erreur pushShopProfileDirectly: ${e.message}", e)
+                }
+            }
         }
     }
 
@@ -530,7 +549,6 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 }
                 onResult(true, "Vente annulée avec succès. Les articles ont été remis en stock.")
-                triggerAutoSync()
             } else {
                 val errMsg = result.exceptionOrNull()?.localizedMessage ?: "Échec de l'annulation"
                 onResult(false, errMsg)
@@ -539,11 +557,6 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     // Supabase Cloud Database Integration
-    private val supabaseSyncManager = com.example.data.remote.supabase.SupabaseSyncManager(application)
-    val supabaseSyncState: StateFlow<com.example.data.remote.supabase.SupabaseSyncState> = supabaseSyncManager.syncState
-
-    private var periodicSyncJob: kotlinx.coroutines.Job? = null
-
     fun setSupabaseAutoSyncEnabled(enabled: Boolean) {
         supabaseSyncManager.setAutoSyncEnabled(enabled)
         if (enabled) {
@@ -556,11 +569,16 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun triggerAutoSync() {
-        if (!supabaseSyncManager.isAutoSyncEnabled() && !supabaseSyncState.value.isConfigured) return
+        if (!supabaseSyncManager.isAutoSyncEnabled() || !supabaseSyncState.value.isConfigured) return
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
-                supabaseSyncManager.syncAll(repository)
-            } catch (_: Exception) {}
+                val res = supabaseSyncManager.syncAll(repository)
+                if (res.isFailure) {
+                    android.util.Log.e("KonabPOS", "Erreur syncAll: ${res.exceptionOrNull()?.message}")
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("KonabPOS", "Exception triggerAutoSync", e)
+            }
         }
     }
 
@@ -580,6 +598,19 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
 
     fun syncWithSupabase() {
         triggerAutoSync()
+    }
+
+    fun syncFullStoreWithSupabase(onResult: (Boolean, String) -> Unit = { _, _ -> }) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val res = supabaseSyncManager.syncFullStore(repository)
+            withContext(kotlinx.coroutines.Dispatchers.Main) {
+                if (res.isSuccess) {
+                    onResult(true, "Synchronisation réussie (${res.getOrDefault(0)} éléments envoyés)")
+                } else {
+                    onResult(false, res.exceptionOrNull()?.localizedMessage ?: "Échec de synchronisation")
+                }
+            }
+        }
     }
 
     fun testSupabaseConnection(url: String?, key: String?, onResult: (Boolean, String) -> Unit) {

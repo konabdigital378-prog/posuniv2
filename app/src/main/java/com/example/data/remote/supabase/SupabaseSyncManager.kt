@@ -2,6 +2,7 @@ package com.example.data.remote.supabase
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.example.data.local.entity.ShopProfileEntity
 import com.example.data.repository.KonabRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -104,6 +105,72 @@ class SupabaseSyncManager(
     }
 
     suspend fun syncAll(repository: KonabRepository): Result<Int> {
+        return syncCompanyConfig(repository)
+    }
+
+    /**
+     * Synchronise exclusivement les informations de configuration de l'entreprise (ShopProfile)
+     * avec Supabase Cloud. Toutes les autres données (ventes, stocks, clients, caisse)
+     * demeurent strictement locales et privées sur l'appareil.
+     */
+    fun getOrCreateCloudShopId(): Long {
+        var id = prefs.getLong("cloud_shop_id", 0L)
+        if (id <= 1L) {
+            val now = System.currentTimeMillis()
+            val rnd = (100L..999L).random()
+            id = now * 1000L + rnd
+            prefs.edit().putLong("cloud_shop_id", id).apply()
+        }
+        return id
+    }
+
+    fun resetCloudShopId(): Long {
+        val now = System.currentTimeMillis()
+        val rnd = (100L..999L).random()
+        val id = now * 1000L + rnd
+        prefs.edit().putLong("cloud_shop_id", id).apply()
+        return id
+    }
+
+    /**
+     * Pousse immédiatement et directement un profil de boutique vers Supabase.
+     * Chaque personne/appareil dispose d'un identifiant unique (cloudShopId)
+     * pour que chaque boutique créée soit visible dans la base de données sans écraser les autres.
+     */
+    suspend fun pushShopProfileDirectly(profile: ShopProfileEntity, isNewShop: Boolean = false): Result<Unit> {
+        if (!SupabaseConfig.isConfigured) {
+            return Result.failure(IllegalStateException("Supabase non configuré"))
+        }
+        val cloudId = if (isNewShop) resetCloudShopId() else getOrCreateCloudShopId()
+        _syncState.value = _syncState.value.copy(
+            isSyncing = true,
+            statusMessage = "Envoi de la boutique \"${profile.name}\" vers Supabase..."
+        )
+        val pushRes = apiClient.pushShopProfile(profile, cloudId)
+        val now = System.currentTimeMillis()
+        if (pushRes.isSuccess) {
+            saveLastSyncTimestamp(now)
+            val msg = "Boutique \"${profile.name}\" synchronisée avec succès dans Supabase (ID: $cloudId)"
+            _syncState.value = _syncState.value.copy(
+                isSyncing = false,
+                isError = false,
+                lastSyncTimestamp = now,
+                syncedRecordsCount = 1,
+                statusMessage = msg
+            )
+            com.example.util.NotificationHelper.sendCloudSyncSuccess(context, msg)
+        } else {
+            val err = pushRes.exceptionOrNull()?.localizedMessage ?: "Échec de l'envoi vers Supabase"
+            _syncState.value = _syncState.value.copy(
+                isSyncing = false,
+                isError = true,
+                statusMessage = err
+            )
+        }
+        return pushRes
+    }
+
+    suspend fun syncCompanyConfig(repository: KonabRepository): Result<Int> {
         if (!SupabaseConfig.isConfigured) {
             val msg = "Supabase non configuré. Renseignez SUPABASE_URL et SUPABASE_ANON_KEY dans les Secrets."
             _syncState.value = _syncState.value.copy(
@@ -117,101 +184,37 @@ class SupabaseSyncManager(
         _syncState.value = _syncState.value.copy(
             isSyncing = true,
             isError = false,
-            statusMessage = "Synchronisation en cours avec Supabase Cloud..."
+            statusMessage = "Synchronisation automatique de la configuration d'entreprise..."
         )
 
         try {
             var count = 0
 
-            // 1. Sync Shop Profile
+            // Synchronisation EXCLUSIVE du profil & configuration de l'entreprise
             val shop = repository.getShopProfileOnce()
-            if (shop != null) {
-                apiClient.pushShopProfile(shop)
-                count++
+            if (shop != null && shop.isConfigured && shop.name.isNotBlank()) {
+                val cloudId = getOrCreateCloudShopId()
+                val pushRes = apiClient.pushShopProfile(shop, cloudId)
+                if (pushRes.isSuccess) {
+                    count++
+                } else {
+                    val ex = pushRes.exceptionOrNull()
+                    if (ex != null) throw ex
+                }
             } else {
+                // Si non configuré en local ou nom vide, récupération de la configuration distante sur Supabase
                 val remoteShop = apiClient.fetchShopProfile().getOrNull()
-                if (remoteShop != null) {
+                if (remoteShop != null && remoteShop.name.isNotBlank()) {
                     repository.saveShopProfile(remoteShop)
+                    count++
                 }
-            }
-
-            // 2. Sync Products
-            val localProducts = repository.getAllProductsOnce()
-            if (localProducts.isNotEmpty()) {
-                val pushProdRes = apiClient.pushProducts(localProducts)
-                count += pushProdRes.getOrDefault(0)
-            }
-
-            // Pull any products that may have been created in Supabase
-            val remoteProdsRes = apiClient.fetchProducts()
-            remoteProdsRes.getOrNull()?.let { remoteList ->
-                if (remoteList.isNotEmpty()) {
-                    repository.insertProducts(remoteList)
-                }
-            }
-
-            // 3. Sync Customers
-            val localCustomers = repository.getAllCustomersOnce()
-            if (localCustomers.isNotEmpty()) {
-                val pushCustRes = apiClient.pushCustomers(localCustomers)
-                count += pushCustRes.getOrDefault(0)
-            }
-
-            // Pull any customers created on Supabase
-            val remoteCustRes = apiClient.fetchCustomers()
-            remoteCustRes.getOrNull()?.let { remoteList ->
-                if (remoteList.isNotEmpty()) {
-                    repository.getDao().insertCustomers(remoteList)
-                }
-            }
-
-            // 4. Sync Sales & Sale Items
-            val localSales = repository.getAllSalesOnce()
-            val localSaleItems = repository.getAllSaleItemsOnce()
-            if (localSales.isNotEmpty()) {
-                val pushSalesRes = apiClient.pushSales(localSales, localSaleItems)
-                count += pushSalesRes.getOrDefault(0)
-            }
-
-            // 5. Sync Suppliers
-            val localSuppliers = repository.getDao().getAllSuppliersOnce()
-            if (localSuppliers.isNotEmpty()) {
-                val pushSuppRes = apiClient.pushSuppliers(localSuppliers)
-                count += pushSuppRes.getOrDefault(0)
-            }
-
-            // 6. Sync Purchases
-            val localPurchases = repository.getDao().getAllPurchasesOnce()
-            if (localPurchases.isNotEmpty()) {
-                val pushPurchRes = apiClient.pushPurchases(localPurchases)
-                count += pushPurchRes.getOrDefault(0)
-            }
-
-            // 7. Sync Cash Movements
-            val localMovements = repository.getDao().getAllCashMovementsOnce()
-            if (localMovements.isNotEmpty()) {
-                val pushMoveRes = apiClient.pushCashMovements(localMovements)
-                count += pushMoveRes.getOrDefault(0)
-            }
-
-            // 8. Sync Cash Sessions
-            val localSessions = repository.getDao().getAllCashSessionsOnce()
-            if (localSessions.isNotEmpty()) {
-                val pushSessRes = apiClient.pushCashSessions(localSessions)
-                count += pushSessRes.getOrDefault(0)
-            }
-
-            // 9. Sync Notifications
-            val localNotifs = repository.getAllNotificationsOnce()
-            if (localNotifs.isNotEmpty()) {
-                val pushNotifRes = apiClient.pushNotifications(localNotifs)
-                count += pushNotifRes.getOrDefault(0)
             }
 
             val now = System.currentTimeMillis()
             saveLastSyncTimestamp(now)
 
-            val successMsg = "Synchronisation terminée avec succès ($count enregistrements sauvegardés sur Supabase)"
+            val companyName = shop?.name ?: "Boutique"
+            val successMsg = "Configuration d'entreprise synchronisée avec succès ($companyName sur Supabase)"
             _syncState.value = _syncState.value.copy(
                 isSyncing = false,
                 isError = false,
@@ -220,12 +223,12 @@ class SupabaseSyncManager(
                 statusMessage = successMsg
             )
 
-            // Notify via Android status bar & in-app
+            // Notification de confirmation discrète
             com.example.util.NotificationHelper.sendCloudSyncSuccess(context, successMsg)
             repository.insertNotification(
                 com.example.data.local.entity.NotificationEntity(
-                    title = "Cloud Supabase à jour",
-                    message = "$count enregistrements synchronisés (Produits, Ventes, Caisse, Fournisseurs).",
+                    title = "Configuration Entreprise Synchronisée",
+                    message = "Informations de l'entreprise synchronisées avec Supabase ($companyName). Les ventes et produits restent sécurisés localement.",
                     type = "SUPABASE_SYNC",
                     priority = "NORMAL",
                     actionRoute = "settings"
@@ -235,6 +238,94 @@ class SupabaseSyncManager(
             return Result.success(count)
         } catch (e: Exception) {
             val errMsg = e.localizedMessage ?: "Erreur de synchronisation avec Supabase"
+            _syncState.value = _syncState.value.copy(
+                isSyncing = false,
+                isError = true,
+                statusMessage = errMsg
+            )
+            return Result.failure(e)
+        }
+    }
+
+    /**
+     * Synchronise l'ensemble des données du magasin (Configuration, Produits, Clients, Ventes, Caisse)
+     * vers Supabase Cloud à la demande de l'utilisateur.
+     */
+    suspend fun syncFullStore(repository: KonabRepository): Result<Int> {
+        if (!SupabaseConfig.isConfigured) {
+            val msg = "Supabase non configuré."
+            _syncState.value = _syncState.value.copy(isConfigured = false, isError = true, statusMessage = msg)
+            return Result.failure(IllegalStateException(msg))
+        }
+
+        _syncState.value = _syncState.value.copy(
+            isSyncing = true,
+            isError = false,
+            statusMessage = "Synchronisation complète de toutes les tables vers Supabase..."
+        )
+
+        try {
+            var count = 0
+
+            // 1. Profil entreprise
+            val shop = repository.getShopProfileOnce()
+            if (shop != null) {
+                apiClient.pushShopProfile(shop)
+                count++
+            }
+
+            // 2. Produits
+            val prods = repository.getAllProductsOnce()
+            if (prods.isNotEmpty()) {
+                val res = apiClient.pushProducts(prods)
+                count += res.getOrDefault(0)
+            }
+
+            // 3. Clients
+            val custs = repository.getAllCustomersOnce()
+            if (custs.isNotEmpty()) {
+                val res = apiClient.pushCustomers(custs)
+                count += res.getOrDefault(0)
+            }
+
+            // 4. Ventes & Lignes de vente
+            val sales = repository.getAllSalesOnce()
+            val saleItems = repository.getAllSaleItemsOnce()
+            if (sales.isNotEmpty()) {
+                val res = apiClient.pushSales(sales, saleItems)
+                count += res.getOrDefault(0)
+            }
+
+            // 5. Fournisseurs
+            val supps = repository.getDao().getAllSuppliersOnce()
+            if (supps.isNotEmpty()) {
+                val res = apiClient.pushSuppliers(supps)
+                count += res.getOrDefault(0)
+            }
+
+            // 6. Caisse
+            val movs = repository.getDao().getAllCashMovementsOnce()
+            if (movs.isNotEmpty()) {
+                val res = apiClient.pushCashMovements(movs)
+                count += res.getOrDefault(0)
+            }
+
+            val now = System.currentTimeMillis()
+            saveLastSyncTimestamp(now)
+
+            val successMsg = "Synchronisation complète réussie ($count données sur Supabase Cloud)"
+            _syncState.value = _syncState.value.copy(
+                isSyncing = false,
+                isError = false,
+                lastSyncTimestamp = now,
+                syncedRecordsCount = count,
+                statusMessage = successMsg
+            )
+
+            com.example.util.NotificationHelper.sendCloudSyncSuccess(context, successMsg)
+            return Result.success(count)
+        } catch (e: Exception) {
+            val errMsg = e.localizedMessage ?: "Erreur de synchronisation complète"
             _syncState.value = _syncState.value.copy(
                 isSyncing = false,
                 isError = true,

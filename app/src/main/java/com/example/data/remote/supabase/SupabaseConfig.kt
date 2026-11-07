@@ -11,13 +11,26 @@ object SupabaseConfig {
     @Volatile
     private var customKeyOverride: String? = null
 
+    const val DEFAULT_SUPABASE_URL = "https://ttvjrkqkbnktyvpbmwdg.supabase.co"
+    const val DEFAULT_SUPABASE_ANON_KEY = "sb_publishable_siNdueRXP4ge6gvopEB3AA_yw0gGReo"
+
     fun init(context: Context) {
         try {
             val prefs = context.getSharedPreferences("konab_supabase_prefs", Context.MODE_PRIVATE)
             val u = prefs.getString("custom_supabase_url", null)
             val k = prefs.getString("custom_supabase_anon_key", null)
-            if (!u.isNullOrBlank()) customUrlOverride = u.trim()
-            if (!k.isNullOrBlank()) customKeyOverride = k.trim()
+            if (!u.isNullOrBlank() && u.startsWith("http") && !u.contains("your-project") && !u.contains("alcqwqtmdvxbjjwvnpkv")) {
+                customUrlOverride = u.trim()
+            } else {
+                customUrlOverride = null
+                prefs.edit().remove("custom_supabase_url").apply()
+            }
+            if (!k.isNullOrBlank() && !k.contains("your-supabase") && k.length > 20) {
+                customKeyOverride = k.trim()
+            } else {
+                customKeyOverride = null
+                prefs.edit().remove("custom_supabase_anon_key").apply()
+            }
         } catch (_: Exception) {}
     }
 
@@ -55,26 +68,34 @@ object SupabaseConfig {
 
     val rawUrl: String get() {
         val override = customUrlOverride
-        if (!override.isNullOrBlank()) return override
+        if (!override.isNullOrBlank() && override.startsWith("http") && !override.contains("your-project") && !override.contains("alcqwqtmdvxbjjwvnpkv")) {
+            return override
+        }
         val buildVal = try {
             BuildConfig.SUPABASE_URL.trim()
         } catch (e: Exception) {
             ""
         }
-        if (buildVal.isNotBlank() && !buildVal.contains("your-project")) return buildVal
-        return "https://ttvjrkqkbnktyvpbmwdg.supabase.co"
+        if (buildVal.isNotBlank() && buildVal.startsWith("http") && !buildVal.contains("your-project") && !buildVal.contains("alcqwqtmdvxbjjwvnpkv")) {
+            return buildVal
+        }
+        return DEFAULT_SUPABASE_URL
     }
 
     val rawAnonKey: String get() {
         val override = customKeyOverride
-        if (!override.isNullOrBlank()) return override
+        if (!override.isNullOrBlank() && !override.contains("your-supabase") && override.length > 20) {
+            return override
+        }
         val buildVal = try {
             BuildConfig.SUPABASE_ANON_KEY.trim()
         } catch (e: Exception) {
             ""
         }
-        if (buildVal.isNotBlank() && !buildVal.contains("your-supabase")) return buildVal
-        return "sb_publishable_siNdueRXP4ge6gvopEB3AA_yw0gGReo"
+        if (buildVal.isNotBlank() && !buildVal.contains("your-supabase") && buildVal.length > 20) {
+            return buildVal
+        }
+        return DEFAULT_SUPABASE_ANON_KEY
     }
 
     val isConfigured: Boolean

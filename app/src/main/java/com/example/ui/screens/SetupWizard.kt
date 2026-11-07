@@ -47,6 +47,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.ui.graphics.Brush
 import com.example.R
 import com.example.ui.components.LaunchImageCarousel
 import com.example.ui.navigation.SetupWizardDestination
@@ -60,7 +61,8 @@ enum class SetupWizardStep(val stepNumber: Int, val title: String) {
     ACTIVITY_TYPE(3, "Activité"),
     CUSTOMIZATION(4, "Personnalisation"),
     ADMIN_ACCOUNT(5, "Compte Admin"),
-    READY(6, "Validation")
+    READY(6, "Récapitulatif"),
+    REGISTER_SHOP(7, "Enregistrer ma boutique")
 }
 
 fun SetupWizardStep.toDestination(): SetupWizardDestination = when (this) {
@@ -70,6 +72,7 @@ fun SetupWizardStep.toDestination(): SetupWizardDestination = when (this) {
     SetupWizardStep.CUSTOMIZATION -> SetupWizardDestination.Customization
     SetupWizardStep.ADMIN_ACCOUNT -> SetupWizardDestination.AdminAccount
     SetupWizardStep.READY -> SetupWizardDestination.Ready
+    SetupWizardStep.REGISTER_SHOP -> SetupWizardDestination.RegisterShop
 }
 
 fun SetupWizardDestination.toStep(): SetupWizardStep = when (this) {
@@ -79,6 +82,7 @@ fun SetupWizardDestination.toStep(): SetupWizardStep = when (this) {
     is SetupWizardDestination.Customization -> SetupWizardStep.CUSTOMIZATION
     is SetupWizardDestination.AdminAccount -> SetupWizardStep.ADMIN_ACCOUNT
     is SetupWizardDestination.Ready -> SetupWizardStep.READY
+    is SetupWizardDestination.RegisterShop -> SetupWizardStep.REGISTER_SHOP
 }
 
 @Composable
@@ -283,6 +287,9 @@ fun SetupWizard(
                                     }
                                 }
                                 is SetupWizardDestination.Ready -> {
+                                    navController.navigate(SetupWizardDestination.RegisterShop.route)
+                                }
+                                is SetupWizardDestination.RegisterShop -> {
                                     viewModel.completeSetup {
                                         onComplete(
                                             uiState.shopName,
@@ -301,6 +308,7 @@ fun SetupWizard(
                                 }
                             }
                         },
+                        enabled = !uiState.isSubmitting,
                         colors = ButtonDefaults.buttonColors(containerColor = KonabGreen),
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier
@@ -310,7 +318,8 @@ fun SetupWizard(
                         Text(
                             text = when (currentDestination) {
                                 is SetupWizardDestination.Welcome -> "Démarrer"
-                                is SetupWizardDestination.Ready -> "Ouvrir la caisse"
+                                is SetupWizardDestination.Ready -> "Étape suivante (Enregistrement)"
+                                is SetupWizardDestination.RegisterShop -> if (uiState.isSubmitting) "Enregistrement..." else "Valider & Enregistrer"
                                 else -> "Continuer"
                             },
                             fontWeight = FontWeight.Bold,
@@ -405,6 +414,28 @@ fun SetupWizard(
                     adminName = uiState.adminName,
                     selectedLogoIcon = uiState.selectedLogoIcon,
                     selectedLogoColor = Color(uiState.selectedLogoColorHex)
+                )
+            }
+            composable(SetupWizardDestination.RegisterShop.route) {
+                WizardStepRegisterShop(
+                    uiState = uiState,
+                    onRegisterClick = {
+                        viewModel.completeSetup {
+                            onComplete(
+                                uiState.shopName,
+                                uiState.slogan,
+                                uiState.phone,
+                                uiState.address,
+                                uiState.city,
+                                uiState.currency,
+                                uiState.selectedLogoIcon,
+                                uiState.selectedBusinessType,
+                                uiState.adminName,
+                                uiState.adminPhone,
+                                uiState.adminPin
+                            )
+                        }
+                    }
                 )
             }
         }
@@ -1261,5 +1292,285 @@ private fun WizardStepReadySummary(
                 }
             }
         }
+    }
+}
+
+// -------------------------------------------------------------
+// STEP 7: ENREGISTRER MA BOUTIQUE SUR KONAB POS
+// -------------------------------------------------------------
+@Composable
+private fun WizardStepRegisterShop(
+    uiState: com.example.ui.viewmodel.SetupUiState,
+    onRegisterClick: () -> Unit
+) {
+    val scrollState = rememberScrollState()
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(scrollState)
+            .padding(20.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        // Step Badge
+        Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = KonabGreenLight,
+            modifier = Modifier.padding(bottom = 12.dp)
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.CloudUpload,
+                    contentDescription = null,
+                    tint = KonabGreenDark,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "Étape 7 sur 7 • Enregistrement Officiel",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = KonabGreenDark
+                )
+            }
+        }
+
+        Text(
+            text = "Enregistrer ma boutique sur KONAB POS",
+            fontSize = 22.sp,
+            fontWeight = FontWeight.Bold,
+            color = KonabTextPrimary,
+            textAlign = TextAlign.Center
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Text(
+            text = "Validez la configuration de votre établissement. Vos informations seront enregistrées dans la base cloud centrale Supabase et activées sur votre caisse.",
+            fontSize = 13.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(horizontal = 8.dp)
+        )
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        // Business Identity Card
+        Card(
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(18.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(54.dp)
+                            .clip(CircleShape)
+                            .background(
+                                Brush.linearGradient(
+                                    listOf(KonabGreen, KonabGreenDark)
+                                )
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Storefront,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(14.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = uiState.shopName.ifBlank { "Ma Boutique" },
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 18.sp,
+                            color = KonabTextPrimary
+                        )
+                        if (uiState.slogan.isNotBlank()) {
+                            Text(
+                                text = "« ${uiState.slogan} »",
+                                fontSize = 12.sp,
+                                fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Text(
+                            text = "${uiState.selectedBusinessType} • ${uiState.city}",
+                            fontSize = 12.sp,
+                            color = KonabGreenDark,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+                HorizontalDivider()
+                Spacer(modifier = Modifier.height(14.dp))
+
+                ShopDetailRow(label = "Téléphone caisse :", value = uiState.phone)
+                Spacer(modifier = Modifier.height(8.dp))
+                ShopDetailRow(label = "Adresse & Ville :", value = "${uiState.address}, ${uiState.city}")
+                Spacer(modifier = Modifier.height(8.dp))
+                ShopDetailRow(label = "Devise choisie :", value = uiState.currency, valueColor = KonabGreen)
+                Spacer(modifier = Modifier.height(8.dp))
+                ShopDetailRow(
+                    label = "Gérant / Admin :",
+                    value = "${uiState.adminName} (${uiState.adminPhone.ifBlank { uiState.phone }})"
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                ShopDetailRow(label = "Formule KONAB :", value = "Premium POS • Prêt à l'emploi", valueColor = KonabGreenDark)
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Cloud Supabase Synchronization Notice Card
+        Card(
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = KonabGreenLight.copy(alpha = 0.5f)),
+            border = BorderStroke(1.dp, KonabGreen.copy(alpha = 0.4f)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                modifier = Modifier.padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(CircleShape)
+                        .background(KonabGreen),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CloudDone,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(14.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Base Cloud Supabase (shop_profile)",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp,
+                        color = KonabGreenDark
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "Chaque configuration reçoit un identifiant unique distinct. Votre boutique sera visible instantanément dans la base Supabase et sur le tableau de bord web.",
+                        fontSize = 11.sp,
+                        color = KonabTextPrimary.copy(alpha = 0.8f),
+                        lineHeight = 15.sp
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Large Action Button
+        Button(
+            onClick = onRegisterClick,
+            enabled = !uiState.isSubmitting,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = KonabGreen,
+                contentColor = Color.White
+            ),
+            shape = RoundedCornerShape(14.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(54.dp)
+                .testTag("btn_register_shop_cloud")
+        ) {
+            if (uiState.isSubmitting) {
+                CircularProgressIndicator(
+                    color = Color.White,
+                    modifier = Modifier.size(22.dp),
+                    strokeWidth = 2.5.dp
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                Text(
+                    text = "Enregistrement dans Supabase...",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.Default.CloudUpload,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                Text(
+                    text = "Valider & Enregistrer ma boutique sur KONAB POS",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp
+                )
+            }
+        }
+
+        val syncMessage = uiState.cloudSyncMessage
+        if (!syncMessage.isNullOrBlank()) {
+            Spacer(modifier = Modifier.height(12.dp))
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = if (uiState.isCloudSyncSuccess) KonabGreenLight else MaterialTheme.colorScheme.errorContainer,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = if (uiState.isCloudSyncSuccess) Icons.Default.CheckCircle else Icons.Default.Info,
+                        contentDescription = null,
+                        tint = if (uiState.isCloudSyncSuccess) KonabGreenDark else MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = syncMessage,
+                        fontSize = 12.sp,
+                        color = if (uiState.isCloudSyncSuccess) KonabGreenDark else MaterialTheme.colorScheme.onErrorContainer
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(30.dp))
+    }
+}
+
+@Composable
+private fun ShopDetailRow(
+    label: String,
+    value: String,
+    valueColor: Color = MaterialTheme.colorScheme.onSurface
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            fontSize = 12.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            text = value.ifBlank { "—" },
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = valueColor
+        )
     }
 }

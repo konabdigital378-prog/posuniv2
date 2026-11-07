@@ -262,6 +262,7 @@ class MainActivity : ComponentActivity() {
                                         },
                                         supabaseSyncState = supabaseSyncState,
                                         onSyncWithSupabase = { viewModel.syncWithSupabase() },
+                                        onSyncFullStore = { viewModel.syncFullStoreWithSupabase() },
                                         onToggleAutoSync = { viewModel.setSupabaseAutoSyncEnabled(it) },
                                         onTestSupabase = { url, key -> viewModel.testSupabaseConnection(url, key) { _, _ -> } },
                                         onSaveSupabaseCredentials = { url, key -> viewModel.saveSupabaseCredentials(url, key) },

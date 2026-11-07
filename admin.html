@@ -831,6 +831,38 @@
                         </button>
                     </div>
 
+                    <!-- All Registered Shops in Supabase -->
+                    <div class="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-6 space-y-4">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <h3 class="text-base font-bold text-slate-900">Réseau des Boutiques & Commerçants Configurés</h3>
+                                <p class="text-xs text-slate-500">Toutes les personnes ayant configuré leur boutique sur l'application apparaissent ici en direct de Supabase.</p>
+                            </div>
+                            <span id="shops-count-badge" class="px-2.5 py-1 bg-konab-50 text-konab-700 text-xs font-bold rounded-lg border border-konab-200">
+                                0 boutique(s)
+                            </span>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left text-xs">
+                                <thead>
+                                    <tr class="border-b border-slate-200 text-slate-500 font-bold bg-slate-50/50">
+                                        <th class="py-2.5 px-3">ID Supabase</th>
+                                        <th class="py-2.5 px-3">Nom du Commerce</th>
+                                        <th class="py-2.5 px-3">Activité</th>
+                                        <th class="py-2.5 px-3">Téléphone</th>
+                                        <th class="py-2.5 px-3">Ville</th>
+                                        <th class="py-2.5 px-3">Dernière synchro</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="all-shops-table-body" class="divide-y divide-slate-100">
+                                    <tr>
+                                        <td colspan="6" class="py-4 text-center text-slate-400">Chargement des boutiques...</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
                     <!-- Database Schema Viewer / Copy -->
                     <div class="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-6 space-y-3">
                         <div class="flex items-center justify-between">
@@ -1672,9 +1704,12 @@
                 const resCash = await supabaseClient.from('cash_movements').select('*').order('timestamp', { ascending: false });
                 if (resCash.data && resCash.data.length > 0) dataStore.cashMovements = resCash.data;
 
-                // Shop Profile
-                const resShop = await supabaseClient.from('shop_profile').select('*').limit(1).single();
-                if (resShop.data) dataStore.shop = resShop.data;
+                // Shop Profile (Tous les commerces enregistrés)
+                const resShops = await supabaseClient.from('shop_profile').select('*').order('updated_at', { ascending: false });
+                if (resShops.data && resShops.data.length > 0) {
+                    dataStore.allShops = resShops.data;
+                    dataStore.shop = resShops.data[0];
+                }
 
                 lastAutoSyncDate = new Date();
                 updateLastSyncLabel();
@@ -1714,6 +1749,7 @@
         // Render UI
         function renderAll() {
             renderShopProfile();
+            renderAllShops();
             renderKPIs();
             renderDashboardRecentSales();
             renderDashboardStockAlerts();
@@ -3558,20 +3594,84 @@
             }
         }
 
-        function saveShopProfileConfig() {
-            dataStore.shop.name = document.getElementById('cfg-shop-name').value.trim();
-            dataStore.shop.slogan = document.getElementById('cfg-shop-slogan').value.trim();
-            dataStore.shop.phone = document.getElementById('cfg-shop-phone').value.trim();
-            dataStore.shop.address = document.getElementById('cfg-shop-address').value.trim();
-            dataStore.shop.business_type = document.getElementById('cfg-shop-type').value.trim();
-            dataStore.shop.receipt_footer = document.getElementById('cfg-shop-receipt-footer').value.trim();
+        async function saveShopProfileConfig() {
+            const name = document.getElementById('cfg-shop-name').value.trim();
+            const slogan = document.getElementById('cfg-shop-slogan').value.trim();
+            const phone = document.getElementById('cfg-shop-phone').value.trim();
+            const address = document.getElementById('cfg-shop-address').value.trim();
+            const business_type = document.getElementById('cfg-shop-type').value.trim();
+            const receipt_footer = document.getElementById('cfg-shop-receipt-footer').value.trim();
 
-            if (supabaseClient && isCloudMode) {
-                supabaseClient.from('shop_profile').upsert([dataStore.shop]);
+            dataStore.shop.name = name || 'Konab POS';
+            dataStore.shop.slogan = slogan;
+            dataStore.shop.phone = phone;
+            dataStore.shop.address = address;
+            dataStore.shop.business_type = business_type;
+            dataStore.shop.receipt_footer = receipt_footer;
+
+            let cloudId = localStorage.getItem('konab_cloud_shop_id');
+            if (!cloudId) {
+                cloudId = Date.now();
+                localStorage.setItem('konab_cloud_shop_id', cloudId);
+            }
+
+            const payload = {
+                id: Number(cloudId),
+                name: dataStore.shop.name,
+                business_type: dataStore.shop.business_type || 'Commerce',
+                phone: dataStore.shop.phone || '',
+                address: dataStore.shop.address || '',
+                city: dataStore.shop.city || 'Bobo-Dioulasso',
+                currency: dataStore.shop.currency || 'FCFA',
+                slogan: dataStore.shop.slogan || '',
+                receipt_footer: dataStore.shop.receipt_footer || 'Merci pour votre confiance !',
+                subscription_tier: dataStore.shop.subscription_tier || 'Premium',
+                updated_at: new Date().toISOString()
+            };
+
+            if (supabaseClient) {
+                try {
+                    const { error } = await supabaseClient.from('shop_profile').upsert([payload]);
+                    if (error) {
+                        console.error('Erreur Supabase shop_profile:', error);
+                        alert('Alerte Supabase : ' + error.message);
+                    } else {
+                        console.log('shop_profile synchronisé avec succès sur Supabase');
+                        await fetchCloudData();
+                    }
+                } catch (e) {
+                    console.error('Exception Supabase shop_profile:', e);
+                }
             }
 
             renderShopProfile();
-            alert('Profil du commerce mis à jour avec succès !');
+            renderAllShops();
+            alert('Profil du commerce enregistré et synchronisé avec succès dans Supabase !');
+        }
+
+        function renderAllShops() {
+            const tbody = document.getElementById('all-shops-table-body');
+            const badge = document.getElementById('shops-count-badge');
+            if (!tbody) return;
+            const shops = dataStore.allShops || (dataStore.shop ? [dataStore.shop] : []);
+            if (badge) badge.textContent = `${shops.length} boutique(s) enregistrée(s)`;
+            if (shops.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="6" class="py-4 text-center text-slate-400">Aucune boutique configurée pour le moment.</td></tr>`;
+                return;
+            }
+            tbody.innerHTML = shops.map(s => {
+                const dateStr = s.updated_at ? new Date(s.updated_at).toLocaleString('fr-FR') : '—';
+                return `
+                    <tr class="hover:bg-slate-50 transition-colors">
+                        <td class="py-2.5 px-3 font-mono text-slate-500 text-[11px] font-bold">#${s.id}</td>
+                        <td class="py-2.5 px-3 font-bold text-slate-800">${escapeHtml(s.name || 'Sans nom')}</td>
+                        <td class="py-2.5 px-3 text-slate-600">${escapeHtml(s.business_type || 'Général')}</td>
+                        <td class="py-2.5 px-3 font-medium text-slate-700">${escapeHtml(s.phone || '—')}</td>
+                        <td class="py-2.5 px-3 text-slate-600">${escapeHtml(s.city || '—')}</td>
+                        <td class="py-2.5 px-3 text-slate-400 text-[11px]">${dateStr}</td>
+                    </tr>
+                `;
+            }).join('');
         }
 
         function renderSqlSchema() {

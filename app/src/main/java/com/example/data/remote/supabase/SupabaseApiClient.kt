@@ -69,9 +69,9 @@ class SupabaseApiClient(
         try {
             val restBase = "$targetUrl/rest/v1"
 
-            // Primary check: Query products table
+            // Primary check: Query shop_profile table (Configuration Entreprise)
             val tableRequest = Request.Builder()
-                .url("$restBase/products?select=id&limit=1")
+                .url("$restBase/shop_profile?select=id&limit=1")
                 .addHeader("apikey", targetKey)
                 .addHeader("Authorization", "Bearer $targetKey")
                 .addHeader("Accept", "application/json")
@@ -80,7 +80,7 @@ class SupabaseApiClient(
 
             client.newCall(tableRequest).execute().use { response ->
                 if (response.isSuccessful) {
-                    Result.success("Connexion Supabase 100% réussie ! Base de données active et toutes les tables sont prêtes.")
+                    Result.success("Connexion Supabase 100% réussie ! Synchronisation automatique de la configuration d'entreprise opérationnelle.")
                 } else if (response.code == 401) {
                     val errBody = response.body?.string() ?: ""
                     Result.failure(IOException("Erreur d'authentification (HTTP 401) : La clé Anon/Publishable est invalide ou expirée. $errBody"))
@@ -337,13 +337,19 @@ class SupabaseApiClient(
 
     // --- SHOP PROFILE ---
 
-    suspend fun pushShopProfile(profile: ShopProfileEntity): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun pushShopProfile(profile: ShopProfileEntity, cloudShopId: Long = 0L): Result<Unit> = withContext(Dispatchers.IO) {
         if (!SupabaseConfig.isConfigured) return@withContext Result.success(Unit)
         try {
+            val nowIso = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", java.util.Locale.US).apply {
+                timeZone = java.util.TimeZone.getTimeZone("UTC")
+            }.format(java.util.Date())
+
+            val targetId = if (cloudShopId > 1L) cloudShopId else if (profile.id > 1L) profile.id else System.currentTimeMillis()
+
             val array = JSONArray()
             val obj = JSONObject().apply {
-                put("id", profile.id)
-                put("name", profile.name)
+                put("id", targetId)
+                put("name", profile.name.trim())
                 put("business_type", profile.businessType)
                 put("phone", profile.phone)
                 put("address", profile.address)
@@ -352,24 +358,31 @@ class SupabaseApiClient(
                 put("slogan", profile.slogan)
                 put("receipt_footer", profile.receiptFooter)
                 put("subscription_tier", profile.subscriptionTier)
+                put("updated_at", nowIso)
             }
             array.put(obj)
 
             val request = buildRequest(
-                endpoint = "shop_profile",
+                endpoint = "shop_profile?on_conflict=id",
                 method = "POST",
                 bodyString = array.toString(),
-                extraHeaders = mapOf("Prefer" to "resolution=merge-duplicates")
+                extraHeaders = mapOf(
+                    "Prefer" to "resolution=merge-duplicates"
+                )
             )
 
             client.newCall(request).execute().use { response ->
                 if (response.isSuccessful) {
+                    android.util.Log.i("KonabSupabase", "Boutique \"${profile.name}\" (ID: $targetId) synchronisée sur Supabase (code: ${response.code})")
                     Result.success(Unit)
                 } else {
-                    Result.failure(IOException("Échec mise à jour boutique: ${response.code}"))
+                    val errBody = response.body?.string() ?: ""
+                    android.util.Log.e("KonabSupabase", "Échec push boutique (${response.code}): $errBody")
+                    Result.failure(IOException("Échec mise à jour boutique: ${response.code} $errBody"))
                 }
             }
         } catch (e: Exception) {
+            android.util.Log.e("KonabSupabase", "Exception pushShopProfile", e)
             Result.failure(e)
         }
     }
@@ -394,7 +407,8 @@ class SupabaseApiClient(
                     currency = o.optString("currency", "FCFA"),
                     slogan = o.optString("slogan", ""),
                     receiptFooter = o.optString("receipt_footer", ""),
-                    subscriptionTier = o.optString("subscription_tier", "Premium")
+                    subscriptionTier = o.optString("subscription_tier", "Premium"),
+                    isConfigured = true
                 )
                 Result.success(profile)
             }

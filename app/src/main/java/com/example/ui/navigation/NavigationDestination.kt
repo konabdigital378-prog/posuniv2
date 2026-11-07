@@ -26,10 +26,11 @@ sealed class SetupWizardDestination(
     data object ActivityType : SetupWizardDestination("setup/activity_type", 3, "Activité")
     data object Customization : SetupWizardDestination("setup/customization", 4, "Personnalisation")
     data object AdminAccount : SetupWizardDestination("setup/admin_account", 5, "Compte Admin")
-    data object Ready : SetupWizardDestination("setup/ready", 6, "Validation")
+    data object Ready : SetupWizardDestination("setup/ready", 6, "Récapitulatif")
+    data object RegisterShop : SetupWizardDestination("setup/register_shop", 7, "Enregistrer ma boutique")
 
     companion object {
-        val allSteps = listOf(Welcome, BusinessInfo, ActivityType, Customization, AdminAccount, Ready)
+        val allSteps = listOf(Welcome, BusinessInfo, ActivityType, Customization, AdminAccount, Ready, RegisterShop)
 
         fun fromRoute(route: String?): SetupWizardDestination {
             return allSteps.find { it.route == route } ?: Welcome

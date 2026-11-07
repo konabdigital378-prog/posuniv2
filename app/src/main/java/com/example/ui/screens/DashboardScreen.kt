@@ -277,6 +277,7 @@ fun DashboardScreen(
                         border = BorderStroke(1.dp, KonabBorder),
                         modifier = Modifier
                             .fillMaxWidth()
+                            .clickable { onNavigate(KonabScreen.SETTINGS) }
                             .testTag("card_merchant_profile")
                     ) {
                         Row(
