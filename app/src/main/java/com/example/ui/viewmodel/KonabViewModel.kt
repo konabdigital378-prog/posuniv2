@@ -410,8 +410,9 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
             withContext(kotlinx.coroutines.Dispatchers.IO) {
                 try {
                     supabaseSyncManager.pushShopProfileDirectly(profile, isNewShop = true)
+                    supabaseSyncManager.syncFullStore(repository)
                 } catch (e: Exception) {
-                    android.util.Log.e("KonabPOS", "Erreur envoi initial boutique vers Supabase: ${e.message}", e)
+                    android.util.Log.e("KonabPOS", "Erreur envoi initial boutique vers Cloud: ${e.message}", e)
                 }
             }
             resetTo(KonabScreen.DASHBOARD)
@@ -445,6 +446,7 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
             withContext(kotlinx.coroutines.Dispatchers.IO) {
                 try {
                     supabaseSyncManager.pushShopProfileDirectly(updated, isNewShop = false)
+                    supabaseSyncManager.syncFullStore(repository)
                 } catch (e: Exception) {
                     android.util.Log.e("KonabPOS", "Erreur pushShopProfileDirectly: ${e.message}", e)
                 }
@@ -475,14 +477,14 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun activateSubscription(enteredCode: String, targetTier: String): Boolean {
-        // Super admin activation validation rules
-        // e.g. codes generated with prefix KONAB- or SUPER-
-        val validCodes = listOf("KONAB-2026-PRO", "KONAB-VIP-65413799", "KONAB-ENTERPRISE", "65413799")
-        if (validCodes.contains(enteredCode.trim().uppercase()) || enteredCode.trim().length >= 6) {
+        val validation = com.example.util.LicenseHelper.validateKey(enteredCode, targetTier)
+        if (validation.isValid) {
             val profile = shopProfile.value ?: return false
-            val expiry = System.currentTimeMillis() + (365L * 24 * 60 * 60 * 1000) // 1 year
+            val days = if (validation.durationDays > 0) validation.durationDays else 365
+            val expiry = System.currentTimeMillis() + (days.toLong() * 24 * 60 * 60 * 1000)
+            val finalTier = if (validation.tier.isNotBlank()) validation.tier else targetTier
             val updated = profile.copy(
-                subscriptionTier = targetTier,
+                subscriptionTier = finalTier,
                 subscriptionExpiresAt = expiry
             )
             updateShopProfile(updated)
@@ -721,6 +723,95 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
                         )
                     )
                 }
+            }
+        }
+    }
+
+    // --- SUPABASE AUTHENTICATION INTEGRATION ---
+
+    val supabaseAuthState: StateFlow<com.example.data.remote.supabase.SupabaseAuthManager.AuthState> =
+        com.example.data.remote.supabase.SupabaseAuthManager.authState
+
+    fun signInSupabase(email: String, pass: String, onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            val result = com.example.data.remote.supabase.SupabaseAuthManager.signIn(email, pass, getApplication())
+            result.onSuccess { session ->
+                if (session.user.role.isNotBlank()) {
+                    _currentRole.value = session.user.role
+                }
+                syncFullStoreWithSupabase()
+                onResult(true, "Connexion réussie ! Bienvenue ${session.user.name}")
+            }.onFailure { err ->
+                onResult(false, err.message ?: "Échec de connexion")
+            }
+        }
+    }
+
+    fun signUpSupabase(
+        email: String,
+        pass: String,
+        name: String,
+        phone: String,
+        role: String,
+        shopName: String,
+        onResult: (Boolean, String) -> Unit
+    ) {
+        viewModelScope.launch {
+            val result = com.example.data.remote.supabase.SupabaseAuthManager.signUp(
+                email = email,
+                password = pass,
+                name = name,
+                phone = phone,
+                role = role,
+                shopName = shopName,
+                context = getApplication()
+            )
+            result.onSuccess { session ->
+                if (session.user.role.isNotBlank()) {
+                    _currentRole.value = session.user.role
+                }
+                syncFullStoreWithSupabase()
+                onResult(true, "Compte Supabase créé avec succès !")
+            }.onFailure { err ->
+                onResult(false, err.message ?: "Échec de l'inscription")
+            }
+        }
+    }
+
+    fun signOutSupabase(onResult: () -> Unit) {
+        viewModelScope.launch {
+            com.example.data.remote.supabase.SupabaseAuthManager.signOut(getApplication())
+            onResult()
+        }
+    }
+
+    fun recoverSupabasePassword(email: String, onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            val result = com.example.data.remote.supabase.SupabaseAuthManager.recoverPassword(email)
+            result.onSuccess { msg ->
+                onResult(true, msg)
+            }.onFailure { err ->
+                onResult(false, err.message ?: "Échec de la récupération")
+            }
+        }
+    }
+
+    fun refreshSupabaseSession(onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            val result = com.example.data.remote.supabase.SupabaseAuthManager.refreshSession(getApplication())
+            result.onSuccess {
+                onResult(true, "Session actualisée avec succès")
+            }.onFailure { err ->
+                onResult(false, err.message ?: "Échec de l'actualisation")
+            }
+        }
+    }
+
+    fun runSupabaseDiagnostic(onResult: (com.example.data.remote.supabase.SupabaseAuthManager.DiagnosticResult) -> Unit) {
+        viewModelScope.launch {
+            val diag = com.example.data.remote.supabase.SupabaseAuthManager.runSelfTest()
+            withContext(kotlinx.coroutines.Dispatchers.Main) {
+                onResult(diag)
             }
         }
     }

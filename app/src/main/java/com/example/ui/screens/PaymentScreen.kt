@@ -13,6 +13,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.SendToMobile
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -125,6 +126,7 @@ fun PaymentScreen(
                         text = CurrencyFormatter.formatFCFA(sale.totalAmount),
                         style = MaterialTheme.typography.headlineLarge.copy(
                             fontWeight = FontWeight.ExtraBold,
+                            fontFamily = OutfitFontFamily,
                             color = KonabTextPrimary
                         )
                     )
@@ -225,6 +227,7 @@ fun PaymentScreen(
                                 text = CurrencyFormatter.formatFCFA(totalAmount),
                                 style = MaterialTheme.typography.headlineLarge.copy(
                                     fontWeight = FontWeight.ExtraBold,
+                                    fontFamily = OutfitFontFamily,
                                     color = KonabGreen
                                 )
                             )
@@ -254,7 +257,7 @@ fun PaymentScreen(
                     val methods = listOf(
                         Pair("Espèces", Icons.Default.Payments),
                         Pair("Orange Money", Icons.Default.PhoneAndroid),
-                        Pair("Moov Money", Icons.Default.SendToMobile),
+                        Pair("Moov Money", Icons.AutoMirrored.Filled.SendToMobile),
                         Pair("Wave", Icons.Default.Waves),
                         Pair("Carte bancaire", Icons.Default.CreditCard),
                         Pair("À crédit", Icons.Default.Receipt)

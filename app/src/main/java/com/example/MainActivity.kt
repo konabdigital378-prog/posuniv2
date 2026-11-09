@@ -45,6 +45,7 @@ class MainActivity : ComponentActivity() {
                 val lastCompletedSale by viewModel.lastCompletedSale.collectAsStateWithLifecycle()
                 val isLocked by viewModel.isLocked.collectAsStateWithLifecycle()
                 val supabaseSyncState by viewModel.supabaseSyncState.collectAsStateWithLifecycle()
+                val supabaseAuthState by viewModel.supabaseAuthState.collectAsStateWithLifecycle()
                 val notifications by viewModel.notifications.collectAsStateWithLifecycle()
                 val unreadNotificationsCount by viewModel.unreadNotificationsCount.collectAsStateWithLifecycle()
 
@@ -96,7 +97,7 @@ class MainActivity : ComponentActivity() {
                             when (currentScreen) {
                                 KonabScreen.ONBOARDING -> {
                                     SetupWizard(
-                                        onComplete = { name, slogan, phone, address, city, currency, logoIcon, type, adminName, adminPhone, pin ->
+                                        onComplete = { name, slogan, phone, address, city, currency, logoIcon, type, adminName, adminPhone, pin, preloadDemo ->
                                             viewModel.completeOnboarding(
                                                 shopName = name,
                                                 slogan = slogan,
@@ -106,7 +107,8 @@ class MainActivity : ComponentActivity() {
                                                 businessType = type,
                                                 adminName = adminName,
                                                 adminPhone = adminPhone,
-                                                adminPin = pin
+                                                adminPin = pin,
+                                                preloadDemoData = preloadDemo
                                             )
                                         }
                                     )
@@ -266,6 +268,14 @@ class MainActivity : ComponentActivity() {
                                         onToggleAutoSync = { viewModel.setSupabaseAutoSyncEnabled(it) },
                                         onTestSupabase = { url, key -> viewModel.testSupabaseConnection(url, key) { _, _ -> } },
                                         onSaveSupabaseCredentials = { url, key -> viewModel.saveSupabaseCredentials(url, key) },
+                                        supabaseAuthState = supabaseAuthState,
+                                        onSignInSupabase = { email, pass -> viewModel.signInSupabase(email, pass) { _, _ -> } },
+                                        onSignUpSupabase = { email, pass, name, phone, role, shopName ->
+                                            viewModel.signUpSupabase(email, pass, name, phone, role, shopName) { _, _ -> }
+                                        },
+                                        onSignOutSupabase = { viewModel.signOutSupabase {} },
+                                        onRecoverSupabasePassword = { email -> viewModel.recoverSupabasePassword(email) { _, _ -> } },
+                                        onRefreshSupabaseSession = { viewModel.refreshSupabaseSession { _, _ -> } },
                                         onBack = { viewModel.navigateBack() }
                                     )
                                 }

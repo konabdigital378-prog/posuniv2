@@ -20,6 +20,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.Label
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -100,7 +101,8 @@ fun SetupWizard(
         businessType: String,
         adminName: String,
         adminPhone: String,
-        adminPin: String
+        adminPin: String,
+        preloadDemoData: Boolean
     ) -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -302,7 +304,8 @@ fun SetupWizard(
                                             uiState.selectedBusinessType,
                                             uiState.adminName,
                                             uiState.adminPhone,
-                                            uiState.adminPin
+                                            uiState.adminPin,
+                                            uiState.preloadDemoData
                                         )
                                     }
                                 }
@@ -432,7 +435,8 @@ fun SetupWizard(
                                 uiState.selectedBusinessType,
                                 uiState.adminName,
                                 uiState.adminPhone,
-                                uiState.adminPin
+                                uiState.adminPin,
+                                uiState.preloadDemoData
                             )
                         }
                     }
@@ -450,6 +454,15 @@ private fun WizardStepWelcome() {
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .background(
+                brush = Brush.verticalGradient(
+                    colors = listOf(
+                        Color(0xFFD6E4FA),
+                        Color(0xFFC2DCF9),
+                        Color(0xFFB2D4F7)
+                    )
+                )
+            )
             .verticalScroll(rememberScrollState())
             .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -503,27 +516,28 @@ private fun WizardStepWelcome() {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(KonabGreenLight, RoundedCornerShape(14.dp))
+                .background(KonabOrangeContainer, RoundedCornerShape(14.dp))
+                .border(1.dp, KonabOrange.copy(alpha = 0.25f), RoundedCornerShape(14.dp))
                 .padding(vertical = 12.dp, horizontal = 16.dp),
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.ThumbUp, contentDescription = null, tint = KonabGreen, modifier = Modifier.size(16.dp))
+                Icon(Icons.Default.ThumbUp, contentDescription = null, tint = KonabOrange, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(4.dp))
-                Text("Simple", fontWeight = FontWeight.Bold, color = KonabGreenDark, fontSize = 12.sp)
+                Text("Simple", fontWeight = FontWeight.Bold, color = KonabOrangeDark, fontSize = 12.sp)
             }
-            Text("•", color = KonabGreen)
+            Text("•", color = KonabOrange)
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Bolt, contentDescription = null, tint = KonabGreen, modifier = Modifier.size(16.dp))
+                Icon(Icons.Default.Bolt, contentDescription = null, tint = KonabOrange, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(4.dp))
-                Text("Rapide", fontWeight = FontWeight.Bold, color = KonabGreenDark, fontSize = 12.sp)
+                Text("Rapide", fontWeight = FontWeight.Bold, color = KonabOrangeDark, fontSize = 12.sp)
             }
-            Text("•", color = KonabGreen)
+            Text("•", color = KonabOrange)
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.CloudOff, contentDescription = null, tint = KonabGreen, modifier = Modifier.size(16.dp))
+                Icon(Icons.Default.CloudOff, contentDescription = null, tint = KonabOrange, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(4.dp))
-                Text("Hors ligne", fontWeight = FontWeight.Bold, color = KonabGreenDark, fontSize = 12.sp)
+                Text("Hors ligne", fontWeight = FontWeight.Bold, color = KonabOrangeDark, fontSize = 12.sp)
             }
         }
     }
@@ -1015,7 +1029,7 @@ private fun WizardStepCustomization(
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Label, contentDescription = null, tint = KonabGreen)
+                    Icon(Icons.AutoMirrored.Filled.Label, contentDescription = null, tint = KonabGreen)
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Catégories suggérées pour votre activité", fontWeight = FontWeight.Bold)
                 }
@@ -1349,7 +1363,7 @@ private fun WizardStepRegisterShop(
         Spacer(modifier = Modifier.height(8.dp))
 
         Text(
-            text = "Validez la configuration de votre établissement. Vos informations seront enregistrées dans la base cloud centrale Supabase et activées sur votre caisse.",
+            text = "Validez la configuration de votre établissement. Vos informations seront enregistrées et synchronisées en toute sécurité avec votre espace Cloud.",
             fontSize = 13.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
@@ -1459,14 +1473,14 @@ private fun WizardStepRegisterShop(
                 Spacer(modifier = Modifier.width(14.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Base Cloud Supabase (shop_profile)",
+                        text = "Synchronisation Cloud Automatique",
                         fontWeight = FontWeight.Bold,
                         fontSize = 13.sp,
                         color = KonabGreenDark
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = "Chaque configuration reçoit un identifiant unique distinct. Votre boutique sera visible instantanément dans la base Supabase et sur le tableau de bord web.",
+                        text = "Votre établissement dispose d'un espace sécurisé en ligne. Vos données de caisse sont synchronisées pour le suivi des ventes et le tableau de bord.",
                         fontSize = 11.sp,
                         color = KonabTextPrimary.copy(alpha = 0.8f),
                         lineHeight = 15.sp
@@ -1499,7 +1513,7 @@ private fun WizardStepRegisterShop(
                 )
                 Spacer(modifier = Modifier.width(10.dp))
                 Text(
-                    text = "Enregistrement dans Supabase...",
+                    text = "Enregistrement Cloud en cours...",
                     fontWeight = FontWeight.Bold,
                     fontSize = 15.sp
                 )

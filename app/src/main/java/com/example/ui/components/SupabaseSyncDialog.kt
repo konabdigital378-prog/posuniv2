@@ -44,6 +44,7 @@ fun SupabaseSyncDialog(
     onSyncNow: () -> Unit = {},
     onSyncFullStore: () -> Unit = {},
     onToggleAutoSync: (Boolean) -> Unit = {},
+    onOpenAuth: (() -> Unit)? = null,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
@@ -215,6 +216,77 @@ fun SupabaseSyncDialog(
                                 "Dernière synchro : ${CurrencyFormatter.formatDateTime(syncState.lastSyncTimestamp)}",
                                 fontSize = 11.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Supabase Account / Authentication Card
+            val isAuth = com.example.data.remote.supabase.SupabaseAuthManager.isAuthenticated
+            val authUser = com.example.data.remote.supabase.SupabaseAuthManager.currentUser
+
+            Card(
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (isAuth) Color(0xFFF0FDF4) else Color(0xFFFEF3C7).copy(alpha = 0.6f)
+                ),
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp,
+                    if (isAuth) Color(0xFF22C55E).copy(alpha = 0.5f) else Color(0xFFF59E0B).copy(alpha = 0.5f)
+                ),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(if (isAuth) Color(0xFF10B981) else Color(0xFFF59E0B)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = if (isAuth) Icons.Default.Person else Icons.Default.Lock,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = if (isAuth) (authUser?.name ?: "Utilisateur Cloud") else "Compte Utilisateur Supabase",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp
+                            )
+                            Text(
+                                text = if (isAuth) "${authUser?.email} • ${if (authUser?.role == "ADMIN") "Gérant" else "Caissier"}" else "Non connecté (mode anonyme)",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    if (onOpenAuth != null) {
+                        FilledTonalButton(
+                            onClick = onOpenAuth,
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                text = if (isAuth) "Mon Profil" else "Connexion",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
                             )
                         }
                     }

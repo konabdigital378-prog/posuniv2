@@ -105,7 +105,7 @@ class SupabaseSyncManager(
     }
 
     suspend fun syncAll(repository: KonabRepository): Result<Int> {
-        return syncCompanyConfig(repository)
+        return syncFullStore(repository)
     }
 
     /**

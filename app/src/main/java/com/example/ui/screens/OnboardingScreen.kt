@@ -18,12 +18,14 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.Label
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
@@ -228,6 +230,15 @@ private fun Step1LaunchScreen(onStart: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .background(
+                brush = Brush.verticalGradient(
+                    colors = listOf(
+                        Color(0xFFD6E4FA),
+                        Color(0xFFC2DCF9),
+                        Color(0xFFB2D4F7)
+                    )
+                )
+            )
             .verticalScroll(rememberScrollState())
             .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -554,7 +565,7 @@ private fun Step4AutoCustomization(businessType: String) {
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Label, contentDescription = null, tint = KonabGreen)
+                    Icon(Icons.AutoMirrored.Filled.Label, contentDescription = null, tint = KonabGreen)
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Catégories préconfigurées", fontWeight = FontWeight.Bold)
                 }

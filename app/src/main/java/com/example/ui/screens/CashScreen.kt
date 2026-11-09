@@ -18,6 +18,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -88,9 +89,17 @@ fun CashScreen(
             // Cash Drawer Status Banner
             item {
                 Card(
-                    shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(containerColor = KonabGreen),
-                    modifier = Modifier.fillMaxWidth()
+                    shape = RoundedCornerShape(22.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            brush = Brush.verticalGradient(
+                                colors = listOf(Color(0xFF0B4BD9), Color(0xFF071E54))
+                            ),
+                            shape = RoundedCornerShape(22.dp)
+                        )
                 ) {
                     Column(
                         modifier = Modifier
@@ -107,14 +116,14 @@ fun CashScreen(
                                 Box(
                                     modifier = Modifier
                                         .size(10.dp)
-                                        .background(if (activeSession != null) Color(0xFF69F0AE) else Color(0xFFFF8A80), CircleShape)
+                                        .background(if (activeSession != null) Color(0xFF10B981) else Color(0xFFEF4444), CircleShape)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
                                     text = if (activeSession != null) "Caisse ouverte" else "Caisse fermée",
-                                    color = Color.White.copy(alpha = 0.9f),
+                                    color = Color.White.copy(alpha = 0.95f),
                                     fontSize = 12.sp,
-                                    fontWeight = FontWeight.Medium
+                                    fontWeight = FontWeight.SemiBold
                                 )
                             }
 
@@ -127,19 +136,23 @@ fun CashScreen(
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(10.dp))
+                        Spacer(modifier = Modifier.height(12.dp))
 
                         Text(
                             text = "Solde théorique en caisse",
                             color = Color.White.copy(alpha = 0.85f),
-                            fontSize = 13.sp
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium
                         )
+
+                        Spacer(modifier = Modifier.height(4.dp))
 
                         Text(
                             text = CurrencyFormatter.formatFCFA(maxOf(0L, currentCashBalance)),
                             color = Color.White,
-                            fontWeight = FontWeight.ExtraBold,
-                            fontSize = 28.sp
+                            fontFamily = OutfitFontFamily,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 32.sp
                         )
 
                         Spacer(modifier = Modifier.height(16.dp))

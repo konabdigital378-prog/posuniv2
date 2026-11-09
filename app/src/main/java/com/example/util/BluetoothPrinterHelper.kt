@@ -53,6 +53,29 @@ object BluetoothPrinterHelper {
     private val FEED_LINE = byteArrayOf(0x0A)
     private val PAPER_CUT = byteArrayOf(0x1D, 0x56, 0x42, 0x00) // GS V 66 0
 
+    private fun printEscPosQrCode(out: ByteArrayOutputStream, data: String) {
+        try {
+            val bytes = data.toByteArray(Charsets.US_ASCII)
+            val len = bytes.size + 3
+            val pL = (len and 0xFF).toByte()
+            val pH = ((len shr 8) and 0xFF).toByte()
+
+            // 1. Model 2
+            out.write(byteArrayOf(0x1D, 0x28, 0x6B, 0x04, 0x00, 0x31, 0x41, 0x32, 0x00))
+            // 2. Module Size (5 dots)
+            out.write(byteArrayOf(0x1D, 0x28, 0x6B, 0x03, 0x00, 0x31, 0x43, 0x05))
+            // 3. Error correction Level L
+            out.write(byteArrayOf(0x1D, 0x28, 0x6B, 0x03, 0x00, 0x31, 0x45, 0x30))
+            // 4. Store Data
+            val storeHeader = byteArrayOf(0x1D, 0x28, 0x6B, pL, pH, 0x31, 0x50, 0x30)
+            out.write(storeHeader)
+            out.write(bytes)
+            // 5. Print QR symbol
+            out.write(byteArrayOf(0x1D, 0x28, 0x6B, 0x03, 0x00, 0x31, 0x51, 0x30))
+            out.write(FEED_LINE)
+        } catch (_: Exception) {}
+    }
+
     private val CP850: Charset = try {
         Charset.forName("CP850")
     } catch (e: Exception) {
@@ -311,6 +334,14 @@ object BluetoothPrinterHelper {
         printRowJustified("Statut    :", sale.paymentStatus, cols, out)
 
         divider()
+
+        // QR CODE FOR THERMAL TICKET
+        out.write(ESC_ALIGN_CENTER)
+        val qrPayload = "KONAB-POS|TICKET:${sale.transactionNumber}|MONTANT:${sale.totalAmount}|DATE:${sale.timestamp}|BOUTIQUE:${shop.name}"
+        printEscPosQrCode(out, qrPayload)
+        println("N° : ${sale.transactionNumber}")
+        println("[ Scannez pour verifier ]")
+        out.write(FEED_LINE)
 
         // FOOTER
         out.write(ESC_ALIGN_CENTER)

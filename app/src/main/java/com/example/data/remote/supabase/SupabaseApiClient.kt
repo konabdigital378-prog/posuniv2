@@ -29,10 +29,11 @@ class SupabaseApiClient(
         extraHeaders: Map<String, String> = emptyMap()
     ): Request {
         val url = "${SupabaseConfig.restBaseUrl}/$endpoint"
+        val authToken = SupabaseAuthManager.currentToken ?: SupabaseConfig.rawAnonKey
         val requestBuilder = Request.Builder()
             .url(url)
             .addHeader("apikey", SupabaseConfig.rawAnonKey)
-            .addHeader("Authorization", "Bearer ${SupabaseConfig.rawAnonKey}")
+            .addHeader("Authorization", "Bearer $authToken")
             .addHeader("Accept", "application/json")
 
         extraHeaders.forEach { (k, v) -> requestBuilder.addHeader(k, v) }
@@ -347,8 +348,9 @@ class SupabaseApiClient(
             val targetId = if (cloudShopId > 1L) cloudShopId else if (profile.id > 1L) profile.id else System.currentTimeMillis()
 
             val array = JSONArray()
-            val obj = JSONObject().apply {
-                put("id", targetId)
+            // 1. Primary profile row (id = 1) - used by app Room database, queries, web admin, and direct database inspection
+            val primaryObj = JSONObject().apply {
+                put("id", 1L)
                 put("name", profile.name.trim())
                 put("business_type", profile.businessType)
                 put("phone", profile.phone)
@@ -360,7 +362,25 @@ class SupabaseApiClient(
                 put("subscription_tier", profile.subscriptionTier)
                 put("updated_at", nowIso)
             }
-            array.put(obj)
+            array.put(primaryObj)
+
+            // 2. Also save targetId if distinct from 1 for multi-tenant and multi-device persistence
+            if (targetId != 1L) {
+                val storeObj = JSONObject().apply {
+                    put("id", targetId)
+                    put("name", profile.name.trim())
+                    put("business_type", profile.businessType)
+                    put("phone", profile.phone)
+                    put("address", profile.address)
+                    put("city", profile.city)
+                    put("currency", profile.currency)
+                    put("slogan", profile.slogan)
+                    put("receipt_footer", profile.receiptFooter)
+                    put("subscription_tier", profile.subscriptionTier)
+                    put("updated_at", nowIso)
+                }
+                array.put(storeObj)
+            }
 
             val request = buildRequest(
                 endpoint = "shop_profile?on_conflict=id",
@@ -373,7 +393,7 @@ class SupabaseApiClient(
 
             client.newCall(request).execute().use { response ->
                 if (response.isSuccessful) {
-                    android.util.Log.i("KonabSupabase", "Boutique \"${profile.name}\" (ID: $targetId) synchronisée sur Supabase (code: ${response.code})")
+                    android.util.Log.i("KonabSupabase", "Boutique \"${profile.name}\" (ID 1 & $targetId) synchronisée sur Supabase (code: ${response.code})")
                     Result.success(Unit)
                 } else {
                     val errBody = response.body?.string() ?: ""
@@ -390,7 +410,7 @@ class SupabaseApiClient(
     suspend fun fetchShopProfile(): Result<ShopProfileEntity?> = withContext(Dispatchers.IO) {
         if (!SupabaseConfig.isConfigured) return@withContext Result.success(null)
         try {
-            val request = buildRequest("shop_profile?select=*&limit=1")
+            val request = buildRequest("shop_profile?select=*&order=updated_at.desc&limit=1")
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) return@withContext Result.success(null)
                 val body = response.body?.string() ?: "[]"

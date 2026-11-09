@@ -93,25 +93,27 @@ class KonabPosUnitTest {
     @Test
     fun testSetupWizardSteps() {
         val steps = com.example.ui.screens.SetupWizardStep.values()
-        assertEquals(6, steps.size)
+        assertEquals(7, steps.size)
         assertEquals(com.example.ui.screens.SetupWizardStep.WELCOME, steps[0])
         assertEquals(com.example.ui.screens.SetupWizardStep.BUSINESS_INFO, steps[1])
         assertEquals(com.example.ui.screens.SetupWizardStep.ACTIVITY_TYPE, steps[2])
         assertEquals(com.example.ui.screens.SetupWizardStep.CUSTOMIZATION, steps[3])
         assertEquals(com.example.ui.screens.SetupWizardStep.ADMIN_ACCOUNT, steps[4])
         assertEquals(com.example.ui.screens.SetupWizardStep.READY, steps[5])
+        assertEquals(com.example.ui.screens.SetupWizardStep.REGISTER_SHOP, steps[6])
     }
 
     @Test
     fun testSetupWizardDestinations() {
         val destinations = com.example.ui.navigation.SetupWizardDestination.allSteps
-        assertEquals(6, destinations.size)
+        assertEquals(7, destinations.size)
         assertEquals("setup/welcome", com.example.ui.navigation.SetupWizardDestination.Welcome.route)
         assertEquals("setup/business_info", com.example.ui.navigation.SetupWizardDestination.BusinessInfo.route)
         assertEquals("setup/activity_type", com.example.ui.navigation.SetupWizardDestination.ActivityType.route)
         assertEquals("setup/customization", com.example.ui.navigation.SetupWizardDestination.Customization.route)
         assertEquals("setup/admin_account", com.example.ui.navigation.SetupWizardDestination.AdminAccount.route)
         assertEquals("setup/ready", com.example.ui.navigation.SetupWizardDestination.Ready.route)
+        assertEquals("setup/register_shop", com.example.ui.navigation.SetupWizardDestination.RegisterShop.route)
 
         assertEquals(
             com.example.ui.navigation.SetupWizardDestination.ActivityType,
@@ -120,6 +122,10 @@ class KonabPosUnitTest {
         assertEquals(
             com.example.ui.navigation.SetupWizardDestination.AdminAccount,
             com.example.ui.navigation.SetupWizardDestination.fromRoute("setup/admin_account")
+        )
+        assertEquals(
+            com.example.ui.navigation.SetupWizardDestination.RegisterShop,
+            com.example.ui.navigation.SetupWizardDestination.fromRoute("setup/register_shop")
         )
     }
 

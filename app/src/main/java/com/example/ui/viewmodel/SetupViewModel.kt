@@ -262,14 +262,20 @@ class SetupViewModel(application: Application) : AndroidViewModel(application) {
                 val syncResult = syncManager.pushShopProfileDirectly(profile, isNewShop = true)
                 if (syncResult.isSuccess) {
                     cloudSuccess = true
-                    cloudMsg = "Boutique \"${profile.name}\" enregistrée avec succès dans la base Supabase (ID: #$cloudId)"
+                    cloudMsg = "Boutique \"${profile.name}\" enregistrée et synchronisée avec succès dans le Cloud."
                 } else {
-                    cloudMsg = syncResult.exceptionOrNull()?.message ?: "Erreur envoi Supabase"
-                    android.util.Log.e("SetupViewModel", "Erreur envoi boutique vers Supabase: $cloudMsg")
+                    cloudMsg = syncResult.exceptionOrNull()?.message ?: "Erreur synchronisation Cloud"
+                    android.util.Log.e("SetupViewModel", "Erreur envoi boutique vers Cloud: $cloudMsg")
+                }
+                // Also synchronize all store tables (products, customers, etc.) to the cloud
+                try {
+                    syncManager.syncFullStore(repository)
+                } catch (e: Exception) {
+                    android.util.Log.e("SetupViewModel", "Erreur syncFullStore initial: ${e.message}")
                 }
             } catch (e: Exception) {
                 cloudMsg = e.message ?: "Erreur de connexion"
-                android.util.Log.e("SetupViewModel", "Exception envoi direct boutique vers Supabase: ${e.message}", e)
+                android.util.Log.e("SetupViewModel", "Exception envoi direct boutique vers Cloud: ${e.message}", e)
             }
 
             _uiState.update { 

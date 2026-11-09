@@ -3,6 +3,7 @@ package com.example.ui.screens
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.widget.Toast
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
@@ -66,6 +67,12 @@ fun SettingsScreen(
     onToggleAutoSync: (Boolean) -> Unit = {},
     onTestSupabase: (String?, String?) -> Unit = { _, _ -> },
     onSaveSupabaseCredentials: (String, String) -> Unit = { _, _ -> },
+    supabaseAuthState: com.example.data.remote.supabase.SupabaseAuthManager.AuthState = com.example.data.remote.supabase.SupabaseAuthManager.AuthState.Unauthenticated,
+    onSignInSupabase: (String, String) -> Unit = { _, _ -> },
+    onSignUpSupabase: (String, String, String, String, String, String) -> Unit = { _, _, _, _, _, _ -> },
+    onSignOutSupabase: () -> Unit = {},
+    onRecoverSupabasePassword: (String) -> Unit = {},
+    onRefreshSupabaseSession: () -> Unit = {},
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
@@ -78,7 +85,7 @@ fun SettingsScreen(
     var showAboutDialog by remember { mutableStateOf(false) }
     var showHelpDialog by remember { mutableStateOf(false) }
     var showBluetoothPrinterModal by remember { mutableStateOf(false) }
-    var showSupabaseSyncModal by remember { mutableStateOf(false) }
+    var showSupabaseAuthModal by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -292,7 +299,7 @@ fun SettingsScreen(
                         Surface(
                             modifier = Modifier
                                 .weight(1f)
-                                .clickable { showSupabaseSyncModal = true },
+                                .clickable { showSupabaseAuthModal = true },
                             shape = RoundedCornerShape(10.dp),
                             color = if (supabaseSyncState?.isConfigured == true) {
                                 Color(0xFFECFDF5)
@@ -431,9 +438,9 @@ fun SettingsScreen(
             }
 
             // ==========================================
-            // SECTION 2.5 : SYNCHRONISATION SUPABASE CLOUD
+            // SECTION 2.5 : SYNCHRONISATION & SAUVEGARDE CLOUD
             // ==========================================
-            SettingsSectionCard(title = "Synchronisation Cloud Supabase", icon = Icons.Default.Cloud) {
+            SettingsSectionCard(title = "Synchronisation & Sauvegarde Cloud", icon = Icons.Default.Cloud) {
                 // Auto-Sync Toggle Row
                 Row(
                     modifier = Modifier
@@ -466,7 +473,7 @@ fun SettingsScreen(
                         Column {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
-                                    "Synchronisation Automatique Entreprise",
+                                    "Sauvegarde Continue en Ligne",
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 13.5.sp
                                 )
@@ -480,7 +487,7 @@ fun SettingsScreen(
                                 }
                             }
                             Text(
-                                "Envoie automatiquement la configuration de l'entreprise vers Supabase (les ventes et stocks restent strictement locaux)",
+                                "Sauvegarde automatique et sécurisée de vos données dans le Cloud",
                                 fontSize = 11.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -499,7 +506,7 @@ fun SettingsScreen(
                     iconTint = Color(0xFF0284C7),
                     iconBg = Color(0xFFE0F2FE),
                     title = "Synchroniser maintenant",
-                    subtitle = if (supabaseSyncState?.isSyncing == true) "Synchronisation en cours..." else "Forcer l'envoi et la réception immédiate",
+                    subtitle = if (supabaseSyncState?.isSyncing == true) "Synchronisation en cours..." else "Lancer la synchronisation immédiate",
                     trailingValue = if (supabaseSyncState?.isSyncing == true) "En cours..." else "Synchroniser",
                     badgeText = if (supabaseSyncState?.isConfigured == true) "EN LIGNE" else null,
                     badgeColor = Color(0xFF10B981),
@@ -509,15 +516,35 @@ fun SettingsScreen(
 
                 HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
 
+                val isSupabaseAuth = supabaseAuthState is com.example.data.remote.supabase.SupabaseAuthManager.AuthState.Authenticated
+                val authUser = (supabaseAuthState as? com.example.data.remote.supabase.SupabaseAuthManager.AuthState.Authenticated)?.session?.user
+
                 SettingsModernRow(
-                    icon = Icons.Default.Settings,
-                    iconTint = Color(0xFF6B7280),
-                    iconBg = Color(0xFFF3F4F6),
-                    title = "Paramètres Supabase & Schéma SQL",
-                    subtitle = "Configurer les identifiants cloud et générer le script SQL",
-                    trailingValue = "Gérer",
-                    onClick = { showSupabaseSyncModal = true },
-                    testTag = "row_supabase_settings"
+                    icon = Icons.Default.AccountCircle,
+                    iconTint = if (isSupabaseAuth) Color(0xFF10B981) else Color(0xFFF59E0B),
+                    iconBg = if (isSupabaseAuth) Color(0xFFE8F5E9) else Color(0xFFFEF3C7),
+                    title = "Mon Compte Utilisateur Cloud",
+                    subtitle = if (isSupabaseAuth) "${authUser?.email} (${if (authUser?.role == "ADMIN") "Gérant" else "Caissier"}) • Connecté 🟢" else "Connexion ou création de compte Cloud",
+                    trailingValue = if (isSupabaseAuth) "Connecté" else "Connexion",
+                    badgeText = if (isSupabaseAuth) "ACTIF" else null,
+                    badgeColor = Color(0xFF10B981),
+                    onClick = { showSupabaseAuthModal = true },
+                    testTag = "row_supabase_auth"
+                )
+
+                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+                SettingsModernRow(
+                    icon = Icons.Default.NetworkCheck,
+                    iconTint = Color(0xFF6366F1),
+                    iconBg = Color(0xFFEEF2FF),
+                    title = "Diagnostic de connectivité Cloud",
+                    subtitle = "Vérifier la connectivité et l'état des services en ligne",
+                    trailingValue = "Vérifier",
+                    badgeText = "TEST",
+                    badgeColor = Color(0xFF6366F1),
+                    onClick = { showSupabaseAuthModal = true },
+                    testTag = "row_test_supabase_in_app"
                 )
             }
 
@@ -830,7 +857,7 @@ fun SettingsScreen(
                             receiptFooter = receiptFooter.trim()
                         )
                         onUpdateProfile(updated)
-                        Toast.makeText(context, "Boutique \"${updated.name}\" enregistrée et envoyée à Supabase", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "Boutique \"${updated.name}\" enregistrée et synchronisée", Toast.LENGTH_SHORT).show()
                         showEditInfoDialog = false
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = KonabGreen),
@@ -1321,15 +1348,15 @@ fun SettingsScreen(
         )
     }
 
-    if (showSupabaseSyncModal && supabaseSyncState != null) {
-        com.example.ui.components.SupabaseSyncDialog(
-            syncState = supabaseSyncState,
-            onTestConnection = onTestSupabase,
-            onSaveAndSync = onSaveSupabaseCredentials,
-            onSyncNow = onSyncWithSupabase,
-            onSyncFullStore = onSyncFullStore,
-            onToggleAutoSync = onToggleAutoSync,
-            onDismiss = { showSupabaseSyncModal = false }
+    if (showSupabaseAuthModal) {
+        com.example.ui.components.SupabaseAuthModal(
+            authState = supabaseAuthState,
+            onSignIn = onSignInSupabase,
+            onSignUp = onSignUpSupabase,
+            onSignOut = onSignOutSupabase,
+            onRecoverPassword = onRecoverSupabasePassword,
+            onRefreshSession = onRefreshSupabaseSession,
+            onDismiss = { showSupabaseAuthModal = false }
         )
     }
 }

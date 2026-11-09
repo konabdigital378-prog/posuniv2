@@ -15,6 +15,9 @@ import com.example.R
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.HelpOutline
+import androidx.compose.material.icons.automirrored.filled.ReceiptLong
+import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -109,18 +112,26 @@ fun DashboardScreen(
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .background(KonabBackground)
+            .background(
+                brush = Brush.verticalGradient(
+                    colors = listOf(
+                        Color(0xFFD6E4FA), // Bleu Konab Container bien visible
+                        Color(0xFFC2DCF9), // Bleu ciel doux
+                        Color(0xFFB2D4F7)  // Bleu pastel franc
+                    )
+                )
+            )
             .testTag("dashboard_screen"),
         contentPadding = PaddingValues(bottom = 96.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Top Header with Emerald Brand Gradient and Floating Store Card
+        // Top Header with Blue Brand Gradient and Floating Store Card
         item {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
             ) {
-                // Background Emerald Banner
+                // Background Blue Banner
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -128,8 +139,8 @@ fun DashboardScreen(
                         .background(
                             brush = Brush.verticalGradient(
                                 colors = listOf(
-                                    KonabGreen,
-                                    KonabGreenDark
+                                    KonabBlue,
+                                    KonabBlueDark
                                 )
                             ),
                             shape = RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp)
@@ -296,7 +307,7 @@ fun DashboardScreen(
                                     modifier = Modifier
                                         .size(46.dp)
                                         .clip(CircleShape)
-                                        .background(KonabGreen),
+                                        .background(KonabBlue),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Icon(
@@ -319,19 +330,24 @@ fun DashboardScreen(
                                         overflow = TextOverflow.Ellipsis
                                     )
                                     Spacer(modifier = Modifier.height(2.dp))
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                    val isCloudAuth = com.example.data.remote.supabase.SupabaseAuthManager.isAuthenticated
+                                    val isConfigured = com.example.data.remote.supabase.SupabaseConfig.isConfigured
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.clickable { onNavigate(KonabScreen.SETTINGS) }
+                                    ) {
                                         Box(
                                             modifier = Modifier
                                                 .size(8.dp)
                                                 .clip(CircleShape)
-                                                .background(KonabGreen)
+                                                .background(if (isCloudAuth) Color(0xFF10B981) else if (isConfigured) Color(0xFF0284C7) else KonabBlue)
                                         )
                                         Spacer(modifier = Modifier.width(6.dp))
                                         Text(
-                                            text = "Ouvert • Hors ligne",
+                                            text = if (isCloudAuth) "Ouvert • Cloud Connecté" else if (isConfigured) "Ouvert • Sauvegarde Active" else "Ouvert • Local",
                                             fontSize = 12.sp,
                                             fontWeight = FontWeight.Medium,
-                                            color = KonabTextSecondary
+                                            color = if (isCloudAuth) Color(0xFF047857) else KonabTextSecondary
                                         )
                                     }
                                 }
@@ -394,7 +410,7 @@ fun DashboardScreen(
                         // Main POS Action Button
                         Button(
                             onClick = { onNavigate(KonabScreen.POS) },
-                            colors = ButtonDefaults.buttonColors(containerColor = KonabGreen),
+                            colors = ButtonDefaults.buttonColors(containerColor = KonabOrange),
                             shape = RoundedCornerShape(14.dp),
                             elevation = ButtonDefaults.buttonElevation(defaultElevation = 3.dp),
                             modifier = Modifier
@@ -511,7 +527,7 @@ fun DashboardScreen(
                         title = "Chiffre d'affaires",
                         value = CurrencyFormatter.formatFCFA(todayRevenue),
                         subtitle = "Aujourd'hui",
-                        icon = Icons.Default.TrendingUp,
+                        icon = Icons.AutoMirrored.Filled.TrendingUp,
                         iconColor = KonabGreen,
                         containerColor = KonabGreenLight,
                         modifier = Modifier
@@ -524,7 +540,7 @@ fun DashboardScreen(
                         title = "Ventes",
                         value = "${todaySales.size}",
                         subtitle = "Aujourd'hui",
-                        icon = Icons.Default.ReceiptLong,
+                        icon = Icons.AutoMirrored.Filled.ReceiptLong,
                         iconColor = Color(0xFF1E88E5),
                         containerColor = Color(0xFFE3F2FD),
                         modifier = Modifier
@@ -842,7 +858,7 @@ fun DashboardScreen(
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                Icons.Default.ReceiptLong,
+                                Icons.AutoMirrored.Filled.ReceiptLong,
                                 contentDescription = null,
                                 tint = KonabTextMuted,
                                 modifier = Modifier.size(28.dp)
@@ -1131,7 +1147,7 @@ fun DashboardScreen(
         AlertDialog(
             onDismissRequest = { unknownScannedBarcode = null },
             icon = {
-                Icon(Icons.Default.HelpOutline, contentDescription = null, tint = KonabGoldDark)
+                Icon(Icons.AutoMirrored.Filled.HelpOutline, contentDescription = null, tint = KonabGoldDark)
             },
             title = {
                 Text("Code-barres non répertorié", fontWeight = FontWeight.Bold)
@@ -1194,29 +1210,37 @@ private fun DashboardShortcutPill(
 ) {
     Surface(
         onClick = onClick,
-        shape = RoundedCornerShape(12.dp),
-        color = containerColor,
-        border = BorderStroke(1.dp, badgeColor.copy(alpha = 0.15f)),
-        modifier = modifier.height(64.dp)
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, KonabBorder),
+        shadowElevation = 1.dp,
+        modifier = modifier.height(72.dp)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(6.dp),
+                .padding(vertical = 8.dp, horizontal = 4.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = badgeColor,
-                modifier = Modifier.size(20.dp)
-            )
+            Box(
+                modifier = Modifier
+                    .size(32.dp)
+                    .background(containerColor, CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = badgeColor,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
             Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = label,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold,
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1
             )

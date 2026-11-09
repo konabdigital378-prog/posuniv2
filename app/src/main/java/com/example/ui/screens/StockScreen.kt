@@ -90,7 +90,12 @@ fun StockScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Stock & Produits", fontWeight = FontWeight.Bold) },
+                title = {
+                    Column {
+                        Text("Stock & Produits", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                        Text("${products.size} références au catalogue", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Retour")
@@ -105,7 +110,7 @@ fun StockScreen(
                     editingProduct = null
                     showProductDialog = true
                 },
-                containerColor = KonabGreen,
+                containerColor = KonabBlue,
                 contentColor = Color.White,
                 shape = CircleShape,
                 modifier = Modifier.testTag("fab_add_product")
@@ -140,7 +145,7 @@ fun StockScreen(
                             Icon(
                                 Icons.Default.QrCodeScanner,
                                 contentDescription = "Scanner code-barres produit",
-                                tint = KonabGreen
+                                tint = KonabBlue
                             )
                         }
                     }
@@ -153,55 +158,93 @@ fun StockScreen(
                     .testTag("input_search_stock")
             )
 
-            // Stock Filter Chips
+            // Stock Filter Chips with dynamic counts
             LazyRow(
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 items(filters) { filter ->
                     val isSelected = selectedFilter == filter
+                    val filterCount = when (filter) {
+                        "En stock" -> products.count { it.stockQuantity > it.minStockAlert }
+                        "Faible" -> products.count { it.stockQuantity in 1..it.minStockAlert }
+                        "Rupture" -> products.count { it.stockQuantity <= 0 }
+                        else -> products.size
+                    }
                     FilterChip(
                         selected = isSelected,
                         onClick = { selectedFilter = filter },
-                        label = { Text(filter) },
+                        label = {
+                            Text(
+                                text = "$filter ($filterCount)",
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                            )
+                        },
                         colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = if (filter == "Rupture" || filter == "Faible") KonabRed else KonabGreen,
+                            selectedContainerColor = when (filter) {
+                                "Rupture" -> KonabRed
+                                "Faible" -> Color(0xFFD97706)
+                                else -> KonabBlue
+                            },
                             selectedLabelColor = Color.White
                         )
                     )
                 }
             }
 
-            // Valuation Cards
+            // Valuation Summary Card
             Card(
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(18.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                border = androidx.compose.foundation.BorderStroke(1.dp, KonabBorder),
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(14.dp),
-                    horizontalArrangement = Arrangement.SpaceAround
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("Valeur d'achat", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text(
-                            CurrencyFormatter.formatFCFA(totalStockCost),
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp
-                        )
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text("Valeur marchande (Vente)", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(
+                                CurrencyFormatter.formatFCFA(totalStockValue),
+                                fontWeight = FontWeight.ExtraBold,
+                                fontFamily = OutfitFontFamily,
+                                fontSize = 20.sp,
+                                color = KonabBlue
+                            )
+                        }
+
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text("Coût d'achat total", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(
+                                CurrencyFormatter.formatFCFA(totalStockCost),
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = OutfitFontFamily,
+                                fontSize = 15.sp
+                            )
+                        }
                     }
-                    VerticalDivider(modifier = Modifier.height(30.dp))
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("Bénéfice potentiel", fontSize = 11.sp, color = KonabGreen)
+
+                    Spacer(modifier = Modifier.height(10.dp))
+                    HorizontalDivider(color = KonabBorder)
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Bénéfice potentiel estimé", fontSize = 12.sp, fontWeight = FontWeight.Medium)
                         Text(
-                            CurrencyFormatter.formatFCFA(potentialProfit),
+                            "+${CurrencyFormatter.formatFCFA(potentialProfit)}",
                             fontWeight = FontWeight.ExtraBold,
-                            color = KonabGreen,
-                            fontSize = 13.sp
+                            fontFamily = OutfitFontFamily,
+                            color = KonabSuccess,
+                            fontSize = 15.sp
                         )
                     }
                 }
@@ -295,6 +338,7 @@ private fun ProductStockItem(
     Card(
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = androidx.compose.foundation.BorderStroke(1.dp, KonabBorder),
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onEdit() }
@@ -343,7 +387,7 @@ private fun ProductStockItem(
                             modifier = Modifier
                                 .align(Alignment.BottomEnd)
                                 .size(13.dp)
-                                .background(if (isOut) KonabRed else KonabGoldDark, CircleShape)
+                                .background(if (isOut) KonabRed else Color(0xFFD97706), CircleShape)
                                 .border(1.5.dp, Color.White, CircleShape)
                         )
                     }
@@ -360,12 +404,14 @@ private fun ProductStockItem(
                     Text(
                         text = "${product.category} • Vente : ${CurrencyFormatter.formatFCFA(product.sellPrice)}",
                         fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Text(
                         text = "Achat : ${CurrencyFormatter.formatFCFA(product.buyPrice)} (Marge : +${CurrencyFormatter.formatFCFA(margin)})",
                         fontSize = 11.sp,
-                        color = KonabGreen
+                        fontWeight = FontWeight.SemiBold,
+                        color = KonabSuccess
                     )
                 }
             }
@@ -381,21 +427,21 @@ private fun ProductStockItem(
                     Icon(
                         imageVector = Icons.Default.Print,
                         contentDescription = "Imprimer étiquette",
-                        tint = KonabGreen,
+                        tint = KonabBlue,
                         modifier = Modifier.size(18.dp)
                     )
                 }
 
                 Column(horizontalAlignment = Alignment.End) {
                     Surface(
-                        color = if (isOut) KonabRedContainer else if (isLow) KonabGoldContainer else KonabGreenLight,
+                        color = if (isOut) KonabRedContainer else if (isLow) Color(0xFFFEF3C7) else KonabSuccessContainer,
                         shape = RoundedCornerShape(8.dp)
                     ) {
                         Text(
-                            text = "Stock : ${product.stockQuantity} ${product.unit}",
+                            text = if (isOut) "Épuisé (0)" else "Stock : ${product.stockQuantity} ${product.unit}",
                             fontWeight = FontWeight.Bold,
                             fontSize = 11.sp,
-                            color = if (isOut) KonabRed else if (isLow) KonabGoldDark else KonabGreenDark,
+                            color = if (isOut) KonabRed else if (isLow) Color(0xFFD97706) else KonabSuccess,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                         )
                     }

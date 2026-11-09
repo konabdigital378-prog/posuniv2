@@ -3,49 +3,50 @@ package com.example.ui.theme
 import androidx.compose.ui.graphics.Color
 
 // ==========================================
-// KONAB POS Official Brand Palette
+// KONAB POS Modern Brand Palette
 // ==========================================
-// Bleu principal : Confiance, sécurité, professionnalisme
-val KonabBlue = Color(0xFF073B9A)
-// Bleu foncé : Navigation, en-têtes et menus
-val KonabBlueDark = Color(0xFF06245E)
-// Bleu clair / Conteneurs
-val KonabBlueLight = Color(0xFFE8EEF9)
-val KonabBlueContainer = Color(0xFFD6E4FA)
+// Bleu royal saphir : Confiance, dynamisme, fluidité
+val KonabBlue = Color(0xFF0B4BD9)
+val KonabBlueDark = Color(0xFF071E54)
+val KonabBlueDeep = Color(0xFF041235)
+val KonabBlueLight = Color(0xFFEEF4FF)
+val KonabBlueContainer = Color(0xFFDCE8FE)
 
-// Orange principal : Rapidité, dynamisme, boutons d'action
-val KonabOrange = Color(0xFFFF7900)
-// Orange foncé pour états actifs/pressés
-val KonabOrangeDark = Color(0xFFD96300)
-// Orange clair : Badges, surbrillances et accents
-val KonabOrangeLight = Color(0xFFFFA43A)
-val KonabOrangeContainer = Color(0xFFFFF0E0)
+// Orange électrique : Vitesse, actions principales, encaissement
+val KonabOrange = Color(0xFFFF6F00)
+val KonabOrangeDark = Color(0xFFD65600)
+val KonabOrangeLight = Color(0xFFFF9438)
+val KonabOrangeContainer = Color(0xFFFFF3E6)
 
-// Alertes et Statuts
-val KonabRed = Color(0xFFE63946)
-val KonabRedLight = Color(0xFFFFEBEE)
-val KonabRedContainer = Color(0xFFFDD8D8)
+// Statuts & Indicateurs financiers
+val KonabSuccess = Color(0xFF059669)
+val KonabSuccessLight = Color(0xFFECFDF5)
+val KonabSuccessContainer = Color(0xFFD1FAE5)
 
-val KonabSuccess = Color(0xFF10B981)
-val KonabSuccessLight = Color(0xFFE6F7F0)
+val KonabRed = Color(0xFFDC2626)
+val KonabRedLight = Color(0xFFFEF2F2)
+val KonabRedContainer = Color(0xFFFEE2E2)
 
-// Fonds et Surfaces
-// Fond gris très clair officiel
-val KonabBackground = Color(0xFFF4F6FA)
+val KonabPurple = Color(0xFF7C3AED)
+val KonabPurpleLight = Color(0xFFF5F3FF)
+
+// Fonds et Surfaces modernes
+val KonabBackground = Color(0xFFF6F8FC)
 val KonabSurface = Color(0xFFFFFFFF)
-val KonabSurfaceVariant = Color(0xFFEBEFF6)
+val KonabSurfaceVariant = Color(0xFFEFF3FA)
+val KonabSurfaceElevated = Color(0xFFFFFFFF)
 
-// Typographie et Textes
-// Texte principal officiel
-val KonabTextPrimary = Color(0xFF17243B)
-val KonabTextSecondary = Color(0xFF5B6B84)
-val KonabTextMuted = Color(0xFF8F9FB5)
-val KonabBorder = Color(0xFFE2E8F2)
+// Typographie et Textes Slate haute lisibilité
+val KonabTextPrimary = Color(0xFF0F172A)
+val KonabTextSecondary = Color(0xFF475569)
+val KonabTextMuted = Color(0xFF94A3B8)
+val KonabBorder = Color(0xFFE2E8F0)
+val KonabBorderLight = Color(0xFFF1F5F9)
 
-val KonabCardShadow = Color(0x0F073B9A)
+val KonabCardShadow = Color(0x0C0B4BD9)
 
 // ==========================================
-// Compatibilité des vues existantes (Mappage direct vers le nouveau thème)
+// Alias de compatibilité
 // ==========================================
 val KonabGreen = KonabBlue
 val KonabGreenDark = KonabBlueDark

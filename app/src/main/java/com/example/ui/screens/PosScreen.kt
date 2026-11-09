@@ -96,14 +96,14 @@ fun PosScreen(
                         onClick = { showScanDialog = true },
                         modifier = Modifier.testTag("btn_barcode_scan")
                     ) {
-                        Icon(Icons.Default.QrCodeScanner, contentDescription = "Scanner code-barres", tint = KonabGreen)
+                        Icon(Icons.Default.QrCodeScanner, contentDescription = "Scanner code-barres", tint = KonabBlue)
                     }
                     if (cart.isNotEmpty()) {
                         IconButton(
                             onClick = { showProformaModal = true },
                             modifier = Modifier.testTag("btn_top_proforma")
                         ) {
-                            Icon(Icons.Default.Description, contentDescription = "Établir devis", tint = Color(0xFF0284C7))
+                            Icon(Icons.Default.Description, contentDescription = "Établir devis", tint = KonabBlue)
                         }
                         IconButton(onClick = onClearCart) {
                             Icon(Icons.Default.DeleteSweep, contentDescription = "Vider panier", tint = KonabRed)
@@ -118,8 +118,8 @@ fun PosScreen(
                 Surface(
                     color = MaterialTheme.colorScheme.surface,
                     tonalElevation = 8.dp,
-                    shadowElevation = 8.dp,
-                    shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
+                    shadowElevation = 10.dp,
+                    shape = RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp)
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Row(
@@ -131,17 +131,30 @@ fun PosScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier.clickable { showCartDetailsSheet = true }
                             ) {
+                                Surface(
+                                    color = KonabBlueContainer,
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Text(
+                                        text = "${cart.sumOf { it.quantity }} art.",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp,
+                                        color = KonabBlue,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = "Panier (${cart.sumOf { it.quantity }})",
+                                    text = "Panier en cours",
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 15.sp
                                 )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Détails", tint = KonabGreen)
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Détails", tint = KonabBlue)
                             }
 
                             TextButton(onClick = { showCartDetailsSheet = true }) {
-                                Text("Voir tout", color = KonabGreen, fontSize = 13.sp)
+                                Text("Détails", color = KonabBlue, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                             }
                         }
 
@@ -162,12 +175,13 @@ fun PosScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column {
-                                Text("Total", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("Total TTC", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 Text(
                                     text = CurrencyFormatter.formatFCFA(totalAmount),
                                     fontWeight = FontWeight.ExtraBold,
-                                    fontSize = 18.sp,
-                                    color = KonabGreen
+                                    fontFamily = OutfitFontFamily,
+                                    fontSize = 20.sp,
+                                    color = KonabBlue
                                 )
                             }
 
@@ -180,14 +194,14 @@ fun PosScreen(
                                         .testTag("btn_cart_proforma"),
                                     contentPadding = PaddingValues(horizontal = 12.dp)
                                 ) {
-                                    Icon(Icons.Default.Description, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color(0xFF0284C7))
+                                    Icon(Icons.Default.Description, contentDescription = null, modifier = Modifier.size(16.dp), tint = KonabBlue)
                                     Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Devis", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color(0xFF0284C7))
+                                    Text("Devis", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = KonabBlue)
                                 }
 
                                 Button(
                                     onClick = onProceedToPayment,
-                                    colors = ButtonDefaults.buttonColors(containerColor = KonabGreen),
+                                    colors = ButtonDefaults.buttonColors(containerColor = KonabBlue),
                                     shape = RoundedCornerShape(12.dp),
                                     modifier = Modifier
                                         .height(48.dp)
@@ -229,7 +243,7 @@ fun PosScreen(
                             Icon(
                                 Icons.Default.QrCodeScanner,
                                 contentDescription = "Scanner code-barres",
-                                tint = KonabGreen
+                                tint = KonabBlue
                             )
                         }
                     }
@@ -242,19 +256,25 @@ fun PosScreen(
                     .testTag("input_search_product")
             )
 
-            // Category Filter Chips
+            // Category Filter Chips with dynamic counts
             LazyRow(
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 items(categories) { cat ->
                     val isSelected = selectedCategory == cat
+                    val catCount = if (cat == "Tous") products.size else products.count { it.category.equals(cat, ignoreCase = true) }
                     FilterChip(
                         selected = isSelected,
                         onClick = { selectedCategory = cat },
-                        label = { Text(cat, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
+                        label = {
+                            Text(
+                                text = if (cat == "Tous") "Tous ($catCount)" else "$cat ($catCount)",
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                            )
+                        },
                         colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = KonabGreen,
+                            selectedContainerColor = KonabBlue,
                             selectedLabelColor = Color.White
                         )
                     )
@@ -619,6 +639,9 @@ private fun ProductGridItem(
     countInCart: Int,
     onAdd: () -> Unit
 ) {
+    val isOut = product.stockQuantity <= 0
+    val isLow = product.stockQuantity in 1..product.minStockAlert
+
     Card(
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -627,7 +650,7 @@ private fun ProductGridItem(
             .clickable { onAdd() }
             .border(
                 width = if (countInCart > 0) 2.dp else 1.dp,
-                color = if (countInCart > 0) KonabGreen else KonabBorder,
+                color = if (countInCart > 0) KonabBlue else KonabBorder,
                 shape = RoundedCornerShape(16.dp)
             )
             .testTag("product_card_${product.name}")
@@ -647,7 +670,7 @@ private fun ProductGridItem(
 
                 // Category tag on top-left of image
                 Surface(
-                    color = Color.Black.copy(alpha = 0.55f),
+                    color = Color.Black.copy(alpha = 0.6f),
                     shape = RoundedCornerShape(topStart = 12.dp, bottomEnd = 8.dp),
                     modifier = Modifier.align(Alignment.TopStart)
                 ) {
@@ -655,7 +678,7 @@ private fun ProductGridItem(
                         text = product.category,
                         color = Color.White,
                         fontSize = 10.sp,
-                        fontWeight = FontWeight.Medium,
+                        fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                         maxLines = 1
                     )
@@ -699,14 +722,14 @@ private fun ProductGridItem(
                             .align(Alignment.TopEnd)
                             .padding(6.dp)
                             .size(26.dp)
-                            .background(KonabGreen, CircleShape)
+                            .background(KonabBlue, CircleShape)
                             .border(1.5.dp, Color.White, CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "$countInCart",
+                            text = "+$countInCart",
                             color = Color.White,
-                            fontSize = 12.sp,
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.ExtraBold
                         )
                     }
@@ -723,13 +746,23 @@ private fun ProductGridItem(
                 overflow = TextOverflow.Ellipsis
             )
 
-            Text(
-                text = "Stock : ${product.stockQuantity} ${product.unit}",
-                fontSize = 11.sp,
-                color = if (product.stockQuantity <= product.minStockAlert) KonabRed else MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Spacer(modifier = Modifier.height(3.dp))
 
-            Spacer(modifier = Modifier.height(6.dp))
+            // Stock Pill Badge
+            Surface(
+                color = if (isOut) KonabRedContainer else if (isLow) Color(0xFFFEF3C7) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                shape = RoundedCornerShape(6.dp)
+            ) {
+                Text(
+                    text = if (isOut) "Épuisé" else if (isLow) "Faible (${product.stockQuantity})" else "Stock : ${product.stockQuantity} ${product.unit}",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (isOut) KonabRed else if (isLow) Color(0xFFD97706) else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -739,17 +772,23 @@ private fun ProductGridItem(
                 Text(
                     text = CurrencyFormatter.formatFCFA(product.sellPrice),
                     fontWeight = FontWeight.ExtraBold,
-                    color = KonabGreen,
-                    fontSize = 13.sp
+                    fontFamily = OutfitFontFamily,
+                    color = KonabBlue,
+                    fontSize = 15.sp
                 )
 
                 Box(
                     modifier = Modifier
-                        .size(28.dp)
-                        .background(KonabGreenLight, CircleShape),
+                        .size(30.dp)
+                        .background(KonabBlue, CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(Icons.Default.Add, contentDescription = "Ajouter", tint = KonabGreenDark, modifier = Modifier.size(18.dp))
+                    Icon(
+                        Icons.Default.Add,
+                        contentDescription = "Ajouter au panier",
+                        tint = Color.White,
+                        modifier = Modifier.size(18.dp)
+                    )
                 }
             }
         }

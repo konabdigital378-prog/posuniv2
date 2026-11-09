@@ -32,8 +32,10 @@ import androidx.compose.ui.unit.sp
 import com.example.data.local.entity.SaleEntity
 import com.example.data.local.entity.SaleItemEntity
 import com.example.data.local.entity.ShopProfileEntity
+import androidx.compose.ui.graphics.asImageBitmap
 import com.example.ui.theme.*
 import com.example.util.CurrencyFormatter
+import com.example.util.QrCodeHelper
 import com.example.util.ReceiptPrinterHelper
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -121,37 +123,40 @@ fun ReceiptViewScreen(
                             .padding(20.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        // Shop Header & Konab POS Circular Logo
+                        // Shop Header & Official Konab POS Logo
                         Surface(
                             shape = CircleShape,
                             color = Color.White,
-                            shadowElevation = 2.dp,
-                            border = BorderStroke(1.dp, KonabBorder),
-                            modifier = Modifier.size(52.dp)
+                            shadowElevation = 3.dp,
+                            border = BorderStroke(2.dp, KonabBlueContainer),
+                            modifier = Modifier.size(64.dp)
                         ) {
                             Image(
                                 painter = painterResource(id = R.drawable.ic_konab_logo),
-                                contentDescription = "Logo KONAB POS",
+                                contentDescription = "Logo Officiel KONAB POS",
                                 contentScale = ContentScale.Fit,
                                 modifier = Modifier
-                                    .padding(2.dp)
+                                    .padding(4.dp)
                                     .fillMaxSize()
                             )
                         }
 
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(10.dp))
 
                         Text(
-                            text = shopProfile.name,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 18.sp,
-                            color = KonabBlueDark
+                            text = shopProfile.name.ifBlank { "KONAB POS" },
+                            fontWeight = FontWeight.Black,
+                            fontSize = 20.sp,
+                            color = KonabBlueDark,
+                            textAlign = TextAlign.Center
                         )
                         if (shopProfile.slogan.isNotBlank()) {
                             Text(
                                 text = shopProfile.slogan,
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = KonabOrange,
+                                textAlign = TextAlign.Center
                             )
                         }
                         Text(
@@ -242,18 +247,29 @@ fun ReceiptViewScreen(
                             Spacer(modifier = Modifier.height(4.dp))
                         }
 
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                        // Highlighted Total Net Row
+                        Surface(
+                            color = Color(0xFFEFF6FF),
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(1.dp, Color(0xFF93C5FD)),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("Total", fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                            Text(
-                                CurrencyFormatter.formatFCFA(sale.totalAmount),
-                                fontWeight = FontWeight.ExtraBold,
-                                fontSize = 16.sp,
-                                color = KonabGreenDark
-                            )
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("TOTAL NET TTC", fontWeight = FontWeight.ExtraBold, fontSize = 13.sp, color = KonabTextPrimary)
+                                Text(
+                                    text = CurrencyFormatter.formatFCFA(sale.totalAmount),
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontFamily = OutfitFontFamily,
+                                    fontSize = 19.sp,
+                                    color = KonabBlue
+                                )
+                            }
                         }
 
                         Spacer(modifier = Modifier.height(10.dp))
@@ -261,8 +277,8 @@ fun ReceiptViewScreen(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text("Mode de paiement :", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text(sale.paymentMethod, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                            Text("Mode de règlement :", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("${sale.paymentMethod} (${sale.paymentStatus})", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = KonabTextPrimary)
                         }
 
                         Spacer(modifier = Modifier.height(16.dp))
@@ -276,42 +292,62 @@ fun ReceiptViewScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
 
-                        Spacer(modifier = Modifier.height(16.dp))
+                        Spacer(modifier = Modifier.height(18.dp))
 
-                        // Barcode representation
-                        Canvas(modifier = Modifier
-                            .fillMaxWidth(0.6f)
-                            .height(30.dp)) {
-                            val barPattern = intArrayOf(2, 1, 3, 1, 1, 4, 2, 1, 3, 2, 1, 1, 2, 3, 1, 2, 4, 1, 2, 1)
-                            var currentX = 0f
-                            val h = size.height
-                            for (w in barPattern) {
-                                drawLine(
-                                    color = Color.Black,
-                                    start = androidx.compose.ui.geometry.Offset(currentX, 0f),
-                                    end = androidx.compose.ui.geometry.Offset(currentX, h),
-                                    strokeWidth = (w * 2).toFloat()
-                                )
-                                currentX += (w * 2 + 3).toFloat()
+                        // QR Code Authentic Verification
+                        val qrPayload = "KONAB-POS|TICKET:${sale.transactionNumber}|MONTANT:${sale.totalAmount}|DATE:${sale.timestamp}|BOUTIQUE:${shopProfile.name}"
+                        val qrBitmap = remember(sale.transactionNumber) {
+                            try {
+                                QrCodeHelper.generateQrBitmap(qrPayload, sizePx = 300, margin = 2)
+                            } catch (_: Exception) {
+                                null
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = sale.transactionNumber,
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 10.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color(0xFFF8FAFC), RoundedCornerShape(12.dp))
+                                .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(12.dp))
+                                .padding(12.dp)
+                        ) {
+                            if (qrBitmap != null) {
+                                Image(
+                                    bitmap = qrBitmap.asImageBitmap(),
+                                    contentDescription = "QR Code officiel du reçu de vente",
+                                    modifier = Modifier
+                                        .size(130.dp)
+                                        .padding(4.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "Scannez pour vérifier l'authenticité",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = KonabTextSecondary,
+                                textAlign = TextAlign.Center
+                            )
+                            Text(
+                                text = "Ticket N° : ${sale.transactionNumber}",
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = KonabBlue,
+                                textAlign = TextAlign.Center
+                            )
+                        }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(18.dp))
 
+                // Primary Thermal Print Button
                 Button(
                     onClick = { showBluetoothPrinterModal = true },
-                    colors = ButtonDefaults.buttonColors(containerColor = KonabGreen),
-                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = KonabBlue),
+                    shape = RoundedCornerShape(14.dp),
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(52.dp)
@@ -319,14 +355,15 @@ fun ReceiptViewScreen(
                 ) {
                     Icon(Icons.Default.Print, contentDescription = null, tint = Color.White)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Imprimer Ticket Thermique (58/80mm)", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    Text("Imprimer Ticket Thermique (58/80mm)", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 }
 
                 Spacer(modifier = Modifier.height(10.dp))
 
+                // Secondary Action Buttons Row
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Button(
                         onClick = {
@@ -341,23 +378,24 @@ fun ReceiptViewScreen(
                     ) {
                         Icon(Icons.Default.Share, contentDescription = null, tint = Color.White)
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("WhatsApp", color = Color.White, fontWeight = FontWeight.Bold)
+                        Text("WhatsApp", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                     }
 
                     OutlinedButton(
                         onClick = {
                             val pdf = ReceiptPrinterHelper.generateReceiptPdf(context, shopProfile, sale, items)
-                            Toast.makeText(context, "Reçu PDF exporté: ${pdf.name}", Toast.LENGTH_SHORT).show()
+                            ReceiptPrinterHelper.openReceiptPdf(context, pdf)
                         },
                         shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, KonabBlue),
                         modifier = Modifier
                             .weight(1f)
                             .height(48.dp)
                             .testTag("btn_receipt_pdf_bottom")
                     ) {
-                        Icon(Icons.Default.Description, contentDescription = null, tint = KonabGreen)
+                        Icon(Icons.Default.PictureAsPdf, contentDescription = null, tint = KonabBlue)
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("PDF", color = KonabGreen, fontWeight = FontWeight.Bold)
+                        Text("Ouvrir PDF", color = KonabBlue, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                     }
                 }
             }
