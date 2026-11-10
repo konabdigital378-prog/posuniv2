@@ -52,6 +52,10 @@ import com.example.util.ShopLogoHelper
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import com.example.data.remote.supabase.AgentDeploymentRecord
+import com.example.data.remote.supabase.AgentDeploymentStorage
+import com.example.data.remote.supabase.SupabaseSyncManager
+import kotlinx.coroutines.launch
 
 data class AgentUser(
     val id: String,
@@ -70,10 +74,20 @@ object AgentDirectory {
         AgentUser("SUPERVISEUR", "Direction Konab POS", "65 41 37 99", "National Burkina", "9999", "Superviseur Réseau")
     )
 
-    fun findAgent(id: String, pin: String): AgentUser? {
+    fun findAgent(id: String, pin: String, context: Context? = null): AgentUser? {
         val cleanId = id.trim().uppercase()
         val cleanPin = pin.trim()
-        return PRESET_AGENTS.find { it.id.equals(cleanId, ignoreCase = true) && it.pin == cleanPin }
+        val preset = PRESET_AGENTS.find { it.id.equals(cleanId, ignoreCase = true) && it.pin == cleanPin }
+        if (preset != null) return preset
+        if (context != null) {
+            val cached = AgentDeploymentStorage.getCloudAgents(context)
+            val match = cached.find {
+                (it.id.equals(cleanId, ignoreCase = true) || it.phone.replace(" ", "") == cleanId.replace(" ", "")) &&
+                it.pin == cleanPin
+            }
+            if (match != null) return match
+        }
+        return null
     }
 }
 

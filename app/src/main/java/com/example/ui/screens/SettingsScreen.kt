@@ -55,6 +55,7 @@ import androidx.compose.ui.unit.sp
 import com.example.data.local.entity.ShopProfileEntity
 import com.example.ui.navigation.KonabScreen
 import com.example.ui.theme.*
+import com.example.util.ApkShareHelper
 import com.example.util.BackupRestoreHelper
 import java.io.File
 
@@ -83,6 +84,17 @@ fun SettingsScreen(
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var isSharingApk by remember { mutableStateOf(false) }
+
+    val onShareApkWhatsApp: () -> Unit = {
+        scope.launch {
+            ApkShareHelper.shareApkOnWhatsApp(context) { loading ->
+                isSharingApk = loading
+            }
+        }
+    }
+
     val onShareApp: () -> Unit = {
         try {
             val shareText = """
@@ -161,13 +173,13 @@ fun SettingsScreen(
                 },
                 actions = {
                     IconButton(
-                        onClick = onShareApp,
+                        onClick = onShareApkWhatsApp,
                         modifier = Modifier.testTag("btn_share_settings_topbar")
                     ) {
                         Icon(
                             imageVector = Icons.Default.Share,
-                            contentDescription = "Partager l'application",
-                            tint = MaterialTheme.colorScheme.primary
+                            contentDescription = "Partager l'APK sur WhatsApp",
+                            tint = Color(0xFF25D366)
                         )
                     }
                     IconButton(
@@ -744,10 +756,25 @@ fun SettingsScreen(
                 HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
 
                 SettingsModernRow(
+                    icon = Icons.Default.Send,
+                    iconTint = Color(0xFF25D366),
+                    iconBg = Color(0xFFDCFCE7),
+                    title = "Partager le fichier APK sur WhatsApp",
+                    subtitle = "Envoyer l'installateur APK directement sur WhatsApp pour vos confrères",
+                    trailingValue = if (isSharingApk) "Préparation..." else "Envoyer APK",
+                    badgeText = "WHATSAPP",
+                    badgeColor = Color(0xFF25D366),
+                    onClick = onShareApkWhatsApp,
+                    testTag = "row_share_apk_whatsapp"
+                )
+
+                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+                SettingsModernRow(
                     icon = Icons.Default.Share,
                     iconTint = Color(0xFF073B9A),
                     iconBg = Color(0xFFE1ECF9),
-                    title = "Partager l'application",
+                    title = "Partager l'application (Message)",
                     subtitle = "Recommander Konab POS à vos confrères et partenaires",
                     trailingValue = "Partager",
                     badgeText = "RECOMMANDER",
@@ -771,7 +798,7 @@ fun SettingsScreen(
             }
 
             // ==========================================
-            // CARTE PROMOTIONNELLE : PARTAGER L'APPLICATION
+            // CARTE PROMOTIONNELLE : PARTAGER L'APPLICATION & FICHIER APK
             // ==========================================
             Card(
                 modifier = Modifier
@@ -795,25 +822,42 @@ fun SettingsScreen(
                             modifier = Modifier
                                 .size(46.dp)
                                 .clip(CircleShape)
-                                .background(Color(0xFFFF7900)),
+                                .background(Color(0xFF25D366)),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Share,
-                                contentDescription = "Partager",
+                                imageVector = Icons.Default.Send,
+                                contentDescription = "WhatsApp APK",
                                 tint = Color.White,
                                 modifier = Modifier.size(22.dp)
                             )
                         }
                         Column(modifier = Modifier.weight(1f)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = "Transférer l'APK Konab POS",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 15.sp,
+                                    color = Color.White
+                                )
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = Color(0xFF25D366)
+                                ) {
+                                    Text(
+                                        text = "WHATSAPP",
+                                        color = Color.White,
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
                             Text(
-                                text = "Recommander Konab POS",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 15.sp,
-                                color = Color.White
-                            )
-                            Text(
-                                text = "Faites découvrir Konab POS à vos proches et confrères commerçants !",
+                                text = "Envoyez le fichier APK directement sur WhatsApp pour que vos collègues puissent installer l'application immédiatement.",
                                 fontSize = 12.sp,
                                 color = Color(0xFFCBD5E1),
                                 lineHeight = 16.sp
@@ -823,28 +867,72 @@ fun SettingsScreen(
 
                     Spacer(modifier = Modifier.height(14.dp))
 
+                    // Bouton Principal : Partage APK WhatsApp
                     Button(
+                        onClick = onShareApkWhatsApp,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(50.dp)
+                            .testTag("btn_share_apk_whatsapp_action"),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF25D366),
+                            contentColor = Color.White
+                        ),
+                        enabled = !isSharingApk
+                    ) {
+                        if (isSharingApk) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                color = Color.White,
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = "Préparation de l'APK...",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Send,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Partager le fichier APK sur WhatsApp",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Bouton Secondaire : Recommander par texte
+                    OutlinedButton(
                         onClick = onShareApp,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(48.dp)
+                            .height(42.dp)
                             .testTag("btn_share_app_action"),
                         shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFFFF7900),
-                            contentColor = Color.White
-                        )
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = Color(0xFFFFA43A)
+                        ),
+                        border = BorderStroke(1.dp, Color(0xFFFFA43A).copy(alpha = 0.5f))
                     ) {
                         Icon(
                             imageVector = Icons.Default.Share,
                             contentDescription = null,
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Partager l'application",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp
+                            text = "Partager le lien d'invitation",
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 13.sp
                         )
                     }
                 }

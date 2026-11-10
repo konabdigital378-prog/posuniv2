@@ -368,4 +368,65 @@ class SupabaseSyncManager(
         }
         return res
     }
+
+    suspend fun refreshDeploymentsForAgent(agentId: String): Result<List<AgentDeploymentRecord>> {
+        val cleanId = agentId.trim().uppercase()
+        if (SupabaseConfig.isConfigured) {
+            val res = apiClient.fetchAgentDeployments(cleanId)
+            if (res.isSuccess) {
+                val list = res.getOrDefault(emptyList())
+                AgentDeploymentStorage.saveCloudDeployments(context, list)
+                return Result.success(list)
+            }
+        }
+        return Result.success(AgentDeploymentStorage.getDeploymentsForAgent(context, cleanId))
+    }
+
+    suspend fun registerAgentOnline(agent: com.example.ui.screens.AgentUser): Result<com.example.ui.screens.AgentUser> {
+        // Save locally first for instant offline readiness
+        AgentDeploymentStorage.registerLocalAgent(context, agent)
+        AgentDeploymentStorage.saveAgentSession(context, agent)
+        if (SupabaseConfig.isConfigured) {
+            val cloudRes = apiClient.registerCloudAgent(agent)
+            if (cloudRes.isSuccess) {
+                return Result.success(agent)
+            }
+        }
+        return Result.success(agent)
+    }
+
+    suspend fun loginAgentOnline(idOrPhone: String, pin: String): Result<com.example.ui.screens.AgentUser?> {
+        val cleanInput = idOrPhone.trim().uppercase()
+        val cleanPin = pin.trim()
+
+        // 1. First check remote Supabase for cross-device authenticity
+        if (SupabaseConfig.isConfigured) {
+            val cloudRes = apiClient.authenticateCloudAgent(cleanInput, cleanPin)
+            if (cloudRes.isSuccess && cloudRes.getOrNull() != null) {
+                val matchedAgent = cloudRes.getOrNull()!!
+                AgentDeploymentStorage.saveAgentSession(context, matchedAgent)
+                refreshDeploymentsForAgent(matchedAgent.id)
+                return Result.success(matchedAgent)
+            }
+        }
+
+        // 2. Offline fallback: Check local cached agents & presets
+        val allKnownAgents = AgentDeploymentStorage.getCloudAgents(context).toMutableList()
+        val preset = com.example.ui.screens.AgentDirectory.findAgent(cleanInput, cleanPin)
+        if (preset != null) {
+            AgentDeploymentStorage.saveAgentSession(context, preset)
+            return Result.success(preset)
+        }
+
+        val cachedMatch = allKnownAgents.find {
+            (it.id.equals(cleanInput, ignoreCase = true) || it.phone.replace(" ", "") == cleanInput.replace(" ", "")) &&
+            it.pin == cleanPin
+        }
+        if (cachedMatch != null) {
+            AgentDeploymentStorage.saveAgentSession(context, cachedMatch)
+            return Result.success(cachedMatch)
+        }
+
+        return Result.success(null)
+    }
 }

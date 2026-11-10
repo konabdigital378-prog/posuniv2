@@ -377,7 +377,8 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
         adminName: String,
         adminPhone: String,
         adminPin: String,
-        preloadDemoData: Boolean = false
+        preloadDemoData: Boolean = false,
+        subscriptionTier: String = "Premium"
     ) {
         viewModelScope.launch {
             val profile = com.example.data.local.entity.ShopProfileEntity(
@@ -391,7 +392,7 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
                 businessType = businessType,
                 adminPin = adminPin,
                 cashierPin = "0000",
-                subscriptionTier = "Premium",
+                subscriptionTier = subscriptionTier,
                 isConfigured = true,
                 receiptFooter = "Merci pour votre confiance ! À très bientôt !"
             )
@@ -405,7 +406,8 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
                 adminName = adminName,
                 adminPhone = adminPhone,
                 adminPin = adminPin,
-                preloadDemoData = preloadDemoData
+                preloadDemoData = preloadDemoData,
+                subscriptionTier = subscriptionTier
             )
             withContext(kotlinx.coroutines.Dispatchers.IO) {
                 try {

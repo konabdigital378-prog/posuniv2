@@ -387,7 +387,8 @@ class KonabRepository(
         adminName: String = "Gérant",
         adminPhone: String = "",
         adminPin: String = "1234",
-        preloadDemoData: Boolean = false
+        preloadDemoData: Boolean = false,
+        subscriptionTier: String = "Premium"
     ) {
         val effectiveAdminPhone = if (adminPhone.isNotBlank()) adminPhone else phone
 
@@ -416,7 +417,7 @@ class KonabRepository(
             businessType = businessType,
             adminPin = adminPin,
             cashierPin = "0000",
-            subscriptionTier = "Premium",
+            subscriptionTier = subscriptionTier,
             isConfigured = true,
             receiptFooter = "Merci pour votre confiance ! À très bientôt !"
         )

@@ -60,12 +60,53 @@ data class AgentDeploymentRecord(
 
 object AgentDeploymentStorage {
     private const val PREFS_NAME = "konab_agent_deployments_prefs"
+    private const val SESSION_PREFS_NAME = "konab_agent_session_prefs"
     private const val KEY_DEPLOYMENTS = "saved_deployments_json"
     private const val KEY_CLOUD_AGENTS = "saved_cloud_agents_json"
 
     private fun getPrefs(context: Context): SharedPreferences {
         return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     }
+
+    private fun getSessionPrefs(context: Context): SharedPreferences {
+        return context.getSharedPreferences(SESSION_PREFS_NAME, Context.MODE_PRIVATE)
+    }
+
+    // --- AGENT SESSION PERSISTENCE ---
+
+    @Synchronized
+    fun saveAgentSession(context: Context, agent: AgentUser) {
+        getSessionPrefs(context).edit()
+            .putString("agent_id", agent.id)
+            .putString("agent_name", agent.name)
+            .putString("agent_phone", agent.phone)
+            .putString("agent_zone", agent.zone)
+            .putString("agent_pin", agent.pin)
+            .putString("agent_role", agent.role)
+            .putLong("login_time", System.currentTimeMillis())
+            .apply()
+        // Also register in known local agents
+        registerLocalAgent(context, agent)
+    }
+
+    @Synchronized
+    fun getSavedAgentSession(context: Context): AgentUser? {
+        val sp = getSessionPrefs(context)
+        val id = sp.getString("agent_id", null) ?: return null
+        val name = sp.getString("agent_name", null) ?: return null
+        val phone = sp.getString("agent_phone", "") ?: ""
+        val zone = sp.getString("agent_zone", "") ?: ""
+        val pin = sp.getString("agent_pin", "") ?: ""
+        val role = sp.getString("agent_role", "Agent Déployeur") ?: "Agent Déployeur"
+        return AgentUser(id = id, name = name, phone = phone, zone = zone, pin = pin, role = role)
+    }
+
+    @Synchronized
+    fun clearAgentSession(context: Context) {
+        getSessionPrefs(context).edit().clear().apply()
+    }
+
+    // --- DEPLOYMENTS & ACTIVATED SHOPS ---
 
     @Synchronized
     fun saveDeployment(context: Context, deployment: AgentDeploymentRecord) {
@@ -77,8 +118,33 @@ object AgentDeploymentStorage {
             current.add(0, deployment)
         }
         val array = JSONArray()
-        current.take(100).forEach { array.put(it.toJson()) }
+        current.take(200).forEach { array.put(it.toJson()) }
         getPrefs(context).edit().putString(KEY_DEPLOYMENTS, array.toString()).apply()
+    }
+
+    @Synchronized
+    fun saveCloudDeployments(context: Context, deployments: List<AgentDeploymentRecord>) {
+        val current = getAllDeployments(context).toMutableList()
+        deployments.forEach { d ->
+            val index = current.indexOfFirst { it.id == d.id }
+            if (index >= 0) {
+                current[index] = d.copy(isSynced = true)
+            } else {
+                current.add(d.copy(isSynced = true))
+            }
+        }
+        current.sortByDescending { it.timestamp }
+        val array = JSONArray()
+        current.take(300).forEach { array.put(it.toJson()) }
+        getPrefs(context).edit().putString(KEY_DEPLOYMENTS, array.toString()).apply()
+    }
+
+    @Synchronized
+    fun getDeploymentsForAgent(context: Context, agentId: String): List<AgentDeploymentRecord> {
+        val clean = agentId.trim().uppercase()
+        return getAllDeployments(context).filter {
+            it.agentId.equals(clean, ignoreCase = true) || it.agentId.contains(clean, ignoreCase = true)
+        }
     }
 
     @Synchronized
@@ -106,6 +172,20 @@ object AgentDeploymentStorage {
         } catch (_: Exception) {
             emptyList()
         }
+    }
+
+    // --- AGENTS DIRECTORY ---
+
+    @Synchronized
+    fun registerLocalAgent(context: Context, agent: AgentUser) {
+        val current = getCloudAgents(context).toMutableList()
+        val index = current.indexOfFirst { it.id.equals(agent.id, ignoreCase = true) }
+        if (index >= 0) {
+            current[index] = agent
+        } else {
+            current.add(agent)
+        }
+        saveCloudAgents(context, current)
     }
 
     @Synchronized

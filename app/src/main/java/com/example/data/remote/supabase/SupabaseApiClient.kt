@@ -631,6 +631,33 @@ class SupabaseApiClient(
         }
     }
 
+    suspend fun fetchAgentDeployments(agentId: String? = null): Result<List<AgentDeploymentRecord>> = withContext(Dispatchers.IO) {
+        if (!SupabaseConfig.isConfigured) return@withContext Result.success(emptyList())
+        try {
+            val endpoint = if (!agentId.isNullOrBlank()) {
+                "agent_deployments?agent_id=eq.${agentId.trim().uppercase()}&order=timestamp.desc"
+            } else {
+                "agent_deployments?select=*&order=timestamp.desc"
+            }
+            val request = buildRequest(endpoint)
+            client.newCall(request).execute().use { resp ->
+                if (!resp.isSuccessful) {
+                    val err = resp.body?.string() ?: ""
+                    return@withContext Result.failure(IOException("Échec chargement déploiements (${resp.code}): $err"))
+                }
+                val body = resp.body?.string() ?: "[]"
+                val jsonArr = JSONArray(body)
+                val list = mutableListOf<AgentDeploymentRecord>()
+                for (i in 0 until jsonArr.length()) {
+                    list.add(AgentDeploymentRecord.fromJson(jsonArr.getJSONObject(i)).copy(isSynced = true))
+                }
+                Result.success(list)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     suspend fun fetchCloudAgents(): Result<List<com.example.ui.screens.AgentUser>> = withContext(Dispatchers.IO) {
         if (!SupabaseConfig.isConfigured) return@withContext Result.success(emptyList())
         try {
@@ -684,10 +711,39 @@ class SupabaseApiClient(
             )
             client.newCall(request).execute().use { resp ->
                 if (resp.isSuccessful) Result.success(Unit)
-                else Result.failure(IOException("Échec enregistrement agent (${resp.code})"))
+                else {
+                    val err = resp.body?.string() ?: ""
+                    Result.failure(IOException("Échec enregistrement agent (${resp.code}): $err"))
+                }
             }
         } catch (e: Exception) {
             Result.failure(e)
+        }
+    }
+
+    suspend fun registerCloudAgent(agent: com.example.ui.screens.AgentUser): Result<com.example.ui.screens.AgentUser> = withContext(Dispatchers.IO) {
+        val pushRes = pushCloudAgent(agent)
+        if (pushRes.isSuccess) {
+            Result.success(agent)
+        } else {
+            Result.failure(pushRes.exceptionOrNull() ?: IOException("Erreur enregistrement agent"))
+        }
+    }
+
+    suspend fun authenticateCloudAgent(idOrPhone: String, pin: String): Result<com.example.ui.screens.AgentUser?> = withContext(Dispatchers.IO) {
+        val cleanInput = idOrPhone.trim()
+        val cleanPin = pin.trim()
+        val agentsRes = fetchCloudAgents()
+        if (agentsRes.isSuccess) {
+            val agents = agentsRes.getOrDefault(emptyList())
+            val matched = agents.find { agt ->
+                (agt.id.equals(cleanInput, ignoreCase = true) ||
+                 agt.phone.replace(" ", "") == cleanInput.replace(" ", "")) &&
+                agt.pin == cleanPin
+            }
+            Result.success(matched)
+        } else {
+            Result.failure(agentsRes.exceptionOrNull() ?: IOException("Impossible de contacter Supabase"))
         }
     }
 }

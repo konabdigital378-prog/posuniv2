@@ -198,6 +198,11 @@ class KonabPosUnitTest {
         assertNotNull(supervisor)
         assertEquals("Direction Konab POS", supervisor?.name)
     }
+
+    @Test
+    fun testApkShareHelperExists() {
+        assertNotNull(com.example.util.ApkShareHelper)
+    }
 }
 
 

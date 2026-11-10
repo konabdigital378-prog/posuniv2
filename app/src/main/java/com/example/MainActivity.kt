@@ -98,7 +98,11 @@ class MainActivity : ComponentActivity() {
                             when (currentScreen) {
                                 KonabScreen.ONBOARDING -> {
                                     SetupWizard(
-                                        onComplete = { name, slogan, phone, address, city, currency, logoIcon, type, adminName, adminPhone, pin, preloadDemo ->
+                                        shopProfile = shopProfile,
+                                        onEnterShop = {
+                                            viewModel.resetTo(KonabScreen.DASHBOARD)
+                                        },
+                                        onComplete = { name, slogan, phone, address, city, currency, logoIcon, type, adminName, adminPhone, pin, preloadDemo, subscriptionTier ->
                                             viewModel.completeOnboarding(
                                                 shopName = name,
                                                 slogan = slogan,
@@ -109,7 +113,8 @@ class MainActivity : ComponentActivity() {
                                                 adminName = adminName,
                                                 adminPhone = adminPhone,
                                                 adminPin = pin,
-                                                preloadDemoData = preloadDemo
+                                                preloadDemoData = preloadDemo,
+                                                subscriptionTier = subscriptionTier
                                             )
                                         }
                                     )

@@ -29,6 +29,7 @@ data class SetupUiState(
     val adminPin: String = "1234",
     val confirmPin: String = "1234",
     val preloadDemoData: Boolean = false,
+    val selectedSubscriptionTier: String = "Professionnel",
     val validationError: String? = null,
     val isSubmitting: Boolean = false,
     val isCompleted: Boolean = false,
@@ -108,6 +109,10 @@ class SetupViewModel(application: Application) : AndroidViewModel(application) {
 
     fun updatePreloadDemoData(preload: Boolean) {
         _uiState.update { it.copy(preloadDemoData = preload) }
+    }
+
+    fun updateSubscriptionTier(tier: String) {
+        _uiState.update { it.copy(selectedSubscriptionTier = tier) }
     }
 
     fun validateBusinessInfo(): Boolean {
@@ -203,9 +208,18 @@ class SetupViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update { it.copy(currentStep = step, validationError = null) }
     }
 
-    fun completeSetup(onSuccess: () -> Unit) {
+    fun completeSetup(
+        onSuccess: () -> Unit
+    ) {
+        completeSetup(tier = _uiState.value.selectedSubscriptionTier, onSuccess = onSuccess)
+    }
+
+    fun completeSetup(
+        tier: String,
+        onSuccess: () -> Unit
+    ) {
         val state = _uiState.value
-        _uiState.update { it.copy(isSubmitting = true) }
+        _uiState.update { it.copy(isSubmitting = true, selectedSubscriptionTier = tier) }
 
         viewModelScope.launch {
             // 1. Save to DataStore
@@ -235,7 +249,8 @@ class SetupViewModel(application: Application) : AndroidViewModel(application) {
                 adminName = state.adminName.trim(),
                 adminPhone = state.adminPhone.trim().ifBlank { state.phone.trim() },
                 adminPin = state.adminPin,
-                preloadDemoData = state.preloadDemoData
+                preloadDemoData = state.preloadDemoData,
+                subscriptionTier = tier
             )
 
             val profile = com.example.data.local.entity.ShopProfileEntity(
@@ -249,7 +264,7 @@ class SetupViewModel(application: Application) : AndroidViewModel(application) {
                 businessType = state.selectedBusinessType,
                 adminPin = state.adminPin,
                 cashierPin = "0000",
-                subscriptionTier = "Premium",
+                subscriptionTier = tier,
                 isConfigured = true,
                 receiptFooter = "Merci pour votre confiance ! À très bientôt !"
             )
