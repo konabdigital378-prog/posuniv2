@@ -68,7 +68,7 @@ object SupabaseConfig {
 
     val rawUrl: String get() {
         val override = customUrlOverride
-        if (!override.isNullOrBlank() && override.startsWith("http") && !override.contains("your-project") && !override.contains("alcqwqtmdvxbjjwvnpkv")) {
+        if (!override.isNullOrBlank() && override.startsWith("http") && !override.contains("your-project") && !override.contains("your_project") && !override.contains("alcqwqtmdvxbjjwvnpkv")) {
             return override
         }
         val buildVal = try {
@@ -76,7 +76,7 @@ object SupabaseConfig {
         } catch (e: Exception) {
             ""
         }
-        if (buildVal.isNotBlank() && buildVal.startsWith("http") && !buildVal.contains("your-project") && !buildVal.contains("alcqwqtmdvxbjjwvnpkv")) {
+        if (buildVal.isNotBlank() && buildVal.startsWith("http") && !buildVal.contains("your-project") && !buildVal.contains("your_project") && !buildVal.contains("alcqwqtmdvxbjjwvnpkv")) {
             return buildVal
         }
         return DEFAULT_SUPABASE_URL
@@ -84,7 +84,7 @@ object SupabaseConfig {
 
     val rawAnonKey: String get() {
         val override = customKeyOverride
-        if (!override.isNullOrBlank() && !override.contains("your-supabase") && override.length > 20) {
+        if (!override.isNullOrBlank() && !override.contains("your-supabase") && !override.contains("your_supabase") && !override.contains("placeholder") && override.length > 20) {
             return override
         }
         val buildVal = try {
@@ -92,7 +92,7 @@ object SupabaseConfig {
         } catch (e: Exception) {
             ""
         }
-        if (buildVal.isNotBlank() && !buildVal.contains("your-supabase") && buildVal.length > 20) {
+        if (buildVal.isNotBlank() && !buildVal.contains("your-supabase") && !buildVal.contains("your_supabase") && !buildVal.contains("placeholder") && buildVal.length > 20) {
             return buildVal
         }
         return DEFAULT_SUPABASE_ANON_KEY

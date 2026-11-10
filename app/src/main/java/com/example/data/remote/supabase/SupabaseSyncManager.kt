@@ -334,4 +334,38 @@ class SupabaseSyncManager(
             return Result.failure(e)
         }
     }
+
+    // --- AGENT DEPLOYMENTS CLOUD SYNC ---
+
+    suspend fun syncAgentDeployments(): Result<Int> {
+        if (!SupabaseConfig.isConfigured) {
+            return Result.failure(IllegalStateException("Supabase non configuré"))
+        }
+        val all = AgentDeploymentStorage.getAllDeployments(context)
+        val pending = all.filter { !it.isSynced }
+        if (pending.isEmpty()) {
+            return Result.success(0)
+        }
+        val res = apiClient.pushAgentDeployments(pending)
+        if (res.isSuccess) {
+            pending.forEach { d ->
+                AgentDeploymentStorage.markAsSynced(context, d.id)
+            }
+        }
+        return res
+    }
+
+    suspend fun refreshAgentsFromCloud(): Result<List<com.example.ui.screens.AgentUser>> {
+        if (!SupabaseConfig.isConfigured) {
+            return Result.failure(IllegalStateException("Supabase non configuré"))
+        }
+        val res = apiClient.fetchCloudAgents()
+        if (res.isSuccess) {
+            val list = res.getOrDefault(emptyList())
+            if (list.isNotEmpty()) {
+                AgentDeploymentStorage.saveCloudAgents(context, list)
+            }
+        }
+        return res
+    }
 }

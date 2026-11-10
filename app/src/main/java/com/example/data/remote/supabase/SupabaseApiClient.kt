@@ -588,4 +588,106 @@ class SupabaseApiClient(
             Result.failure(e)
         }
     }
+
+    // --- AGENTS & DEPLOYMENTS ---
+
+    suspend fun pushAgentDeployments(deployments: List<AgentDeploymentRecord>): Result<Int> = withContext(Dispatchers.IO) {
+        if (!SupabaseConfig.isConfigured || deployments.isEmpty()) return@withContext Result.success(0)
+        try {
+            val array = JSONArray()
+            deployments.forEach { d ->
+                val obj = JSONObject().apply {
+                    put("id", d.id)
+                    put("agent_id", d.agentId)
+                    put("agent_name", d.agentName)
+                    put("agent_phone", d.agentPhone)
+                    put("shop_name", d.shopName)
+                    put("shop_phone", d.shopPhone)
+                    put("shop_city", d.shopCity)
+                    put("tier", d.tier)
+                    put("duration_days", d.durationDays)
+                    put("license_key", d.licenseKey)
+                    put("notes", d.notes)
+                    put("timestamp", d.timestamp)
+                }
+                array.put(obj)
+            }
+            val request = buildRequest(
+                endpoint = "agent_deployments",
+                method = "POST",
+                bodyString = array.toString(),
+                extraHeaders = mapOf("Prefer" to "resolution=merge-duplicates")
+            )
+            client.newCall(request).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    Result.success(deployments.size)
+                } else {
+                    val err = resp.body?.string() ?: ""
+                    Result.failure(IOException("Échec synchronisation déploiements (${resp.code}): $err"))
+                }
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun fetchCloudAgents(): Result<List<com.example.ui.screens.AgentUser>> = withContext(Dispatchers.IO) {
+        if (!SupabaseConfig.isConfigured) return@withContext Result.success(emptyList())
+        try {
+            val request = buildRequest("agents?select=*&order=id.asc")
+            client.newCall(request).execute().use { resp ->
+                if (!resp.isSuccessful) {
+                    val err = resp.body?.string() ?: ""
+                    return@withContext Result.failure(IOException("Échec chargement agents (${resp.code}): $err"))
+                }
+                val body = resp.body?.string() ?: "[]"
+                val jsonArr = JSONArray(body)
+                val list = mutableListOf<com.example.ui.screens.AgentUser>()
+                for (i in 0 until jsonArr.length()) {
+                    val o = jsonArr.getJSONObject(i)
+                    list.add(
+                        com.example.ui.screens.AgentUser(
+                            id = o.optString("id", ""),
+                            name = o.optString("name", "Agent"),
+                            phone = o.optString("phone", ""),
+                            zone = o.optString("zone", "National"),
+                            pin = o.optString("pin", "1234"),
+                            role = o.optString("role", "Agent Déployeur")
+                        )
+                    )
+                }
+                Result.success(list)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun pushCloudAgent(agent: com.example.ui.screens.AgentUser): Result<Unit> = withContext(Dispatchers.IO) {
+        if (!SupabaseConfig.isConfigured) return@withContext Result.failure(IllegalStateException("Supabase non configuré"))
+        try {
+            val obj = JSONObject().apply {
+                put("id", agent.id)
+                put("name", agent.name)
+                put("phone", agent.phone)
+                put("zone", agent.zone)
+                put("pin", agent.pin)
+                put("role", agent.role)
+                put("is_active", true)
+            }
+            val array = JSONArray().apply { put(obj) }
+            val request = buildRequest(
+                endpoint = "agents",
+                method = "POST",
+                bodyString = array.toString(),
+                extraHeaders = mapOf("Prefer" to "resolution=merge-duplicates")
+            )
+            client.newCall(request).execute().use { resp ->
+                if (resp.isSuccessful) Result.success(Unit)
+                else Result.failure(IOException("Échec enregistrement agent (${resp.code})"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
 }

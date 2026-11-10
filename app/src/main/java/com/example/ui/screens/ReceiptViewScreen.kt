@@ -123,23 +123,13 @@ fun ReceiptViewScreen(
                             .padding(20.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        // Shop Header & Official Konab POS Logo
-                        Surface(
+                        // Shop Header & Logo
+                        com.example.util.ShopLogoAvatar(
+                            logoUri = shopProfile.logoUri,
+                            size = 64.dp,
                             shape = CircleShape,
-                            color = Color.White,
-                            shadowElevation = 3.dp,
-                            border = BorderStroke(2.dp, KonabBlueContainer),
-                            modifier = Modifier.size(64.dp)
-                        ) {
-                            Image(
-                                painter = painterResource(id = R.drawable.ic_konab_logo),
-                                contentDescription = "Logo Officiel KONAB POS",
-                                contentScale = ContentScale.Fit,
-                                modifier = Modifier
-                                    .padding(4.dp)
-                                    .fillMaxSize()
-                            )
-                        }
+                            contentDescription = "Logo de la boutique"
+                        )
 
                         Spacer(modifier = Modifier.height(10.dp))
 

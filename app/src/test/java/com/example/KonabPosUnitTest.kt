@@ -164,15 +164,40 @@ class KonabPosUnitTest {
     }
 
     @Test
-    fun testLaunchCarouselSlides() {
-        val slides = com.example.ui.components.defaultLaunchSlides
-        assertTrue(slides.size >= 4)
-        slides.forEach { slide ->
-            assertTrue(slide.imageRes != 0)
-            assertTrue(slide.title.isNotBlank())
-            assertTrue(slide.description.isNotBlank())
-            assertTrue(slide.tag.isNotBlank())
-        }
+    fun testShopLogoHelperAndEntity() {
+        val defaultProfile = ShopProfileEntity(name = "Boutique Faso")
+        assertNull(defaultProfile.logoUri)
+
+        val customProfile = defaultProfile.copy(logoUri = "file:///data/user/0/com.example/files/logos/shop_logo.jpg")
+        assertEquals("file:///data/user/0/com.example/files/logos/shop_logo.jpg", customProfile.logoUri)
+
+        val presets = com.example.util.ShopLogoHelper.PRESET_LOGOS
+        assertTrue(presets.isNotEmpty())
+        assertTrue(presets.any { it.key == "drawable:ic_konab_logo" })
+
+        val resolved = com.example.util.ShopLogoHelper.resolvePresetDrawable("drawable:ic_konab_logo")
+        assertEquals(R.drawable.ic_konab_logo, resolved)
+
+        val resolvedCommerce = com.example.util.ShopLogoHelper.resolvePresetDrawable("drawable:burkina_commerce_faso")
+        assertEquals(R.drawable.burkina_commerce_faso, resolvedCommerce)
+
+        val resolvedNull = com.example.util.ShopLogoHelper.resolvePresetDrawable(null)
+        assertNull(resolvedNull)
+    }
+
+    @Test
+    fun testAgentDirectoryAndActivation() {
+        val agent1 = com.example.ui.screens.AgentDirectory.findAgent("AGT-101", "1234")
+        assertNotNull(agent1)
+        assertEquals("Moussa Ouédraogo", agent1?.name)
+
+        val invalidAgent = com.example.ui.screens.AgentDirectory.findAgent("UNKNOWN", "0000")
+        assertNull(invalidAgent)
+
+        val supervisor = com.example.ui.screens.AgentDirectory.findAgent("SUPERVISEUR", "9999")
+        assertNotNull(supervisor)
+        assertEquals("Direction Konab POS", supervisor?.name)
     }
 }
+
 

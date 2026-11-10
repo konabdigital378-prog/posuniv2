@@ -13,7 +13,8 @@ enum class KonabScreen(val title: String) {
     REPORTS("Rapports"),
     TRANSACTIONS("Historique des transactions"),
     SETTINGS("Paramètres"),
-    SUBSCRIPTION("Abonnement")
+    SUBSCRIPTION("Abonnement"),
+    AGENT_PORTAL("Portail Agent")
 }
 
 sealed class SetupWizardDestination(

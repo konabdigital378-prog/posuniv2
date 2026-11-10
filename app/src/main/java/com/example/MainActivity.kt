@@ -77,7 +77,8 @@ class MainActivity : ComponentActivity() {
                 val showBottomBar = currentScreen !in listOf(
                     KonabScreen.ONBOARDING,
                     KonabScreen.PAYMENT,
-                    KonabScreen.RECEIPT
+                    KonabScreen.RECEIPT,
+                    KonabScreen.AGENT_PORTAL
                 )
 
                 Box(modifier = Modifier.fillMaxSize()) {
@@ -284,6 +285,21 @@ class MainActivity : ComponentActivity() {
                                     SubscriptionScreen(
                                         shopProfile = shopProfile,
                                         onActivate = { code, tier -> viewModel.activateSubscription(code, tier) },
+                                        onNavigateToAgentPortal = { viewModel.navigateTo(KonabScreen.AGENT_PORTAL) },
+                                        onBack = { viewModel.navigateBack() }
+                                    )
+                                }
+
+                                KonabScreen.AGENT_PORTAL -> {
+                                    AgentPortalScreen(
+                                        shopProfile = shopProfile,
+                                        onUpdateProfile = { viewModel.updateShopProfile(it) },
+                                        onActivateByAgent = { tier, days, name, phone, notes ->
+                                            viewModel.activateSubscriptionByAgent(tier, days, name, phone, notes)
+                                        },
+                                        onPreloadCatalogue = { type, onComp ->
+                                            viewModel.preloadCatalogueForAgent(type, onComp)
+                                        },
                                         onBack = { viewModel.navigateBack() }
                                     )
                                 }

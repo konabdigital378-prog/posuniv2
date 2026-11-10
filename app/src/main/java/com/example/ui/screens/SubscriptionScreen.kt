@@ -11,6 +11,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -31,6 +32,7 @@ import com.example.ui.theme.*
 fun SubscriptionScreen(
     shopProfile: ShopProfileEntity?,
     onActivate: (code: String, tier: String) -> Boolean,
+    onNavigateToAgentPortal: (() -> Unit)? = null,
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
@@ -52,6 +54,13 @@ fun SubscriptionScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Retour")
+                    }
+                },
+                actions = {
+                    if (onNavigateToAgentPortal != null) {
+                        IconButton(onClick = onNavigateToAgentPortal) {
+                            Icon(Icons.Default.Badge, contentDescription = "Portail Agent", tint = KonabOrange)
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
@@ -91,6 +100,40 @@ fun SubscriptionScreen(
                         Text("Numéro officiel de dépôt Konab :", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text("65413799", fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, color = KonabGoldDark)
                         Text("Pour toute activation ou renouvellement de licence.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+
+            if (onNavigateToAgentPortal != null) {
+                Card(
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF06245E)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onNavigateToAgentPortal() }
+                        .testTag("card_agent_portal_shortcut")
+                ) {
+                    Row(
+                        modifier = Modifier.padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Box(
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .clip(CircleShape)
+                                    .background(KonabOrange),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Default.Badge, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+                            }
+                            Column {
+                                Text("Vous êtes Agent Déployeur Konab ?", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 13.sp)
+                                Text("Accéder au Portail Agent pour configurer & activer la boutique", fontSize = 11.sp, color = Color(0xFFCBD5E1))
+                            }
+                        }
+                        Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = KonabOrange, modifier = Modifier.size(18.dp))
                     }
                 }
             }

@@ -4,8 +4,15 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import com.example.util.ShopLogoAvatar
+import com.example.util.ShopLogoHelper
 import androidx.compose.animation.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -76,7 +83,31 @@ fun SettingsScreen(
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
+    val onShareApp: () -> Unit = {
+        try {
+            val shareText = """
+                ✨ Konab POS — Application de caisse et de gestion commerciale 100% hors-ligne & synchronisable pour commerçants et PME.
+                
+                🚀 Suivez vos ventes, vos stocks, votre caisse, vos dettes clients et imprimez vos reçus sur imprimante thermique Bluetooth.
+                
+                👉 Découvrez Konab POS : https://ais-pre-pimusi7brf7win2vfijy6k-705485149731.europe-west1.run.app
+            """.trimIndent()
+
+            val sendIntent = Intent().apply {
+                action = Intent.ACTION_SEND
+                putExtra(Intent.EXTRA_SUBJECT, "Découvrez Konab POS")
+                putExtra(Intent.EXTRA_TEXT, shareText)
+                type = "text/plain"
+            }
+            val shareIntent = Intent.createChooser(sendIntent, "Partager Konab POS via")
+            context.startActivity(shareIntent)
+        } catch (_: Exception) {
+            Toast.makeText(context, "Impossible d'ouvrir le menu de partage", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     var showEditInfoDialog by remember { mutableStateOf(false) }
+    var showLogoDialog by remember { mutableStateOf(false) }
     var showPinChangeDialog by remember { mutableStateOf(false) }
     var showBackupDialog by remember { mutableStateOf(false) }
     var showRestoreDialog by remember { mutableStateOf(false) }
@@ -86,6 +117,19 @@ fun SettingsScreen(
     var showHelpDialog by remember { mutableStateOf(false) }
     var showBluetoothPrinterModal by remember { mutableStateOf(false) }
     var showSupabaseAuthModal by remember { mutableStateOf(false) }
+
+    val photoPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri: Uri? ->
+        if (uri != null && shopProfile != null) {
+            val savedPath = ShopLogoHelper.saveLogoToInternalStorage(context, uri)
+            if (savedPath != null) {
+                val updated = shopProfile.copy(logoUri = savedPath)
+                onUpdateProfile(updated)
+                Toast.makeText(context, "Logo de la boutique mis à jour avec succès !", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -116,6 +160,16 @@ fun SettingsScreen(
                     }
                 },
                 actions = {
+                    IconButton(
+                        onClick = onShareApp,
+                        modifier = Modifier.testTag("btn_share_settings_topbar")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Share,
+                            contentDescription = "Partager l'application",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
                     IconButton(
                         onClick = onLockApp,
                         modifier = Modifier.testTag("btn_lock_settings")
@@ -234,23 +288,15 @@ fun SettingsScreen(
                         verticalAlignment = Alignment.Bottom,
                         horizontalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
-                        // Store Avatar
-                        Box(
-                            modifier = Modifier
-                                .size(64.dp)
-                                .clip(RoundedCornerShape(18.dp))
-                                .background(MaterialTheme.colorScheme.surface)
-                                .border(3.dp, MaterialTheme.colorScheme.surface, RoundedCornerShape(18.dp))
-                                .background(KonabGreen, RoundedCornerShape(16.dp)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Storefront,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(32.dp)
-                            )
-                        }
+                        // Store Avatar (Clickable to change logo)
+                        ShopLogoAvatar(
+                            logoUri = shopProfile?.logoUri,
+                            size = 64.dp,
+                            shape = RoundedCornerShape(18.dp),
+                            showEditBadge = true,
+                            onClick = { showLogoDialog = true },
+                            modifier = Modifier.testTag("avatar_shop_logo_hero")
+                        )
 
                         // Store Name & Type
                         Column(
@@ -390,6 +436,21 @@ fun SettingsScreen(
                     trailingValue = shopProfile?.businessType ?: "Boutique",
                     onClick = { onNavigate(KonabScreen.ONBOARDING) },
                     testTag = "row_activity_type"
+                )
+
+                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+                SettingsModernRow(
+                    icon = Icons.Default.AddPhotoAlternate,
+                    iconTint = Color(0xFFD97706),
+                    iconBg = Color(0xFFFEF3C7),
+                    title = "Logo de la boutique",
+                    subtitle = "Modifier l'image de marque (galerie ou présélection)",
+                    trailingValue = if (!shopProfile?.logoUri.isNullOrBlank()) "Personnalisé" else "Par défaut",
+                    badgeText = if (!shopProfile?.logoUri.isNullOrBlank()) "ACTIF" else null,
+                    badgeColor = KonabGreen,
+                    onClick = { showLogoDialog = true },
+                    testTag = "row_shop_logo"
                 )
 
                 HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
@@ -655,6 +716,21 @@ fun SettingsScreen(
                 HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
 
                 SettingsModernRow(
+                    icon = Icons.Default.Badge,
+                    iconTint = Color(0xFF0F766E),
+                    iconBg = Color(0xFFCCFBF1),
+                    title = "Portail Agent & Déploiement",
+                    subtitle = "Connexion agent agréé, configuration boutique & activation",
+                    trailingValue = "Accéder",
+                    badgeText = "AGENTS",
+                    badgeColor = KonabOrange,
+                    onClick = { onNavigate(KonabScreen.AGENT_PORTAL) },
+                    testTag = "row_agent_portal"
+                )
+
+                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+                SettingsModernRow(
                     icon = Icons.Default.SupportAgent,
                     iconTint = Color(0xFF059669),
                     iconBg = Color(0xFFD1FAE5),
@@ -663,6 +739,21 @@ fun SettingsScreen(
                     trailingValue = "Consulter",
                     onClick = { showHelpDialog = true },
                     testTag = "row_help_support"
+                )
+
+                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+                SettingsModernRow(
+                    icon = Icons.Default.Share,
+                    iconTint = Color(0xFF073B9A),
+                    iconBg = Color(0xFFE1ECF9),
+                    title = "Partager l'application",
+                    subtitle = "Recommander Konab POS à vos confrères et partenaires",
+                    trailingValue = "Partager",
+                    badgeText = "RECOMMANDER",
+                    badgeColor = Color(0xFFFF7900),
+                    onClick = onShareApp,
+                    testTag = "row_share_app"
                 )
 
                 HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
@@ -677,6 +768,86 @@ fun SettingsScreen(
                     onClick = { showAboutDialog = true },
                     testTag = "row_about_app"
                 )
+            }
+
+            // ==========================================
+            // CARTE PROMOTIONNELLE : PARTAGER L'APPLICATION
+            // ==========================================
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("card_share_app_promo"),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = Color(0xFF06245E)
+                )
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(18.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(46.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFFFF7900)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Share,
+                                contentDescription = "Partager",
+                                tint = Color.White,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Recommander Konab POS",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp,
+                                color = Color.White
+                            )
+                            Text(
+                                text = "Faites découvrir Konab POS à vos proches et confrères commerçants !",
+                                fontSize = 12.sp,
+                                color = Color(0xFFCBD5E1),
+                                lineHeight = 16.sp
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    Button(
+                        onClick = onShareApp,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .testTag("btn_share_app_action"),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFFFF7900),
+                            contentColor = Color.White
+                        )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Share,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Partager l'application",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp
+                        )
+                    }
+                }
             }
 
             // Lock / Sign Out Footer Button
@@ -750,6 +921,41 @@ fun SettingsScreen(
                         .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
+                    // Logo Picker Section in Edit Shop Dialog
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showLogoDialog = true },
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            ShopLogoAvatar(
+                                logoUri = shopProfile.logoUri,
+                                size = 52.dp,
+                                shape = RoundedCornerShape(14.dp),
+                                showEditBadge = true
+                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Logo de la boutique", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                Text("Cliquez pour changer le logo", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            OutlinedButton(
+                                onClick = { showLogoDialog = true },
+                                modifier = Modifier.height(34.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp)
+                            ) {
+                                Text("Modifier", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
                     OutlinedTextField(
                         value = name,
                         onValueChange = { name = it },
@@ -868,6 +1074,198 @@ fun SettingsScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showEditInfoDialog = false }) {
+                    Text("Annuler")
+                }
+            }
+        )
+    }
+
+    // ==========================================
+    // DIALOG : CHANGER LE LOGO DE LA BOUTIQUE
+    // ==========================================
+    if (showLogoDialog && shopProfile != null) {
+        var selectedPresetKey by remember { mutableStateOf(shopProfile.logoUri) }
+
+        AlertDialog(
+            onDismissRequest = { showLogoDialog = false },
+            title = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .background(Color(0xFFFEF3C7), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AddPhotoAlternate,
+                            contentDescription = null,
+                            tint = Color(0xFFD97706),
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    Text(
+                        text = "Logo de la boutique",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 17.sp
+                    )
+                }
+            },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 440.dp)
+                        .verticalScroll(rememberScrollState()),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    // Live Logo Preview
+                    ShopLogoAvatar(
+                        logoUri = selectedPresetKey,
+                        size = 88.dp,
+                        shape = CircleShape,
+                        contentDescription = "Aperçu du logo"
+                    )
+
+                    Text(
+                        text = "Le logo s'affiche sur le tableau de bord, les paramètres et les tickets de caisse imprimés.",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        lineHeight = 16.sp
+                    )
+
+                    // Button 1: Zero-permission Android Photo Picker
+                    Button(
+                        onClick = {
+                            photoPickerLauncher.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                            )
+                            showLogoDialog = false
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(46.dp)
+                            .testTag("btn_pick_logo_gallery"),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF073B9A)),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(Icons.Default.PhotoLibrary, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Choisir une image dans la galerie", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    }
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+                    Text(
+                        text = "OU CHOISIR UN LOGO PRÉDÉFINI :",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontSize = 11.sp
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    // Preset Logos List
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        ShopLogoHelper.PRESET_LOGOS.forEach { preset ->
+                            val isSelected = selectedPresetKey == preset.key
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        selectedPresetKey = preset.key
+                                    },
+                                shape = RoundedCornerShape(12.dp),
+                                color = if (isSelected) Color(0xFFE1ECF9) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                                border = BorderStroke(
+                                    if (isSelected) 2.dp else 1.dp,
+                                    if (isSelected) Color(0xFF073B9A) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                                )
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = Color.White,
+                                        modifier = Modifier.size(38.dp)
+                                    ) {
+                                        Image(
+                                            painter = painterResource(id = preset.drawableRes),
+                                            contentDescription = preset.label,
+                                            contentScale = ContentScale.Fit,
+                                            modifier = Modifier.fillMaxSize().padding(2.dp)
+                                        )
+                                    }
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = preset.label,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                            fontSize = 12.sp,
+                                            color = if (isSelected) Color(0xFF073B9A) else MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Text(
+                                            text = preset.category,
+                                            fontSize = 10.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    if (isSelected) {
+                                        Icon(
+                                            imageVector = Icons.Default.CheckCircle,
+                                            contentDescription = "Sélectionné",
+                                            tint = Color(0xFF073B9A),
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Reset button
+                    if (!shopProfile.logoUri.isNullOrBlank() || selectedPresetKey != null) {
+                        TextButton(
+                            onClick = {
+                                selectedPresetKey = null
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Rétablir le logo officiel Konab POS par défaut", fontSize = 11.sp, color = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val updated = shopProfile.copy(logoUri = selectedPresetKey)
+                        onUpdateProfile(updated)
+                        Toast.makeText(context, "Logo de la boutique enregistré !", Toast.LENGTH_SHORT).show()
+                        showLogoDialog = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = KonabGreen),
+                    modifier = Modifier.testTag("btn_save_shop_logo")
+                ) {
+                    Text("Appliquer ce logo", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showLogoDialog = false }) {
                     Text("Annuler")
                 }
             }
@@ -1335,6 +1733,20 @@ fun SettingsScreen(
             confirmButton = {
                 TextButton(onClick = { showAboutDialog = false }) {
                     Text("Fermer", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(
+                    onClick = onShareApp,
+                    modifier = Modifier.testTag("btn_share_about_dialog")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Share,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Partager", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
         )

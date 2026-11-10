@@ -39,6 +39,18 @@ object BackupRestoreHelper {
                 put("isConfigured", profile.isConfigured)
                 put("taxRate", profile.taxRate)
                 put("receiptFooter", profile.receiptFooter)
+                if (profile.logoUri != null) put("logoUri", profile.logoUri)
+                put("invoiceHeaderStyle", profile.invoiceHeaderStyle)
+                put("invoicePaperSize", profile.invoicePaperSize)
+                put("invoiceShowLogo", profile.invoiceShowLogo)
+                put("invoiceShowCashier", profile.invoiceShowCashier)
+                put("invoiceShowQrCode", profile.invoiceShowQrCode)
+                put("invoiceQrType", profile.invoiceQrType)
+                put("invoiceQrCustomText", profile.invoiceQrCustomText)
+                put("invoiceTaxNumber", profile.invoiceTaxNumber)
+                put("invoiceLegalNotice", profile.invoiceLegalNotice)
+                put("invoicePaymentDetails", profile.invoicePaymentDetails)
+                put("invoiceShowPaymentDetails", profile.invoiceShowPaymentDetails)
             }
             root.put("shop_profile", pObj)
         }
@@ -195,7 +207,19 @@ object BackupRestoreHelper {
                     subscriptionExpiresAt = pObj.optLong("subscriptionExpiresAt", 0L),
                     isConfigured = pObj.optBoolean("isConfigured", true),
                     taxRate = pObj.optDouble("taxRate", 0.0),
-                    receiptFooter = pObj.optString("receiptFooter", "Merci pour votre confiance !")
+                    receiptFooter = pObj.optString("receiptFooter", "Merci pour votre confiance !"),
+                    logoUri = pObj.optString("logoUri", "").takeIf { it.isNotBlank() },
+                    invoiceHeaderStyle = pObj.optString("invoiceHeaderStyle", "MODERNE"),
+                    invoicePaperSize = pObj.optString("invoicePaperSize", "THERMAL_58"),
+                    invoiceShowLogo = pObj.optBoolean("invoiceShowLogo", true),
+                    invoiceShowCashier = pObj.optBoolean("invoiceShowCashier", true),
+                    invoiceShowQrCode = pObj.optBoolean("invoiceShowQrCode", true),
+                    invoiceQrType = pObj.optString("invoiceQrType", "VERIFICATION"),
+                    invoiceQrCustomText = pObj.optString("invoiceQrCustomText", ""),
+                    invoiceTaxNumber = pObj.optString("invoiceTaxNumber", ""),
+                    invoiceLegalNotice = pObj.optString("invoiceLegalNotice", "Marchandises vendues ne sont ni reprises ni échangées"),
+                    invoicePaymentDetails = pObj.optString("invoicePaymentDetails", ""),
+                    invoiceShowPaymentDetails = pObj.optBoolean("invoiceShowPaymentDetails", true)
                 )
                 dao.saveShopProfile(profile)
             }

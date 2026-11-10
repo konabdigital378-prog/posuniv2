@@ -493,6 +493,111 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
         return false
     }
 
+    fun activateSubscriptionByAgent(
+        tier: String,
+        durationDays: Int,
+        agentName: String,
+        agentPhone: String,
+        notes: String
+    ): Boolean {
+        val profile = shopProfile.value ?: return false
+        val expiry = System.currentTimeMillis() + (durationDays.toLong() * 24 * 60 * 60 * 1000)
+        val updated = profile.copy(
+            subscriptionTier = tier,
+            subscriptionExpiresAt = expiry
+        )
+        updateShopProfile(updated)
+
+        // Save generated license key to agent history
+        try {
+            val app = getApplication<Application>()
+            val durationCode = when (durationDays) {
+                30 -> "1M"
+                90 -> "3M"
+                180 -> "6M"
+                3650 -> "VIE"
+                else -> "1A"
+            }
+            val keyData = com.example.util.LicenseHelper.generateKey(
+                tier = tier,
+                durationCode = durationCode,
+                beneficiary = profile.name,
+                note = "Activé par agent $agentName ($agentPhone) • $notes"
+            )
+            com.example.util.LicenseHelper.saveGeneratedLicense(app, keyData)
+
+            // Record deployment audit record
+            val deploymentId = "DEP-${System.currentTimeMillis()}"
+            val record = com.example.data.remote.supabase.AgentDeploymentRecord(
+                id = deploymentId,
+                agentId = agentName.take(12),
+                agentName = agentName,
+                agentPhone = agentPhone,
+                shopName = profile.name,
+                shopPhone = profile.phone,
+                shopCity = profile.city,
+                tier = tier,
+                durationDays = durationDays,
+                licenseKey = keyData.key,
+                notes = notes,
+                timestamp = System.currentTimeMillis(),
+                isSynced = false
+            )
+            com.example.data.remote.supabase.AgentDeploymentStorage.saveDeployment(app, record)
+
+            // Trigger background sync to Supabase if connected
+            viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    if (com.example.data.remote.supabase.SupabaseConfig.isConfigured) {
+                        supabaseSyncManager.syncAgentDeployments()
+                    }
+                } catch (_: Exception) {}
+            }
+        } catch (_: Exception) {}
+
+        return true
+    }
+
+    fun syncAgentDeploymentsToSupabase(onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val res = supabaseSyncManager.syncAgentDeployments()
+            withContext(kotlinx.coroutines.Dispatchers.Main) {
+                if (res.isSuccess) {
+                    val count = res.getOrDefault(0)
+                    onResult(true, if (count > 0) "$count activation(s) synchronisée(s) sur Supabase Cloud" else "Toutes les activations sont déjà à jour sur Supabase")
+                } else {
+                    onResult(false, res.exceptionOrNull()?.localizedMessage ?: "Échec de synchronisation avec Supabase")
+                }
+            }
+        }
+    }
+
+    fun refreshAgentsFromSupabase(onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val res = supabaseSyncManager.refreshAgentsFromCloud()
+            withContext(kotlinx.coroutines.Dispatchers.Main) {
+                if (res.isSuccess) {
+                    val list = res.getOrDefault(emptyList())
+                    onResult(true, "${list.size} agent(s) synchronisé(s) depuis Supabase")
+                } else {
+                    onResult(false, res.exceptionOrNull()?.localizedMessage ?: "Échec du chargement des agents")
+                }
+            }
+        }
+    }
+
+    fun preloadCatalogueForAgent(businessType: String, onComplete: () -> Unit) {
+        viewModelScope.launch {
+            try {
+                val preset = com.example.util.BusinessTypePresets.getPreset(businessType)
+                for (prod in preset.defaultProducts) {
+                    repository.insertProduct(prod.copy(id = 0L))
+                }
+            } catch (_: Exception) {}
+            onComplete()
+        }
+    }
+
     fun backupDatabase(context: Context, onResult: (File?) -> Unit) {
         viewModelScope.launch {
             try {

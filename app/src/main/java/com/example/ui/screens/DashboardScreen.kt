@@ -163,21 +163,12 @@ fun DashboardScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Surface(
+                            com.example.util.ShopLogoAvatar(
+                                logoUri = shopProfile?.logoUri,
+                                size = 46.dp,
                                 shape = CircleShape,
-                                color = Color.White,
-                                shadowElevation = 3.dp,
-                                modifier = Modifier.size(46.dp)
-                            ) {
-                                Image(
-                                    painter = painterResource(id = R.drawable.ic_konab_logo),
-                                    contentDescription = "Logo KONAB POS",
-                                    contentScale = ContentScale.Fit,
-                                    modifier = Modifier
-                                        .padding(2.dp)
-                                        .fillMaxSize()
-                                )
-                            }
+                                contentDescription = "Logo de la boutique"
+                            )
                             Column {
                                 Text(
                                     text = shopProfile?.name?.ifBlank { "KONAB POS" } ?: "KONAB POS",
@@ -303,20 +294,13 @@ fun DashboardScreen(
                                 modifier = Modifier.weight(1f)
                             ) {
                                 // Store Avatar
-                                Box(
-                                    modifier = Modifier
-                                        .size(46.dp)
-                                        .clip(CircleShape)
-                                        .background(KonabBlue),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Storefront,
-                                        contentDescription = null,
-                                        tint = Color.White,
-                                        modifier = Modifier.size(24.dp)
-                                    )
-                                }
+                                com.example.util.ShopLogoAvatar(
+                                    logoUri = shopProfile?.logoUri,
+                                    size = 46.dp,
+                                    shape = CircleShape,
+                                    contentDescription = "Logo de la boutique",
+                                    onClick = { onNavigate(com.example.ui.navigation.KonabScreen.SETTINGS) }
+                                )
 
                                 Spacer(modifier = Modifier.width(12.dp))
 
