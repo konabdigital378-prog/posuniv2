@@ -203,6 +203,19 @@ class KonabPosUnitTest {
     fun testApkShareHelperExists() {
         assertNotNull(com.example.util.ApkShareHelper)
     }
+
+    @Test
+    fun testShopProfileDeployerId() {
+        val profileWithDeployer = ShopProfileEntity(
+            name = "Boutique Ouédraogo",
+            deployerId = "AGT-101"
+        )
+        assertEquals("AGT-101", profileWithDeployer.deployerId)
+        assertEquals("Boutique Ouédraogo", profileWithDeployer.name)
+
+        val profileDefault = ShopProfileEntity(name = "Boutique Standard")
+        assertNull(profileDefault.deployerId)
+    }
 }
 
 

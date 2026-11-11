@@ -388,7 +388,8 @@ class KonabRepository(
         adminPhone: String = "",
         adminPin: String = "1234",
         preloadDemoData: Boolean = false,
-        subscriptionTier: String = "Premium"
+        subscriptionTier: String = "Premium",
+        deployerId: String? = null
     ) {
         val effectiveAdminPhone = if (adminPhone.isNotBlank()) adminPhone else phone
 
@@ -419,7 +420,8 @@ class KonabRepository(
             cashierPin = "0000",
             subscriptionTier = subscriptionTier,
             isConfigured = true,
-            receiptFooter = "Merci pour votre confiance ! À très bientôt !"
+            receiptFooter = "Merci pour votre confiance ! À très bientôt !",
+            deployerId = deployerId
         )
         dao.saveShopProfile(profile)
 

@@ -20,7 +20,7 @@ import com.example.data.local.entity.*
         PurchaseEntity::class,
         NotificationEntity::class
     ],
-    version = 7,
+    version = 8,
     exportSchema = false
 )
 abstract class KonabDatabase : RoomDatabase() {

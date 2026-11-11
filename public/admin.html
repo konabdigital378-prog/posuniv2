@@ -3917,8 +3917,9 @@
             if (schemaPre) {
                 schemaPre.textContent = `-- SCHEMA SQL OFFICIEL KONAB POS POUR SUPABASE
 CREATE TABLE IF NOT EXISTS public.shop_profile (
-    id BIGINT PRIMARY KEY, name TEXT NOT NULL, business_type TEXT, phone TEXT, address TEXT, city TEXT, currency TEXT DEFAULT 'FCFA', slogan TEXT, receipt_footer TEXT, updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+    id BIGINT PRIMARY KEY, name TEXT NOT NULL, business_type TEXT, phone TEXT, address TEXT, city TEXT, currency TEXT DEFAULT 'FCFA', slogan TEXT, receipt_footer TEXT, deployer_id TEXT, updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
+ALTER TABLE public.shop_profile ADD COLUMN IF NOT EXISTS deployer_id TEXT;
 CREATE TABLE IF NOT EXISTS public.products (
     id BIGINT PRIMARY KEY, name TEXT NOT NULL, category TEXT, sell_price BIGINT NOT NULL, buy_price BIGINT NOT NULL, stock_quantity INTEGER NOT NULL, min_stock_alert INTEGER DEFAULT 5, barcode TEXT, unit TEXT DEFAULT 'pièce', is_available BOOLEAN DEFAULT true, image_uri TEXT, images JSONB DEFAULT '[]'::jsonb
 );

@@ -51,6 +51,9 @@ object BackupRestoreHelper {
                 put("invoiceLegalNotice", profile.invoiceLegalNotice)
                 put("invoicePaymentDetails", profile.invoicePaymentDetails)
                 put("invoiceShowPaymentDetails", profile.invoiceShowPaymentDetails)
+                if (!profile.deployerId.isNullOrBlank()) {
+                    put("deployerId", profile.deployerId)
+                }
             }
             root.put("shop_profile", pObj)
         }
@@ -219,7 +222,8 @@ object BackupRestoreHelper {
                     invoiceTaxNumber = pObj.optString("invoiceTaxNumber", ""),
                     invoiceLegalNotice = pObj.optString("invoiceLegalNotice", "Marchandises vendues ne sont ni reprises ni échangées"),
                     invoicePaymentDetails = pObj.optString("invoicePaymentDetails", ""),
-                    invoiceShowPaymentDetails = pObj.optBoolean("invoiceShowPaymentDetails", true)
+                    invoiceShowPaymentDetails = pObj.optBoolean("invoiceShowPaymentDetails", true),
+                    deployerId = pObj.optString("deployerId", "").takeIf { it.isNotBlank() }
                 )
                 dao.saveShopProfile(profile)
             }

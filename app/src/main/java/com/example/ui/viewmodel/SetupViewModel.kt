@@ -238,6 +238,10 @@ class SetupViewModel(application: Application) : AndroidViewModel(application) {
                 logoColor = state.selectedLogoColorHex
             )
 
+            // Get connected agent deployer ID if logged in
+            val currentAgent = com.example.data.remote.supabase.AgentDeploymentStorage.getSavedAgentSession(getApplication())
+            val currentDeployerId = currentAgent?.id
+
             // 2. Initialize Room Database with presets
             repository.initializeStore(
                 name = state.shopName.trim(),
@@ -250,7 +254,8 @@ class SetupViewModel(application: Application) : AndroidViewModel(application) {
                 adminPhone = state.adminPhone.trim().ifBlank { state.phone.trim() },
                 adminPin = state.adminPin,
                 preloadDemoData = state.preloadDemoData,
-                subscriptionTier = tier
+                subscriptionTier = tier,
+                deployerId = currentDeployerId
             )
 
             val profile = com.example.data.local.entity.ShopProfileEntity(
@@ -266,7 +271,8 @@ class SetupViewModel(application: Application) : AndroidViewModel(application) {
                 cashierPin = "0000",
                 subscriptionTier = tier,
                 isConfigured = true,
-                receiptFooter = "Merci pour votre confiance ! À très bientôt !"
+                receiptFooter = "Merci pour votre confiance ! À très bientôt !",
+                deployerId = currentDeployerId
             )
             val syncManager = com.example.data.remote.supabase.SupabaseSyncManager(getApplication())
             val cloudId = syncManager.getOrCreateCloudShopId()

@@ -101,26 +101,19 @@ fun AgentPortalScreen(
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
-    val prefs = remember { context.getSharedPreferences("konab_agent_session_prefs", Context.MODE_PRIVATE) }
+    val coroutineScope = rememberCoroutineScope()
+    val syncManager = remember { SupabaseSyncManager(context) }
 
     // Session State
     var currentAgent by remember {
-        val savedId = prefs.getString("agent_id", null)
-        val savedName = prefs.getString("agent_name", null)
-        val savedPhone = prefs.getString("agent_phone", null)
-        val savedZone = prefs.getString("agent_zone", null)
-        val savedRole = prefs.getString("agent_role", "Agent Déployeur")
-        if (!savedId.isNullOrBlank() && !savedName.isNullOrBlank()) {
-            mutableStateOf<AgentUser?>(AgentUser(savedId, savedName, savedPhone ?: "", savedZone ?: "", "", savedRole ?: ""))
-        } else {
-            mutableStateOf<AgentUser?>(null)
-        }
+        mutableStateOf<AgentUser?>(AgentDeploymentStorage.getSavedAgentSession(context))
     }
 
     // Login Form Inputs
     var loginIdInput by remember { mutableStateOf("") }
     var loginPinInput by remember { mutableStateOf("") }
     var loginError by remember { mutableStateOf("") }
+    var isLoggingIn by remember { mutableStateOf(false) }
 
     // Tabs inside Agent Portal
     var selectedPortalTab by remember { mutableStateOf(0) }
@@ -200,7 +193,7 @@ fun AgentPortalScreen(
                     if (currentAgent != null) {
                         IconButton(
                             onClick = {
-                                prefs.edit().clear().apply()
+                                AgentDeploymentStorage.clearAgentSession(context)
                                 currentAgent = null
                                 Toast.makeText(context, "Agent déconnecté", Toast.LENGTH_SHORT).show()
                             },
@@ -343,21 +336,28 @@ fun AgentPortalScreen(
 
                             Button(
                                 onClick = {
-                                    val matched = AgentDirectory.findAgent(loginIdInput, loginPinInput)
-                                    if (matched != null) {
-                                        prefs.edit()
-                                            .putString("agent_id", matched.id)
-                                            .putString("agent_name", matched.name)
-                                            .putString("agent_phone", matched.phone)
-                                            .putString("agent_zone", matched.zone)
-                                            .putString("agent_role", matched.role)
-                                            .apply()
-                                        currentAgent = matched
-                                        Toast.makeText(context, "Bienvenue ${matched.name} !", Toast.LENGTH_SHORT).show()
-                                    } else {
-                                        loginError = "Code Agent ou PIN incorrect. Vérifiez vos identifiants ou utilisez un compte test ci-dessous."
+                                    if (loginIdInput.isBlank() || loginPinInput.isBlank()) {
+                                        loginError = "Veuillez renseigner votre identifiant et code PIN."
+                                        return@Button
+                                    }
+                                    isLoggingIn = true
+                                    loginError = ""
+                                    coroutineScope.launch {
+                                        val res = syncManager.loginAgentOnline(loginIdInput, loginPinInput)
+                                        isLoggingIn = false
+                                        val matched = res.getOrNull()
+                                        if (matched != null) {
+                                            AgentDeploymentStorage.saveAgentSession(context, matched)
+                                            AgentDeploymentStorage.registerLocalAgent(context, matched)
+                                            currentAgent = matched
+                                            val depRes = syncManager.refreshDeploymentsForAgent(matched.id)
+                                            Toast.makeText(context, "Bienvenue ${matched.name} ! Profil synchronisé avec Supabase.", Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            loginError = "Code Agent ou PIN incorrect. Vérifiez vos identifiants ou utilisez un compte pré-enregistré ci-dessous."
+                                        }
                                     }
                                 },
+                                enabled = !isLoggingIn,
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .height(48.dp)
@@ -365,9 +365,15 @@ fun AgentPortalScreen(
                                 shape = RoundedCornerShape(12.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = KonabGreen)
                             ) {
-                                Icon(Icons.Default.Login, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("Ouvrir le portail agent", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                if (isLoggingIn) {
+                                    CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Connexion Supabase Cloud...")
+                                } else {
+                                    Icon(Icons.Default.Login, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Ouvrir le portail agent", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                }
                             }
                         }
                     }
@@ -779,9 +785,30 @@ fun AgentPortalScreen(
                                                         beneficiary = shopProfile?.name ?: "Boutique",
                                                         note = "Agent: ${agent.name} • ${agent.phone}"
                                                     )
+                                                    val deployment = AgentDeploymentRecord(
+                                                        id = "DEP-${System.currentTimeMillis()}",
+                                                        agentId = agent.id,
+                                                        agentName = agent.name,
+                                                        agentPhone = agent.phone,
+                                                        shopName = shopProfile?.name ?: "Boutique",
+                                                        shopPhone = shopProfile?.phone ?: "",
+                                                        shopCity = shopProfile?.city ?: "",
+                                                        tier = activationTier,
+                                                        durationDays = activationDays,
+                                                        licenseKey = keyData.key,
+                                                        notes = activationNotes,
+                                                        timestamp = System.currentTimeMillis(),
+                                                        isSynced = false
+                                                    )
+                                                    AgentDeploymentStorage.saveDeployment(context, deployment)
+                                                    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                                                        try {
+                                                            SupabaseSyncManager(context).syncAgentDeployments()
+                                                        } catch (_: Exception) {}
+                                                    }
                                                     latestActivationKey = keyData.key
                                                     showActivationSuccessDialog = true
-                                                    Toast.makeText(context, "Abonnement $activationTier activé avec succès !", Toast.LENGTH_LONG).show()
+                                                    Toast.makeText(context, "Abonnement $activationTier activé et synchronisé sur Supabase !", Toast.LENGTH_LONG).show()
                                                 }
                                             },
                                             modifier = Modifier
@@ -1193,6 +1220,146 @@ fun AgentPortalScreen(
                                                                 Spacer(modifier = Modifier.width(4.dp))
                                                                 Text("Partager l'attestation", fontSize = 11.sp)
                                                             }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+                                        // Section Boutiques Déployées par l'agent
+                                        var isSyncingPortalDeployments by remember { mutableStateOf(false) }
+                                        var portalDeployments by remember(agent.id) {
+                                            mutableStateOf(AgentDeploymentStorage.getDeploymentsForAgent(context, agent.id))
+                                        }
+
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column {
+                                                Text(
+                                                    text = "Boutiques Déployées (${portalDeployments.size})",
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 15.sp,
+                                                    color = MaterialTheme.colorScheme.primary
+                                                )
+                                                Text(
+                                                    text = "Synchronisées sur Supabase Cloud",
+                                                    fontSize = 11.sp,
+                                                    color = Color(0xFF16A34A)
+                                                )
+                                            }
+
+                                            IconButton(
+                                                onClick = {
+                                                    coroutineScope.launch {
+                                                        isSyncingPortalDeployments = true
+                                                        try {
+                                                            syncManager.syncAgentDeployments()
+                                                            val res = syncManager.refreshDeploymentsForAgent(agent.id)
+                                                            if (res.isSuccess) {
+                                                                portalDeployments = res.getOrDefault(AgentDeploymentStorage.getDeploymentsForAgent(context, agent.id))
+                                                                Toast.makeText(context, "Boutiques synchronisées sur Supabase !", Toast.LENGTH_SHORT).show()
+                                                            }
+                                                        } catch (_: Exception) {}
+                                                        isSyncingPortalDeployments = false
+                                                    }
+                                                }
+                                            ) {
+                                                if (isSyncingPortalDeployments) {
+                                                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                                } else {
+                                                    Icon(Icons.Default.Refresh, contentDescription = "Actualiser", tint = KonabBlue)
+                                                }
+                                            }
+                                        }
+
+                                        if (portalDeployments.isEmpty()) {
+                                            Surface(
+                                                shape = RoundedCornerShape(10.dp),
+                                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Text(
+                                                    text = "Aucune boutique enregistrée pour cet agent pour le moment.",
+                                                    fontSize = 12.sp,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    modifier = Modifier.padding(12.dp)
+                                                )
+                                            }
+                                        } else {
+                                            portalDeployments.forEach { dep ->
+                                                Surface(
+                                                    shape = RoundedCornerShape(10.dp),
+                                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+                                                    modifier = Modifier.fillMaxWidth()
+                                                ) {
+                                                    Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                        Row(
+                                                            modifier = Modifier.fillMaxWidth(),
+                                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                                            verticalAlignment = Alignment.CenterVertically
+                                                        ) {
+                                                            Text(
+                                                                text = dep.shopName,
+                                                                fontWeight = FontWeight.Bold,
+                                                                fontSize = 13.sp
+                                                            )
+                                                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                                Surface(
+                                                                    shape = RoundedCornerShape(6.dp),
+                                                                    color = if (dep.isSynced) Color(0xFFDCFCE7) else Color(0xFFFFF7ED)
+                                                                ) {
+                                                                    Row(
+                                                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
+                                                                        verticalAlignment = Alignment.CenterVertically,
+                                                                        horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                                                    ) {
+                                                                        Icon(
+                                                                            imageVector = if (dep.isSynced) Icons.Default.CloudDone else Icons.Default.CloudUpload,
+                                                                            contentDescription = null,
+                                                                            tint = if (dep.isSynced) Color(0xFF16A34A) else Color(0xFFFF7900),
+                                                                            modifier = Modifier.size(11.dp)
+                                                                        )
+                                                                        Text(
+                                                                            text = if (dep.isSynced) "Supabase" else "En attente",
+                                                                            fontSize = 9.sp,
+                                                                            fontWeight = FontWeight.Bold,
+                                                                            color = if (dep.isSynced) Color(0xFF16A34A) else Color(0xFFFF7900)
+                                                                        )
+                                                                    }
+                                                                }
+                                                                Surface(
+                                                                    shape = RoundedCornerShape(6.dp),
+                                                                    color = Color(0xFFDBEAFE)
+                                                                ) {
+                                                                    Text(
+                                                                        text = dep.tier,
+                                                                        fontWeight = FontWeight.Bold,
+                                                                        fontSize = 10.sp,
+                                                                        color = Color(0xFF1E40AF),
+                                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                                    )
+                                                                }
+                                                            }
+                                                        }
+                                                        Text(
+                                                            text = "${dep.shopCity.ifBlank { "Burkina Faso" }} ${if (dep.shopPhone.isNotBlank()) "• ${dep.shopPhone}" else ""}",
+                                                            fontSize = 11.sp,
+                                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                        )
+                                                        if (dep.licenseKey.isNotBlank()) {
+                                                            Text(
+                                                                text = "Licence: ${dep.licenseKey}",
+                                                                fontFamily = FontFamily.Monospace,
+                                                                fontSize = 10.sp,
+                                                                color = MaterialTheme.colorScheme.primary,
+                                                                fontWeight = FontWeight.Bold
+                                                            )
                                                         }
                                                     }
                                                 }

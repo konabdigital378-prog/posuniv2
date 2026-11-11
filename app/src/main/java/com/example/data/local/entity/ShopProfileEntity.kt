@@ -33,5 +33,6 @@ data class ShopProfileEntity(
     val invoiceTaxNumber: String = "", // IFU / NIF / RCCM
     val invoiceLegalNotice: String = "Marchandises vendues ne sont ni reprises ni échangées",
     val invoicePaymentDetails: String = "", // ex: Orange Money: 65413799 | Moov: 70123456 | Wave
-    val invoiceShowPaymentDetails: Boolean = true
+    val invoiceShowPaymentDetails: Boolean = true,
+    val deployerId: String? = null // ID de l'agent déployeur qui a créé ou configuré la boutique
 )

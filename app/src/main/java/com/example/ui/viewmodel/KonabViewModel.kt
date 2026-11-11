@@ -381,6 +381,10 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
         subscriptionTier: String = "Premium"
     ) {
         viewModelScope.launch {
+            val app = getApplication<android.app.Application>()
+            val currentAgent = com.example.data.remote.supabase.AgentDeploymentStorage.getSavedAgentSession(app)
+            val currentDeployerId = currentAgent?.id
+
             val profile = com.example.data.local.entity.ShopProfileEntity(
                 id = 1,
                 name = shopName.trim(),
@@ -394,7 +398,8 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
                 cashierPin = "0000",
                 subscriptionTier = subscriptionTier,
                 isConfigured = true,
-                receiptFooter = "Merci pour votre confiance ! À très bientôt !"
+                receiptFooter = "Merci pour votre confiance ! À très bientôt !",
+                deployerId = currentDeployerId
             )
             repository.initializeStore(
                 name = shopName,
@@ -407,7 +412,8 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
                 adminPhone = adminPhone,
                 adminPin = adminPin,
                 preloadDemoData = preloadDemoData,
-                subscriptionTier = subscriptionTier
+                subscriptionTier = subscriptionTier,
+                deployerId = currentDeployerId
             )
             withContext(kotlinx.coroutines.Dispatchers.IO) {
                 try {

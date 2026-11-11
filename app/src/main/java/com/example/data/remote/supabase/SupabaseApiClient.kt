@@ -360,6 +360,9 @@ class SupabaseApiClient(
                 put("slogan", profile.slogan)
                 put("receipt_footer", profile.receiptFooter)
                 put("subscription_tier", profile.subscriptionTier)
+                if (!profile.deployerId.isNullOrBlank()) {
+                    put("deployer_id", profile.deployerId)
+                }
                 put("updated_at", nowIso)
             }
             array.put(primaryObj)
@@ -377,6 +380,9 @@ class SupabaseApiClient(
                     put("slogan", profile.slogan)
                     put("receipt_footer", profile.receiptFooter)
                     put("subscription_tier", profile.subscriptionTier)
+                    if (!profile.deployerId.isNullOrBlank()) {
+                        put("deployer_id", profile.deployerId)
+                    }
                     put("updated_at", nowIso)
                 }
                 array.put(storeObj)
@@ -428,6 +434,7 @@ class SupabaseApiClient(
                     slogan = o.optString("slogan", ""),
                     receiptFooter = o.optString("receipt_footer", ""),
                     subscriptionTier = o.optString("subscription_tier", "Premium"),
+                    deployerId = if (o.has("deployer_id") && !o.isNull("deployer_id")) o.getString("deployer_id") else null,
                     isConfigured = true
                 )
                 Result.success(profile)

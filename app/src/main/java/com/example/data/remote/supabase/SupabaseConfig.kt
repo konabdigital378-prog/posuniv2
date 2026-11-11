@@ -134,8 +134,13 @@ CREATE TABLE IF NOT EXISTS public.shop_profile (
     slogan TEXT,
     receipt_footer TEXT,
     subscription_tier TEXT DEFAULT 'Premium',
+    deployer_id TEXT,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
+
+-- Migration automatique si la table existe déjà sans deployer_id
+ALTER TABLE public.shop_profile ADD COLUMN IF NOT EXISTS deployer_id TEXT;
+CREATE INDEX IF NOT EXISTS idx_shop_profile_deployer_id ON public.shop_profile(deployer_id);
 
 -- 2. Table des Produits & Stock
 CREATE TABLE IF NOT EXISTS public.products (
@@ -288,6 +293,39 @@ CREATE TABLE IF NOT EXISTS public.categories (
     sort_order INTEGER DEFAULT 0
 );
 
+-- 12. Table des Agents Déployeurs (Agents)
+CREATE TABLE IF NOT EXISTS public.agents (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    phone TEXT,
+    zone TEXT DEFAULT 'National',
+    pin TEXT NOT NULL DEFAULT '1234',
+    role TEXT DEFAULT 'Agent Déployeur',
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- 13. Table des Déploiements & Boutiques Créées par les Agents (Agent Deployments)
+CREATE TABLE IF NOT EXISTS public.agent_deployments (
+    id TEXT PRIMARY KEY,
+    agent_id TEXT NOT NULL,
+    agent_name TEXT NOT NULL,
+    agent_phone TEXT,
+    shop_name TEXT NOT NULL,
+    shop_phone TEXT,
+    shop_city TEXT,
+    tier TEXT DEFAULT 'Professionnel',
+    duration_days INTEGER DEFAULT 365,
+    license_key TEXT,
+    notes TEXT,
+    timestamp BIGINT NOT NULL,
+    is_synced BOOLEAN DEFAULT true,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_deployments_agent_id ON public.agent_deployments(agent_id);
+CREATE INDEX IF NOT EXISTS idx_agent_deployments_timestamp ON public.agent_deployments(timestamp);
+
 -- Activation de RLS (Row Level Security) avec accès lecture/écriture pour la clé anon
 ALTER TABLE public.shop_profile ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.products ENABLE ROW LEVEL SECURITY;
@@ -300,6 +338,23 @@ ALTER TABLE public.cash_sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.cash_movements ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.app_notifications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.categories ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.agents ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.agent_deployments ENABLE ROW LEVEL SECURITY;
+
+-- Drop existing policies if they already exist to prevent "policy already exists" errors
+DROP POLICY IF EXISTS "Allow anon read/write for shop_profile" ON public.shop_profile;
+DROP POLICY IF EXISTS "Allow anon read/write for products" ON public.products;
+DROP POLICY IF EXISTS "Allow anon read/write for customers" ON public.customers;
+DROP POLICY IF EXISTS "Allow anon read/write for sales" ON public.sales;
+DROP POLICY IF EXISTS "Allow anon read/write for sale_items" ON public.sale_items;
+DROP POLICY IF EXISTS "Allow anon read/write for suppliers" ON public.suppliers;
+DROP POLICY IF EXISTS "Allow anon read/write for purchases" ON public.purchases;
+DROP POLICY IF EXISTS "Allow anon read/write for cash_sessions" ON public.cash_sessions;
+DROP POLICY IF EXISTS "Allow anon read/write for cash_movements" ON public.cash_movements;
+DROP POLICY IF EXISTS "Allow anon read/write for app_notifications" ON public.app_notifications;
+DROP POLICY IF EXISTS "Allow anon read/write for categories" ON public.categories;
+DROP POLICY IF EXISTS "Allow anon read/write for agents" ON public.agents;
+DROP POLICY IF EXISTS "Allow anon read/write for agent_deployments" ON public.agent_deployments;
 
 CREATE POLICY "Allow anon read/write for shop_profile" ON public.shop_profile FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow anon read/write for products" ON public.products FOR ALL USING (true) WITH CHECK (true);
@@ -312,6 +367,8 @@ CREATE POLICY "Allow anon read/write for cash_sessions" ON public.cash_sessions 
 CREATE POLICY "Allow anon read/write for cash_movements" ON public.cash_movements FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow anon read/write for app_notifications" ON public.app_notifications FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow anon read/write for categories" ON public.categories FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow anon read/write for agents" ON public.agents FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow anon read/write for agent_deployments" ON public.agent_deployments FOR ALL USING (true) WITH CHECK (true);
         """.trimIndent()
     }
 }
