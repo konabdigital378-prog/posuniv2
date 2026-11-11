@@ -606,7 +606,7 @@ fun SetupWizard(
                         )
 
                         // Enregistrer la boutique déployée au nom de cet agent et synchroniser sur Supabase
-                        val deployAgent = activeAgent ?: AgentUser("AGT-101", "Moussa Ouédraogo", "70 12 34 56", "Ouagadougou Centre", "1234")
+                        val deployAgent = activeAgent ?: AgentUser("AGT-DIRECT", "Déploiement Direct", uiState.phone, uiState.city.ifBlank { "Burkina Faso" }, "")
                         val deployment = AgentDeploymentRecord(
                             id = "DEP-${System.currentTimeMillis()}",
                             agentId = deployAgent.id,
@@ -2834,7 +2834,8 @@ fun AgentLoginModal(
                                 agentIdInput = it
                                 loginErrorMessage = ""
                             },
-                            label = { Text("Identifiant Agent ou Téléphone (ex: AGT-101)") },
+                            label = { Text("Matricule ou N° Téléphone Agent") },
+                            placeholder = { Text("Ex: Votre identifiant ou numéro") },
                             leadingIcon = { Icon(Icons.Default.Badge, contentDescription = null) },
                             singleLine = true,
                             modifier = Modifier
@@ -2849,6 +2850,7 @@ fun AgentLoginModal(
                                 loginErrorMessage = ""
                             },
                             label = { Text("Code PIN / Mot de passe") },
+                            placeholder = { Text("Code confidentiel") },
                             leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
                             visualTransformation = PasswordVisualTransformation(),
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
@@ -2889,7 +2891,7 @@ fun AgentLoginModal(
                                         }
                                         Toast.makeText(context, "Bienvenue ${matched.name} ! Profil synchronisé depuis Supabase.", Toast.LENGTH_SHORT).show()
                                     } else {
-                                        loginErrorMessage = "Identifiant ou code PIN incorrect. Vérifiez vos accès ou créez votre profil ci-dessous."
+                                        loginErrorMessage = "Identifiant ou code PIN incorrect. Vérifiez vos accès ou créez votre profil dans l'onglet Inscription."
                                     }
                                 }
                             },
@@ -2912,41 +2914,24 @@ fun AgentLoginModal(
                             }
                         }
 
-                        // Puces d'accès rapide agents certifiés
-                        Text(
-                            text = "Accès rapide agents pré-enregistrés :",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            AssistChip(
-                                onClick = {
-                                    agentIdInput = "AGT-101"
-                                    agentPinInput = "1234"
-                                    loginErrorMessage = ""
-                                },
-                                label = { Text("AGT-101 (Moussa)", fontSize = 10.sp) }
-                            )
-                            AssistChip(
-                                onClick = {
-                                    agentIdInput = "AGT-102"
-                                    agentPinInput = "1234"
-                                    loginErrorMessage = ""
-                                },
-                                label = { Text("AGT-102 (Fatou)", fontSize = 10.sp) }
-                            )
-                            AssistChip(
-                                onClick = {
-                                    agentIdInput = "SUPERVISEUR"
-                                    agentPinInput = "9999"
-                                    loginErrorMessage = ""
-                                },
-                                label = { Text("SUPERVISEUR", fontSize = 10.sp) }
-                            )
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(Icons.Default.Security, contentDescription = null, tint = Color(0xFFFF7900), modifier = Modifier.size(18.dp))
+                                Text(
+                                    text = "Accès sécurisé officiel Konab POS. Vous pouvez aussi créer votre profil déployeur dans l'onglet Inscription.",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    lineHeight = 15.sp
+                                )
+                            }
                         }
                     } else {
                         // ------------------------------------------

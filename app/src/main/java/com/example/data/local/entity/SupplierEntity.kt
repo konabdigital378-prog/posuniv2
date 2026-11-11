@@ -9,7 +9,7 @@ data class SupplierEntity(
     val name: String,
     val phone: String,
     val address: String = "",
-    val debtAmount: Long = 0L, // Amount owed to supplier in FCFA
+    val debtAmount: Long = 0L,
     val totalPurchased: Long = 0L,
     val createdAt: Long = System.currentTimeMillis()
 )

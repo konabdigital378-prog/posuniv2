@@ -17,7 +17,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -106,34 +108,74 @@ fun SubscriptionScreen(
 
             if (onNavigateToAgentPortal != null) {
                 Card(
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(containerColor = Color(0xFF06245E)),
+                    border = BorderStroke(1.5.dp, Color(0xFFFFA43A).copy(alpha = 0.6f)),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable { onNavigateToAgentPortal() }
                         .testTag("card_agent_portal_shortcut")
                 ) {
-                    Row(
-                        modifier = Modifier.padding(14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(
+                                Brush.horizontalGradient(
+                                    colors = listOf(
+                                        Color(0xFF06245E),
+                                        Color(0xFF073B9A)
+                                    )
+                                )
+                            )
+                            .padding(15.dp)
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Box(
-                                modifier = Modifier
-                                    .size(38.dp)
-                                    .clip(CircleShape)
-                                    .background(KonabOrange),
-                                contentAlignment = Alignment.Center
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                modifier = Modifier.weight(1f),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
-                                Icon(Icons.Default.Badge, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+                                Surface(
+                                    modifier = Modifier.size(42.dp),
+                                    shape = CircleShape,
+                                    color = Color(0xFFFF7900),
+                                    border = BorderStroke(2.dp, Color(0xFFFFA43A))
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(Icons.Default.Badge, contentDescription = null, tint = Color.White, modifier = Modifier.size(22.dp))
+                                    }
+                                }
+                                Column {
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        Text("Espace Agent Déployeur", fontWeight = FontWeight.ExtraBold, color = Color.White, fontSize = 14.sp)
+                                        Surface(
+                                            color = Color(0xFFFF7900),
+                                            shape = RoundedCornerShape(4.dp)
+                                        ) {
+                                            Text(
+                                                text = "OFFICIEL",
+                                                color = Color.White,
+                                                fontSize = 8.5.sp,
+                                                fontWeight = FontWeight.Black,
+                                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                            )
+                                        }
+                                    }
+                                    Text(
+                                        text = "Portail réservé aux techniciens et commerciaux agréés",
+                                        fontSize = 11.5.sp,
+                                        color = Color(0xFFE2E8F0),
+                                        lineHeight = 15.sp
+                                    )
+                                }
                             }
-                            Column {
-                                Text("Vous êtes Agent Déployeur Konab ?", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 13.sp)
-                                Text("Accéder au Portail Agent pour configurer & activer la boutique", fontSize = 11.sp, color = Color(0xFFCBD5E1))
-                            }
+                            Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = Color(0xFFFFA43A), modifier = Modifier.size(20.dp))
                         }
-                        Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = KonabOrange, modifier = Modifier.size(18.dp))
                     }
                 }
             }

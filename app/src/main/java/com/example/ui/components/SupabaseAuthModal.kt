@@ -451,22 +451,11 @@ fun SupabaseAuthModal(
 
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    horizontalArrangement = Arrangement.End,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    // Quick demo fill for easy mobile test
-                                    TextButton(onClick = {
-                                        signInEmail = "demo.gerant@konabpos.com"
-                                        signInPassword = "KonabPos2026!"
-                                        Toast.makeText(context, "Identifiants de test renseignés !", Toast.LENGTH_SHORT).show()
-                                    }) {
-                                        Icon(Icons.Default.FlashOn, contentDescription = null, tint = KonabGoldDark, modifier = Modifier.size(16.dp))
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text("Compte test démo", fontSize = 11.5.sp, color = KonabGoldDark, fontWeight = FontWeight.Bold)
-                                    }
-
                                     TextButton(onClick = { selectedTab = 2 }) {
-                                        Text("Mot de passe oublié ?", fontSize = 11.5.sp, color = KonabBlue)
+                                        Text("Mot de passe oublié ?", fontSize = 12.sp, color = KonabBlue, fontWeight = FontWeight.SemiBold)
                                     }
                                 }
 
