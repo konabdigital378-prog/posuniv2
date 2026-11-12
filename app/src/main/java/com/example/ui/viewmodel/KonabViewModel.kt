@@ -18,9 +18,12 @@ import java.io.File
 
 data class CartItem(
     val product: ProductEntity,
-    val quantity: Int
+    val quantity: Int,
+    val variantNote: String = "",
+    val itemDiscount: Long = 0L
 ) {
-    val totalPrice: Long get() = product.sellPrice * quantity
+    val unitFinalPrice: Long get() = (product.sellPrice - itemDiscount).coerceAtLeast(0L)
+    val totalPrice: Long get() = unitFinalPrice * quantity
     val totalCost: Long get() = product.buyPrice * quantity
 }
 
@@ -170,6 +173,53 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
         _cart.value = current
     }
 
+    fun addToCartWithVariant(product: ProductEntity, variantNote: String = "", discount: Long = 0L) {
+        val current = _cart.value.toMutableList()
+        val index = current.indexOfFirst { it.product.id == product.id && it.variantNote == variantNote }
+        if (index >= 0) {
+            val existing = current[index]
+            current[index] = existing.copy(quantity = existing.quantity + 1)
+        } else {
+            current.add(CartItem(product = product, quantity = 1, variantNote = variantNote, itemDiscount = discount))
+        }
+        _cart.value = current
+    }
+
+    fun updateCartItemNote(productId: Long, note: String) {
+        val current = _cart.value.toMutableList()
+        val index = current.indexOfFirst { it.product.id == productId }
+        if (index >= 0) {
+            current[index] = current[index].copy(variantNote = note)
+            _cart.value = current
+        }
+    }
+
+    fun updateCartItemDiscount(productId: Long, discount: Long) {
+        val current = _cart.value.toMutableList()
+        val index = current.indexOfFirst { it.product.id == productId }
+        if (index >= 0) {
+            current[index] = current[index].copy(itemDiscount = discount)
+            _cart.value = current
+        }
+    }
+
+    fun switchShopSector(newSector: String, reloadPresetProducts: Boolean, onComplete: () -> Unit = {}) {
+        viewModelScope.launch {
+            val profile = repository.getShopProfileOnce()
+            if (profile != null) {
+                val updated = profile.copy(businessType = newSector)
+                repository.saveShopProfile(updated)
+            }
+            if (reloadPresetProducts) {
+                val preset = com.example.util.BusinessTypePresets.getPreset(newSector)
+                preset.defaultProducts.forEach { prod ->
+                    repository.insertProduct(prod)
+                }
+            }
+            onComplete()
+        }
+    }
+
     fun updateCartQuantity(productId: Long, delta: Int) {
         val current = _cart.value.toMutableList()
         val index = current.indexOfFirst { it.product.id == productId }
@@ -214,12 +264,17 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
         if (currentCart.isEmpty()) return
 
         val saleItems = currentCart.map { item ->
+            val displayName = if (item.variantNote.isNotBlank()) {
+                "${item.product.name} [${item.variantNote}]"
+            } else {
+                item.product.name
+            }
             SaleItemEntity(
                 saleId = 0L,
                 productId = item.product.id,
-                productName = item.product.name,
+                productName = displayName,
                 quantity = item.quantity,
-                unitPrice = item.product.sellPrice,
+                unitPrice = item.unitFinalPrice,
                 unitBuyPrice = item.product.buyPrice,
                 totalPrice = item.totalPrice
             )

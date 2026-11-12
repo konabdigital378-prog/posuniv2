@@ -150,7 +150,10 @@ class MainActivity : ComponentActivity() {
                                         subtotal = subtotal,
                                         totalAmount = totalAmount,
                                         onAddToCart = { viewModel.addToCart(it) },
+                                        onAddToCartWithVariant = { prod, note -> viewModel.addToCartWithVariant(prod, note) },
                                         onUpdateQuantity = { id, delta -> viewModel.updateCartQuantity(id, delta) },
+                                        onUpdateItemNote = { id, note -> viewModel.updateCartItemNote(id, note) },
+                                        onUpdateItemDiscount = { id, disc -> viewModel.updateCartItemDiscount(id, disc) },
                                         onRemoveFromCart = { viewModel.removeFromCart(it) },
                                         onClearCart = { viewModel.clearCart() },
                                         onSelectCustomer = { viewModel.selectCustomer(it) },
@@ -193,6 +196,7 @@ class MainActivity : ComponentActivity() {
                                 KonabScreen.STOCK -> {
                                     StockScreen(
                                         products = products,
+                                        shopProfile = shopProfile,
                                         onSaveProduct = { viewModel.saveProduct(it) },
                                         onDeleteProduct = { viewModel.deleteProduct(it) },
                                         onBack = { viewModel.navigateBack() }
@@ -282,6 +286,7 @@ class MainActivity : ComponentActivity() {
                                         onSignOutSupabase = { viewModel.signOutSupabase {} },
                                         onRecoverSupabasePassword = { email -> viewModel.recoverSupabasePassword(email) { _, _ -> } },
                                         onRefreshSupabaseSession = { viewModel.refreshSupabaseSession { _, _ -> } },
+                                        onSwitchSector = { newType, reload -> viewModel.switchShopSector(newType, reload) },
                                         onBack = { viewModel.navigateBack() }
                                     )
                                 }

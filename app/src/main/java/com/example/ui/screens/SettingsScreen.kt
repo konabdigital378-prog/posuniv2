@@ -81,6 +81,7 @@ fun SettingsScreen(
     onSignOutSupabase: () -> Unit = {},
     onRecoverSupabasePassword: (String) -> Unit = {},
     onRefreshSupabaseSession: () -> Unit = {},
+    onSwitchSector: ((String, Boolean) -> Unit)? = null,
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
@@ -129,6 +130,7 @@ fun SettingsScreen(
     var showHelpDialog by remember { mutableStateOf(false) }
     var showBluetoothPrinterModal by remember { mutableStateOf(false) }
     var showSupabaseAuthModal by remember { mutableStateOf(false) }
+    var showSectorDialog by remember { mutableStateOf(false) }
 
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
@@ -443,10 +445,10 @@ fun SettingsScreen(
                     icon = Icons.Default.Category,
                     iconTint = Color(0xFF0284C7),
                     iconBg = Color(0xFFE0F2FE),
-                    title = "Type d'activité & Presets",
-                    subtitle = "Catalogue et préréglages de démarrage",
+                    title = "Secteur d'activité & Outils Métier",
+                    subtitle = "Adapter l'application à votre secteur (Bar, Pharmacie, Mode...)",
                     trailingValue = shopProfile?.businessType ?: "Boutique",
-                    onClick = { onNavigate(KonabScreen.ONBOARDING) },
+                    onClick = { showSectorDialog = true },
                     testTag = "row_activity_type"
                 )
 
@@ -1857,6 +1859,17 @@ fun SettingsScreen(
             onRecoverPassword = onRecoverSupabasePassword,
             onRefreshSession = onRefreshSupabaseSession,
             onDismiss = { showSupabaseAuthModal = false }
+        )
+    }
+
+    if (showSectorDialog) {
+        com.example.ui.components.SectorCustomizationDialog(
+            currentSector = shopProfile?.businessType ?: "Boutique",
+            onDismiss = { showSectorDialog = false },
+            onConfirmSector = { newType, reloadPresets ->
+                onSwitchSector?.invoke(newType, reloadPresets)
+                showSectorDialog = false
+            }
         )
     }
 }

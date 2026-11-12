@@ -20,6 +20,11 @@ android {
     versionName = "1.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+    val envUrl = System.getenv("SUPABASE_URL") ?: ""
+    val envKey = System.getenv("SUPABASE_ANON_KEY") ?: ""
+    buildConfigField("String", "SUPABASE_URL", "\"$envUrl\"")
+    buildConfigField("String", "SUPABASE_ANON_KEY", "\"$envKey\"")
   }
 
   // Do not remove or modify these signingConfigs. They are necessary for building, installing,
@@ -76,6 +81,8 @@ secrets {
   propertiesFileName = ".env"
   defaultPropertiesFileName = ".env.example"
   ignoreList.add("FIREBASE_APPCHECK_DEBUG_TOKEN")
+  ignoreList.add("SUPABASE_URL")
+  ignoreList.add("SUPABASE_ANON_KEY")
 }
 
 googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.WARN }

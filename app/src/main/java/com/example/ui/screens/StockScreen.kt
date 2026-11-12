@@ -48,7 +48,8 @@ fun StockScreen(
     products: List<ProductEntity>,
     onSaveProduct: (ProductEntity) -> Unit,
     onDeleteProduct: (Long) -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    shopProfile: com.example.data.local.entity.ShopProfileEntity? = null
 ) {
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -287,10 +288,15 @@ fun StockScreen(
         }
     }
 
+    val sectorPreset = remember(shopProfile?.businessType) {
+        com.example.util.BusinessTypePresets.getPreset(shopProfile?.businessType ?: "Boutique")
+    }
+
     // Add / Edit Product Dialog
     if (showProductDialog) {
         ProductFormDialog(
             initial = editingProduct,
+            quickUnits = sectorPreset.quickUnits,
             onDismiss = { showProductDialog = false },
             onSave = {
                 onSaveProduct(it)
@@ -462,6 +468,7 @@ private fun ProductStockItem(
 @Composable
 private fun ProductFormDialog(
     initial: ProductEntity?,
+    quickUnits: List<String> = emptyList(),
     onDismiss: () -> Unit,
     onSave: (ProductEntity) -> Unit
 ) {
@@ -1072,6 +1079,32 @@ private fun ProductFormDialog(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
+
+                if (quickUnits.isNotEmpty()) {
+                    Column(modifier = Modifier.fillMaxWidth().padding(top = 2.dp)) {
+                        Text(
+                            text = "Unités suggérées pour votre secteur :",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            items(quickUnits) { u ->
+                                SuggestionChip(
+                                    onClick = { unit = u },
+                                    label = { Text(u, fontSize = 11.sp, fontWeight = if (unit.equals(u, ignoreCase = true)) FontWeight.Bold else FontWeight.Normal) },
+                                    colors = SuggestionChipDefaults.suggestionChipColors(
+                                        containerColor = if (unit.equals(u, ignoreCase = true)) KonabGreenLight else MaterialTheme.colorScheme.surface
+                                    )
+                                )
+                            }
+                        }
+                    }
+                }
             }
         },
         confirmButton = {

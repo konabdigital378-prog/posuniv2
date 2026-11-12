@@ -506,7 +506,7 @@ fun SupabaseAuthModal(
                                     value = signUpName,
                                     onValueChange = { signUpName = it },
                                     label = { Text("Nom et Prénom du gestionnaire") },
-                                    placeholder = { Text("Ex: Moussa Ouédraogo") },
+                                    placeholder = { Text("Ex: Nom complet") },
                                     leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
                                     singleLine = true,
                                     modifier = Modifier.fillMaxWidth(),

@@ -31,10 +31,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.local.entity.CustomerEntity
 import com.example.data.local.entity.ProductEntity
+import com.example.ui.components.ItemVariantCustomizerDialog
+import com.example.ui.components.KitchenOrderModal
 import com.example.ui.components.RealBarcodeScannerModal
 import com.example.ui.navigation.KonabScreen
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.CartItem
+import com.example.util.BusinessTypePresets
 import com.example.util.CurrencyFormatter
 import com.example.util.ProductThumbnail
 
@@ -49,7 +52,10 @@ fun PosScreen(
     subtotal: Long,
     totalAmount: Long,
     onAddToCart: (ProductEntity) -> Unit,
+    onAddToCartWithVariant: (ProductEntity, String) -> Unit = { p, _ -> onAddToCart(p) },
     onUpdateQuantity: (productId: Long, delta: Int) -> Unit,
+    onUpdateItemNote: (productId: Long, String) -> Unit = { _, _ -> },
+    onUpdateItemDiscount: (productId: Long, Long) -> Unit = { _, _ -> },
     onRemoveFromCart: (productId: Long) -> Unit,
     onClearCart: () -> Unit,
     onSelectCustomer: (CustomerEntity?) -> Unit,
@@ -65,6 +71,20 @@ fun PosScreen(
     var showDiscountDialog by remember { mutableStateOf(false) }
     var showScanDialog by remember { mutableStateOf(false) }
     var showProformaModal by remember { mutableStateOf(false) }
+
+    val sectorPreset = remember(shopProfile?.businessType) {
+        BusinessTypePresets.getPreset(shopProfile?.businessType ?: "Boutique")
+    }
+    val sectorFeatures = sectorPreset.sectorFeatures
+
+    var selectedTable by remember { mutableStateOf("Table 1") }
+    var selectedStylist by remember { mutableStateOf("Fatou") }
+    var selectedNomadSpot by remember { mutableStateOf("Carrefour") }
+    var selectedCraftMode by remember { mutableStateOf("Fourniture + Pose") }
+    var showKitchenModal by remember { mutableStateOf(false) }
+    var productForCustomization by remember { mutableStateOf<ProductEntity?>(null) }
+    var itemForCartNoteEdit by remember { mutableStateOf<CartItem?>(null) }
+    var speedCashTender by remember { mutableStateOf<Long?>(null) }
 
     // Categories extracted dynamically from products
     val categories = remember(products) {
@@ -99,6 +119,14 @@ fun PosScreen(
                         Icon(Icons.Default.QrCodeScanner, contentDescription = "Scanner code-barres", tint = KonabBlue)
                     }
                     if (cart.isNotEmpty()) {
+                        if (sectorFeatures.hasTables) {
+                            IconButton(
+                                onClick = { showKitchenModal = true },
+                                modifier = Modifier.testTag("btn_top_kitchen_order")
+                            ) {
+                                Icon(Icons.Default.RestaurantMenu, contentDescription = "Bon cuisine", tint = Color(0xFFEA580C))
+                            }
+                        }
                         IconButton(
                             onClick = { showProformaModal = true },
                             modifier = Modifier.testTag("btn_top_proforma")
@@ -167,7 +195,52 @@ fun PosScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
 
-                        Spacer(modifier = Modifier.height(12.dp))
+                        // Speed Cash Shortcuts for Kiosks, Fast-Food, and Vendeurs Ambulants
+                        if (sectorFeatures.hasSpeedCashShortcuts) {
+                            val fastBills = if (sectorFeatures.hasNomadMode) {
+                                listOf(100L, 200L, 500L, 1000L, 2000L, 5000L)
+                            } else {
+                                listOf(500L, 1000L, 2000L, 5000L, 10000L)
+                            }
+                            Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "⚡ Monnaie express :",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    if (speedCashTender != null) {
+                                        val change = maxOf(0L, speedCashTender!! - totalAmount)
+                                        Text(
+                                            text = "Reçu: ${CurrencyFormatter.formatFCFA(speedCashTender!!)} • Rendre: ${CurrencyFormatter.formatFCFA(change)}",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            color = if (change >= 0) KonabGreenDark else KonabRed
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(3.dp))
+                                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    items(fastBills) { bill ->
+                                        val isSel = speedCashTender == bill
+                                        SuggestionChip(
+                                            onClick = { speedCashTender = if (isSel) null else bill },
+                                            label = { Text("${bill} F", fontSize = 11.sp, fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal) },
+                                            colors = SuggestionChipDefaults.suggestionChipColors(
+                                                containerColor = if (isSel) KonabGreenLight else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                            )
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
 
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -180,23 +253,39 @@ fun PosScreen(
                                     text = CurrencyFormatter.formatFCFA(totalAmount),
                                     fontWeight = FontWeight.ExtraBold,
                                     fontFamily = OutfitFontFamily,
-                                    fontSize = 20.sp,
+                                    fontSize = 19.sp,
                                     color = KonabBlue
                                 )
                             }
 
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                if (sectorFeatures.hasTables) {
+                                    OutlinedButton(
+                                        onClick = { showKitchenModal = true },
+                                        shape = RoundedCornerShape(12.dp),
+                                        modifier = Modifier
+                                            .height(48.dp)
+                                            .testTag("btn_cart_kitchen_order"),
+                                        contentPadding = PaddingValues(horizontal = 8.dp),
+                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFEA580C))
+                                    ) {
+                                        Icon(Icons.Default.RestaurantMenu, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(3.dp))
+                                        Text("Cuisine", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    }
+                                }
+
                                 OutlinedButton(
                                     onClick = { showProformaModal = true },
                                     shape = RoundedCornerShape(12.dp),
                                     modifier = Modifier
                                         .height(48.dp)
                                         .testTag("btn_cart_proforma"),
-                                    contentPadding = PaddingValues(horizontal = 12.dp)
+                                    contentPadding = PaddingValues(horizontal = 10.dp)
                                 ) {
                                     Icon(Icons.Default.Description, contentDescription = null, modifier = Modifier.size(16.dp), tint = KonabBlue)
                                     Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Devis", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = KonabBlue)
+                                    Text("Devis", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = KonabBlue)
                                 }
 
                                 Button(
@@ -207,8 +296,8 @@ fun PosScreen(
                                         .height(48.dp)
                                         .testTag("btn_proceed_to_payment")
                                 ) {
-                                    Text("Payer", fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Payer", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                    Spacer(modifier = Modifier.width(4.dp))
                                     Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null)
                                 }
                             }
@@ -223,6 +312,188 @@ fun PosScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
+            // Sector Tools & Context Bar
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Surface(
+                            color = KonabGreen.copy(alpha = 0.15f),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text(
+                                text = "${sectorPreset.emoji} ${sectorPreset.label}",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = KonabGreenDark,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+
+                        if (sectorFeatures.hasNomadMode) {
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                items(listOf("🚶 Carrefour", "🏪 Marché", "🚌 Arrêt", "🏠 Tournée", "🎪 Événement")) { spot ->
+                                    val isSel = selectedNomadSpot == spot
+                                    FilterChip(
+                                        selected = isSel,
+                                        onClick = { selectedNomadSpot = spot },
+                                        label = { Text(spot, fontSize = 11.sp) },
+                                        modifier = Modifier.height(28.dp),
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = Color(0xFFE11D48),
+                                            selectedLabelColor = Color.White
+                                        )
+                                    )
+                                }
+                            }
+                        } else if (sectorFeatures.hasTables) {
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                items(listOf("T-1", "T-2", "T-3", "T-4", "Terrasse", "Emporter")) { tbl ->
+                                    val isSel = selectedTable == tbl
+                                    FilterChip(
+                                        selected = isSel,
+                                        onClick = { selectedTable = tbl },
+                                        label = { Text(tbl, fontSize = 11.sp) },
+                                        modifier = Modifier.height(28.dp),
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = Color(0xFFEA580C),
+                                            selectedLabelColor = Color.White
+                                        )
+                                    )
+                                }
+                            }
+                        } else if (sectorFeatures.hasJobSiteQuotes) {
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                items(listOf("Fourniture + Pose", "Main d'œuvre", "Dépannage", "Atelier")) { mode ->
+                                    val isSel = selectedCraftMode == mode
+                                    FilterChip(
+                                        selected = isSel,
+                                        onClick = { selectedCraftMode = mode },
+                                        label = { Text(mode, fontSize = 11.sp) },
+                                        modifier = Modifier.height(28.dp),
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = Color(0xFF0369A1),
+                                            selectedLabelColor = Color.White
+                                        )
+                                    )
+                                }
+                            }
+                        } else if (sectorFeatures.hasOperatorStylist) {
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                items(listOf("Fatou", "Moussa", "Sarah", "Ibrahim")) { stylist ->
+                                    val isSel = selectedStylist == stylist
+                                    FilterChip(
+                                        selected = isSel,
+                                        onClick = { selectedStylist = stylist },
+                                        label = { Text(stylist, fontSize = 11.sp) },
+                                        modifier = Modifier.height(28.dp),
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = Color(0xFF9333EA),
+                                            selectedLabelColor = Color.White
+                                        )
+                                    )
+                                }
+                            }
+                        } else if (sectorFeatures.hasPrescriptionExpiry) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text(
+                                    text = "💊 Mode Ordonnance & DCI",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color(0xFF0284C7)
+                                )
+                                Surface(shape = RoundedCornerShape(6.dp), color = Color(0xFFE0F2FE)) {
+                                    Text("Posologie active", fontSize = 10.sp, color = Color(0xFF0369A1), modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                                }
+                            }
+                        } else if (sectorFeatures.hasVariations) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text(
+                                    text = "👗 Rayon Prêt-à-Porter",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = KonabBlue
+                                )
+                                Surface(shape = RoundedCornerShape(6.dp), color = Color(0xFFEDE9FE)) {
+                                    Text("Tailles & Couleurs", fontSize = 10.sp, color = Color(0xFF6D28D9), modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                                }
+                            }
+                        } else if (sectorFeatures.hasFractionalUnits) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text(
+                                    text = "🔨 Vente au détail & découpe",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color(0xFFB45309)
+                                )
+                                Surface(shape = RoundedCornerShape(6.dp), color = Color(0xFFFEF3C7)) {
+                                    Text("Mètre, Kg, Sac", fontSize = 10.sp, color = Color(0xFF92400E), modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                                }
+                            }
+                        }
+                    }
+
+                    if (sectorFeatures.hasNomadMode && cart.isNotEmpty()) {
+                        Button(
+                            onClick = onProceedToPayment,
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE11D48)),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            modifier = Modifier
+                                .height(30.dp)
+                                .testTag("btn_nomad_cash_flash")
+                        ) {
+                            Icon(Icons.Default.Bolt, contentDescription = null, modifier = Modifier.size(13.dp))
+                            Spacer(modifier = Modifier.width(3.dp))
+                            Text("Encaisser Flash", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    } else if (sectorFeatures.hasTables && cart.isNotEmpty()) {
+                        Button(
+                            onClick = { showKitchenModal = true },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEA580C)),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            modifier = Modifier
+                                .height(30.dp)
+                                .testTag("btn_kitchen_order")
+                        ) {
+                            Icon(Icons.Default.RestaurantMenu, contentDescription = null, modifier = Modifier.size(13.dp))
+                            Spacer(modifier = Modifier.width(3.dp))
+                            Text("Bon Cuisine", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    } else if (sectorFeatures.hasJobSiteQuotes && cart.isNotEmpty()) {
+                        Button(
+                            onClick = { showProformaModal = true },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0369A1)),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            modifier = Modifier
+                                .height(30.dp)
+                                .testTag("btn_jobsite_quote")
+                        ) {
+                            Icon(Icons.Default.ReceiptLong, contentDescription = null, modifier = Modifier.size(13.dp))
+                            Spacer(modifier = Modifier.width(3.dp))
+                            Text("Devis Chantier", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+
             // Search Input
             OutlinedTextField(
                 value = searchQuery,
@@ -306,10 +577,12 @@ fun PosScreen(
                 ) {
                     items(filteredProducts) { product ->
                         val countInCart = cart.find { it.product.id == product.id }?.quantity ?: 0
+                        val needsCustomization = sectorFeatures.hasVariations || sectorFeatures.hasPrescriptionExpiry || sectorFeatures.hasTables || sectorFeatures.hasJobSiteQuotes || sectorFeatures.hasNomadMode
                         ProductGridItem(
                             product = product,
                             countInCart = countInCart,
-                            onAdd = { onAddToCart(product) }
+                            onAdd = { onAddToCart(product) },
+                            onCustomize = if (needsCustomization) { { productForCustomization = product } } else null
                         )
                     }
                 }
@@ -358,14 +631,37 @@ fun PosScreen(
 
                         Column(modifier = Modifier.weight(1f)) {
                             Text(item.product.name, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            if (item.variantNote.isNotBlank()) {
+                                Surface(
+                                    color = KonabGreenLight,
+                                    shape = RoundedCornerShape(4.dp),
+                                    modifier = Modifier.padding(top = 2.dp)
+                                ) {
+                                    Text(
+                                        text = item.variantNote,
+                                        fontSize = 11.sp,
+                                        color = KonabGreenDark,
+                                        fontWeight = FontWeight.Medium,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
                             Text(
-                                "${CurrencyFormatter.formatFCFA(item.product.sellPrice)} / ${item.product.unit}",
+                                "${CurrencyFormatter.formatFCFA(item.unitFinalPrice)} / ${item.product.unit}",
                                 fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
 
                         Row(verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(
+                                onClick = { itemForCartNoteEdit = item },
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .testTag("btn_cart_note_${item.product.name}")
+                            ) {
+                                Icon(Icons.Default.EditNote, contentDescription = "Spécification", tint = KonabBlue, modifier = Modifier.size(16.dp))
+                            }
                             IconButton(
                                 onClick = { onUpdateQuantity(item.product.id, -1) },
                                 modifier = Modifier.size(32.dp)
@@ -375,7 +671,7 @@ fun PosScreen(
                             Text(
                                 "${item.quantity}",
                                 fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 8.dp)
+                                modifier = Modifier.padding(horizontal = 4.dp)
                             )
                             IconButton(
                                 onClick = { onUpdateQuantity(item.product.id, 1) },
@@ -384,11 +680,11 @@ fun PosScreen(
                                 Icon(Icons.Default.AddCircleOutline, contentDescription = "+1", tint = KonabGreen)
                             }
 
-                            Spacer(modifier = Modifier.width(8.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
                             Text(
                                 CurrencyFormatter.formatFCFA(item.totalPrice),
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp,
+                                fontSize = 13.sp,
                                 color = KonabGreen
                             )
                         }
@@ -631,13 +927,49 @@ fun PosScreen(
             onDismiss = { showProformaModal = false }
         )
     }
+
+    if (showKitchenModal) {
+        KitchenOrderModal(
+            cart = cart,
+            shopName = shopProfile?.name ?: "Mon Établissement",
+            initialTable = selectedTable,
+            onUpdateItemNote = onUpdateItemNote,
+            onDismiss = { showKitchenModal = false }
+        )
+    }
+
+    productForCustomization?.let { prod ->
+        ItemVariantCustomizerDialog(
+            product = prod,
+            businessType = shopProfile?.businessType ?: "Boutique",
+            onDismiss = { productForCustomization = null },
+            onConfirm = { customNote ->
+                onAddToCartWithVariant(prod, customNote)
+                productForCustomization = null
+            }
+        )
+    }
+
+    itemForCartNoteEdit?.let { cartItem ->
+        ItemVariantCustomizerDialog(
+            product = cartItem.product,
+            initialNote = cartItem.variantNote,
+            businessType = shopProfile?.businessType ?: "Boutique",
+            onDismiss = { itemForCartNoteEdit = null },
+            onConfirm = { customNote ->
+                onUpdateItemNote(cartItem.product.id, customNote)
+                itemForCartNoteEdit = null
+            }
+        )
+    }
 }
 
 @Composable
 private fun ProductGridItem(
     product: ProductEntity,
     countInCart: Int,
-    onAdd: () -> Unit
+    onAdd: () -> Unit,
+    onCustomize: (() -> Unit)? = null
 ) {
     val isOut = product.stockQuantity <= 0
     val isLow = product.stockQuantity in 1..product.minStockAlert
@@ -777,18 +1109,40 @@ private fun ProductGridItem(
                     fontSize = 15.sp
                 )
 
-                Box(
-                    modifier = Modifier
-                        .size(30.dp)
-                        .background(KonabBlue, CircleShape),
-                    contentAlignment = Alignment.Center
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Icon(
-                        Icons.Default.Add,
-                        contentDescription = "Ajouter au panier",
-                        tint = Color.White,
-                        modifier = Modifier.size(18.dp)
-                    )
+                    if (onCustomize != null) {
+                        IconButton(
+                            onClick = onCustomize,
+                            modifier = Modifier
+                                .size(30.dp)
+                                .testTag("btn_customize_${product.name}")
+                        ) {
+                            Icon(
+                                Icons.Default.Tune,
+                                contentDescription = "Spécifier variantes/notes",
+                                tint = KonabBlue,
+                                modifier = Modifier.size(17.dp)
+                            )
+                        }
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .size(30.dp)
+                            .background(KonabBlue, CircleShape)
+                            .clickable { onAdd() },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Default.Add,
+                            contentDescription = "Ajouter au panier",
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
                 }
             }
         }
