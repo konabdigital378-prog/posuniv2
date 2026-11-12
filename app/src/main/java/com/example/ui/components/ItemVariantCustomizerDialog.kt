@@ -45,6 +45,13 @@ fun ItemVariantCustomizerDialog(
     var selectedCraftService by remember { mutableStateOf("") }
     var selectedLocation by remember { mutableStateOf("") }
     var selectedNomadFormat by remember { mutableStateOf("") }
+    var selectedBakeryFlavor by remember { mutableStateOf("") }
+    var selectedCoutureDetail by remember { mutableStateOf("") }
+    var selectedPressingTreatment by remember { mutableStateOf("") }
+    var selectedMeatCut by remember { mutableStateOf("") }
+    var selectedTechDiagnostic by remember { mutableStateOf("") }
+    var selectedJewelryMetal by remember { mutableStateOf("") }
+    var selectedWashFinish by remember { mutableStateOf("") }
     var freeTextNote by remember { mutableStateOf(initialNote) }
 
     val sizes = listOf("XS", "S", "M", "L", "XL", "XXL", "Sur-mesure")
@@ -54,6 +61,13 @@ fun ItemVariantCustomizerDialog(
     val craftServices = listOf("Fourniture + Pose", "Main d'œuvre seule", "Pièce seule", "Dépannage urgent", "Garantie 6 mois", "Chantier complet")
     val locations = listOf("Chantier client", "Atelier", "Sur site + Livraison", "Devis préalable")
     val nomadFormats = listOf("À l'unité", "Sachet de 5", "Lot de 10", "Bien glacé / Frais", "À emporter rapide")
+    val bakeryFlavors = listOf("Chocolat noir", "Vanille bourbon", "Fraise", "Caramel au beurre", "Coco rapé", "Café", "Praliné", "Nature")
+    val coutureDetails = listOf("Sur-mesure complet", "Col brodé", "Doublure soyeuse", "Ourlet invisible", "Urgent 24h", "Cérémonie / Fête")
+    val pressingTreatments = listOf("Lavage à sec", "Repassage vapeur", "Détachage ciblé", "Sur cintre", "Sous film plastique", "Lavage délicat")
+    val meatCuts = listOf("En tranches fines", "En gros morceaux", "Désossé / Sans os", "Entier vidé", "Pour grillade", "Assaisonné")
+    val techDiagnostics = listOf("Écran fissuré", "Batterie HS", "Connecteur de charge", "Système bloqué / Déblocage", "Sauvegarde données", "Garantie 3 mois")
+    val jewelryMetals = listOf("Or jaune 18k", "Or blanc 18k", "Argent massif 925", "Plaqué or 24k", "Perles de culture", "Gravure offerte")
+    val washFinishes = listOf("Mousse active karcher", "Lustrage carrosserie", "Brillant pneus", "Sent-bon vanille", "Shampooing sièges")
 
     val buildFinalNote: () -> String = {
         val parts = mutableListOf<String>()
@@ -64,6 +78,13 @@ fun ItemVariantCustomizerDialog(
         if (selectedCraftService.isNotBlank()) parts.add("Prestation: $selectedCraftService")
         if (selectedLocation.isNotBlank()) parts.add("Lieu: $selectedLocation")
         if (selectedNomadFormat.isNotBlank()) parts.add("Format: $selectedNomadFormat")
+        if (selectedBakeryFlavor.isNotBlank()) parts.add("Arôme: $selectedBakeryFlavor")
+        if (selectedCoutureDetail.isNotBlank()) parts.add("Finition: $selectedCoutureDetail")
+        if (selectedPressingTreatment.isNotBlank()) parts.add("Traitement: $selectedPressingTreatment")
+        if (selectedMeatCut.isNotBlank()) parts.add("Découpe: $selectedMeatCut")
+        if (selectedTechDiagnostic.isNotBlank()) parts.add("Diagnostic: $selectedTechDiagnostic")
+        if (selectedJewelryMetal.isNotBlank()) parts.add("Métal: $selectedJewelryMetal")
+        if (selectedWashFinish.isNotBlank()) parts.add("Lavage: $selectedWashFinish")
         if (freeTextNote.isNotBlank()) parts.add(freeTextNote.trim())
         parts.joinToString(" • ")
     }
@@ -254,7 +275,173 @@ fun ItemVariantCustomizerDialog(
                     }
                 }
 
-                // Free text note
+                // Boulangerie & Pâtisserie Flavors
+                if (businessType.contains("Boulang", ignoreCase = true) || product.category.contains("Gâteau", ignoreCase = true) || product.category.contains("Pâtisserie", ignoreCase = true)) {
+                    Text(
+                        text = "Arôme ou Parfum (Boulangerie/Pâtisserie) :",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        items(bakeryFlavors) { flavor ->
+                            val isSel = selectedBakeryFlavor == flavor
+                            FilterChip(
+                                selected = isSel,
+                                onClick = { selectedBakeryFlavor = if (isSel) "" else flavor },
+                                label = { Text(flavor, fontSize = 11.sp, fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = Color(0xFFD97706),
+                                    selectedLabelColor = Color.White
+                                )
+                            )
+                        }
+                    }
+                }
+
+                // Couture, Stylisme & Finition
+                if (businessType.contains("Couture", ignoreCase = true) || product.category.contains("Confection", ignoreCase = true)) {
+                    Text(
+                        text = "Finition & Type de confection (Couture) :",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        items(coutureDetails) { det ->
+                            val isSel = selectedCoutureDetail == det
+                            FilterChip(
+                                selected = isSel,
+                                onClick = { selectedCoutureDetail = if (isSel) "" else det },
+                                label = { Text(det, fontSize = 11.sp, fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = Color(0xFF8B5CF6),
+                                    selectedLabelColor = Color.White
+                                )
+                            )
+                        }
+                    }
+                }
+
+                // Pressing & Blanchisserie
+                if (businessType.contains("Pressing", ignoreCase = true) || product.category.contains("Linge", ignoreCase = true)) {
+                    Text(
+                        text = "Traitement & Présentation (Pressing) :",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        items(pressingTreatments) { trt ->
+                            val isSel = selectedPressingTreatment == trt
+                            FilterChip(
+                                selected = isSel,
+                                onClick = { selectedPressingTreatment = if (isSel) "" else trt },
+                                label = { Text(trt, fontSize = 11.sp, fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = Color(0xFF0284C7),
+                                    selectedLabelColor = Color.White
+                                )
+                            )
+                        }
+                    }
+                }
+
+                // Boucherie & Poissonnerie
+                if (businessType.contains("Boucherie", ignoreCase = true) || businessType.contains("Poisson", ignoreCase = true) || product.category.contains("Viande", ignoreCase = true) || product.category.contains("Poisson", ignoreCase = true)) {
+                    Text(
+                        text = "Mode de découpe & Préparation :",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        items(meatCuts) { cut ->
+                            val isSel = selectedMeatCut == cut
+                            FilterChip(
+                                selected = isSel,
+                                onClick = { selectedMeatCut = if (isSel) "" else cut },
+                                label = { Text(cut, fontSize = 11.sp, fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = Color(0xFFDC2626),
+                                    selectedLabelColor = Color.White
+                                )
+                            )
+                        }
+                    }
+                }
+
+                // Informatique & Réparation
+                if (businessType.contains("Informatique", ignoreCase = true) || product.category.contains("Réparation", ignoreCase = true)) {
+                    Text(
+                        text = "Diagnostic & État technique :",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        items(techDiagnostics) { diag ->
+                            val isSel = selectedTechDiagnostic == diag
+                            FilterChip(
+                                selected = isSel,
+                                onClick = { selectedTechDiagnostic = if (isSel) "" else diag },
+                                label = { Text(diag, fontSize = 11.sp, fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = Color(0xFF2563EB),
+                                    selectedLabelColor = Color.White
+                                )
+                            )
+                        }
+                    }
+                }
+
+                // Bijouterie & Joaillerie
+                if (businessType.contains("Bijou", ignoreCase = true) || product.category.contains("Bijoux", ignoreCase = true)) {
+                    Text(
+                        text = "Alliage, Métal & Poinçon :",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        items(jewelryMetals) { mtl ->
+                            val isSel = selectedJewelryMetal == mtl
+                            FilterChip(
+                                selected = isSel,
+                                onClick = { selectedJewelryMetal = if (isSel) "" else mtl },
+                                label = { Text(mtl, fontSize = 11.sp, fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = Color(0xFFEAB308),
+                                    selectedLabelColor = Color.White
+                                )
+                            )
+                        }
+                    }
+                }
+
+                // Lavage Auto-Moto
+                if (businessType.contains("Lavage", ignoreCase = true) || product.category.contains("Lavage", ignoreCase = true)) {
+                    Text(
+                        text = "Finition & Traitement véhicule :",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        items(washFinishes) { wsh ->
+                            val isSel = selectedWashFinish == wsh
+                            FilterChip(
+                                selected = isSel,
+                                onClick = { selectedWashFinish = if (isSel) "" else wsh },
+                                label = { Text(wsh, fontSize = 11.sp, fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = Color(0xFF0D9488),
+                                    selectedLabelColor = Color.White
+                                )
+                            )
+                        }
+                    }
+                }
                 OutlinedTextField(
                     value = freeTextNote,
                     onValueChange = { freeTextNote = it },

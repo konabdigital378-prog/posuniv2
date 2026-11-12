@@ -105,7 +105,28 @@ fun PosScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Vente", fontWeight = FontWeight.Bold) },
+                title = {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text("Caisse", fontWeight = FontWeight.Bold)
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = KonabBlue.copy(alpha = 0.10f)
+                        ) {
+                            Text(
+                                text = "${sectorPreset.emoji} ${sectorPreset.title}",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = KonabBlue,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Retour")
@@ -577,7 +598,7 @@ fun PosScreen(
                 ) {
                     items(filteredProducts) { product ->
                         val countInCart = cart.find { it.product.id == product.id }?.quantity ?: 0
-                        val needsCustomization = sectorFeatures.hasVariations || sectorFeatures.hasPrescriptionExpiry || sectorFeatures.hasTables || sectorFeatures.hasJobSiteQuotes || sectorFeatures.hasNomadMode
+                        val needsCustomization = sectorFeatures.hasVariations || sectorFeatures.hasPrescriptionExpiry || sectorFeatures.hasTables || sectorFeatures.hasJobSiteQuotes || sectorFeatures.hasNomadMode || sectorFeatures.hasFractionalUnits || sectorFeatures.hasOperatorStylist || sectorFeatures.hasSpeedCashShortcuts
                         ProductGridItem(
                             product = product,
                             countInCart = countInCart,

@@ -334,6 +334,22 @@ fun DashboardScreen(
                                             color = if (isCloudAuth) Color(0xFF047857) else KonabTextSecondary
                                         )
                                     }
+                                    val sectorPreset = com.example.util.BusinessTypePresets.getPreset(shopProfile?.businessType ?: "Boutique")
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = KonabBlue.copy(alpha = 0.08f),
+                                        modifier = Modifier
+                                            .padding(top = 4.dp)
+                                            .clickable { onNavigate(KonabScreen.SETTINGS) }
+                                    ) {
+                                        Text(
+                                            text = "${sectorPreset.emoji} ${sectorPreset.title}",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = KonabBlue,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
                                 }
                             }
 

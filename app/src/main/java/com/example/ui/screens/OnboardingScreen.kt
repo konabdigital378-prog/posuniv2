@@ -7,12 +7,16 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -434,16 +438,29 @@ private fun Step3BusinessChoice(
     selectedType: String,
     onSelect: (String) -> Unit
 ) {
-    val types = listOf(
-        Pair("Boutique", Icons.Default.ShoppingBag),
-        Pair("Coiffure", Icons.Default.ContentCut),
-        Pair("Kiosque", Icons.Default.Store),
-        Pair("Restaurant", Icons.Default.Restaurant),
-        Pair("Pharmacie", Icons.Default.LocalPharmacy),
-        Pair("Quincaillerie", Icons.Default.Build),
-        Pair("Commerce général", Icons.Default.Category),
-        Pair("Autre", Icons.Default.MoreHoriz)
-    )
+    var searchQuery by remember { mutableStateOf("") }
+    var selectedGroup by remember { mutableStateOf("Tous") }
+
+    val allTypes = remember { BusinessTypePresets.getAllTypes() }
+
+    val filteredTypes = remember(searchQuery, selectedGroup) {
+        allTypes.filter { type ->
+            val preset = BusinessTypePresets.getPreset(type)
+            val matchSearch = searchQuery.isBlank() ||
+                    type.contains(searchQuery, ignoreCase = true) ||
+                    preset.title.contains(searchQuery, ignoreCase = true) ||
+                    preset.description.contains(searchQuery, ignoreCase = true)
+
+            val matchGroup = when (selectedGroup) {
+                "Commerce" -> type in listOf("Boutique", "Commerce général", "Kiosque", "Vendeur ambulant", "Bijouterie", "Librairie")
+                "Alimentation" -> type in listOf("Restaurant", "Boulangerie", "Boucherie", "Poissonnerie", "Commerce général", "Kiosque")
+                "Artisanat & BTP" -> type in listOf("Maçonnerie", "Menuiserie", "Soudure", "Plomberie", "Électricité", "Quincaillerie", "Agro-pastoral")
+                "Services & Tech" -> type in listOf("Coiffure", "Couture", "Pressing", "Informatique", "Lavage Auto-Moto", "Mécanique", "Pharmacie")
+                else -> true
+            }
+            matchSearch && matchGroup
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -467,7 +484,48 @@ private fun Step3BusinessChoice(
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
 
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // Search Bar
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = { searchQuery = it },
+            placeholder = { Text("Rechercher votre métier...") },
+            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = KonabGreen) },
+            trailingIcon = {
+                if (searchQuery.isNotBlank()) {
+                    IconButton(onClick = { searchQuery = "" }) {
+                        Icon(Icons.Default.Clear, contentDescription = "Effacer")
+                    }
+                }
+            },
+            singleLine = true,
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("input_onboarding_search_activity")
+        )
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // Category Filter Chips
+        val groups = listOf("Tous", "Commerce", "Alimentation", "Artisanat & BTP", "Services & Tech")
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(groups) { grp ->
+                val isSel = selectedGroup == grp
+                FilterChip(
+                    selected = isSel,
+                    onClick = { selectedGroup = grp },
+                    label = { Text(grp, fontSize = 11.sp, fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal) },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = KonabGreen,
+                        selectedLabelColor = Color.White
+                    )
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
 
         LazyVerticalGrid(
             columns = GridCells.Fixed(2),
@@ -475,15 +533,41 @@ private fun Step3BusinessChoice(
             verticalArrangement = Arrangement.spacedBy(14.dp),
             modifier = Modifier.fillMaxSize()
         ) {
-            items(types) { (type, icon) ->
-                val isSelected = selectedType == type
+            items(filteredTypes) { type ->
+                val preset = BusinessTypePresets.getPreset(type)
+                val isSelected = selectedType.equals(type, ignoreCase = true)
+
+                val icon: ImageVector = when (type) {
+                    "Boutique" -> Icons.Default.ShoppingBag
+                    "Restaurant" -> Icons.Default.Restaurant
+                    "Kiosque" -> Icons.Default.Storefront
+                    "Vendeur ambulant" -> Icons.Default.DirectionsWalk
+                    "Pharmacie" -> Icons.Default.LocalPharmacy
+                    "Quincaillerie" -> Icons.Default.Build
+                    "Coiffure" -> Icons.Default.ContentCut
+                    "Commerce général" -> Icons.Default.Storefront
+                    "Boulangerie" -> Icons.Default.BakeryDining
+                    "Couture" -> Icons.Default.Checkroom
+                    "Pressing" -> Icons.Default.LocalLaundryService
+                    "Boucherie" -> Icons.Default.Restaurant
+                    "Poissonnerie" -> Icons.Default.SetMeal
+                    "Agro-pastoral" -> Icons.Default.Agriculture
+                    "Informatique" -> Icons.Default.Smartphone
+                    "Librairie" -> Icons.Default.MenuBook
+                    "Bijouterie" -> Icons.Default.Diamond
+                    "Lavage Auto-Moto" -> Icons.Default.LocalCarWash
+                    "Électricité" -> Icons.Default.Bolt
+                    "Maçonnerie", "Menuiserie", "Soudure", "Plomberie", "Mécanique" -> Icons.Default.Build
+                    else -> Icons.Default.Category
+                }
+
                 Card(
                     shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(
                         containerColor = if (isSelected) KonabGreenLight else MaterialTheme.colorScheme.surface
                     ),
                     modifier = Modifier
-                        .height(115.dp)
+                        .height(125.dp)
                         .border(
                             width = if (isSelected) 2.dp else 1.dp,
                             color = if (isSelected) KonabGreen else KonabBorder,
@@ -495,13 +579,13 @@ private fun Step3BusinessChoice(
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(12.dp),
+                            .padding(10.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(44.dp)
+                                .size(40.dp)
                                 .clip(CircleShape)
                                 .background(if (isSelected) KonabGreen else KonabGoldContainer),
                             contentAlignment = Alignment.Center
@@ -510,16 +594,26 @@ private fun Step3BusinessChoice(
                                 imageVector = icon,
                                 contentDescription = type,
                                 tint = if (isSelected) Color.White else KonabGoldDark,
-                                modifier = Modifier.size(24.dp)
+                                modifier = Modifier.size(22.dp)
                             )
                         }
-                        Spacer(modifier = Modifier.height(10.dp))
+                        Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            text = type,
+                            text = "${preset.emoji} ${preset.title}",
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                            fontSize = 14.sp,
+                            fontSize = 12.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                             textAlign = TextAlign.Center,
                             color = if (isSelected) KonabGreenDark else MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = preset.description,
+                            fontSize = 9.sp,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            textAlign = TextAlign.Center,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }

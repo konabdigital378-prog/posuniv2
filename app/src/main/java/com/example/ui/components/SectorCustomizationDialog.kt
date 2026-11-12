@@ -8,10 +8,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -85,7 +88,64 @@ fun SectorCustomizationDialog(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
-                allSectors.forEach { sectorName ->
+                var sectorSearchQuery by remember { mutableStateOf("") }
+                var selectedGroupFilter by remember { mutableStateOf("Tous") }
+
+                OutlinedTextField(
+                    value = sectorSearchQuery,
+                    onValueChange = { sectorSearchQuery = it },
+                    placeholder = { Text("Rechercher un métier (ex: boulangerie, couture, moto...)") },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = KonabBlue) },
+                    trailingIcon = {
+                        if (sectorSearchQuery.isNotBlank()) {
+                            IconButton(onClick = { sectorSearchQuery = "" }) {
+                                Icon(Icons.Default.Clear, contentDescription = "Effacer")
+                            }
+                        }
+                    },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("input_search_sector")
+                )
+
+                val sectorGroups = listOf("Tous", "Commerce", "Alimentation", "Artisanat & BTP", "Services & Tech")
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    items(sectorGroups) { group ->
+                        val isGroupSel = selectedGroupFilter == group
+                        FilterChip(
+                            selected = isGroupSel,
+                            onClick = { selectedGroupFilter = group },
+                            label = { Text(group, fontSize = 11.sp, fontWeight = if (isGroupSel) FontWeight.Bold else FontWeight.Normal) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = KonabBlue,
+                                selectedLabelColor = Color.White
+                            )
+                        )
+                    }
+                }
+
+                val displayedSectors = remember(sectorSearchQuery, selectedGroupFilter) {
+                    allSectors.filter { sectorName ->
+                        val info = BusinessTypePresets.getPreset(sectorName)
+                        val matchSearch = sectorSearchQuery.isBlank() ||
+                                sectorName.contains(sectorSearchQuery, ignoreCase = true) ||
+                                info.title.contains(sectorSearchQuery, ignoreCase = true) ||
+                                info.description.contains(sectorSearchQuery, ignoreCase = true)
+
+                        val matchGroup = when (selectedGroupFilter) {
+                            "Commerce" -> sectorName in listOf("Boutique", "Commerce général", "Kiosque", "Vendeur ambulant", "Bijouterie", "Librairie")
+                            "Alimentation" -> sectorName in listOf("Restaurant", "Boulangerie", "Boucherie", "Poissonnerie", "Commerce général", "Kiosque")
+                            "Artisanat & BTP" -> sectorName in listOf("Maçonnerie", "Menuiserie", "Soudure", "Plomberie", "Électricité", "Quincaillerie", "Agro-pastoral")
+                            "Services & Tech" -> sectorName in listOf("Coiffure", "Couture", "Pressing", "Informatique", "Lavage Auto-Moto", "Mécanique", "Pharmacie")
+                            else -> true
+                        }
+                        matchSearch && matchGroup
+                    }
+                }
+
+                displayedSectors.forEach { sectorName ->
                     val info = BusinessTypePresets.getPreset(sectorName)
                     val isSelected = selectedSector.equals(sectorName, ignoreCase = true)
 
@@ -98,6 +158,16 @@ fun SectorCustomizationDialog(
                         "Quincaillerie" -> Icons.Default.Build
                         "Coiffure" -> Icons.Default.ContentCut
                         "Commerce général" -> Icons.Default.Storefront
+                        "Boulangerie" -> Icons.Default.BakeryDining
+                        "Couture" -> Icons.Default.Checkroom
+                        "Pressing" -> Icons.Default.LocalLaundryService
+                        "Boucherie" -> Icons.Default.Restaurant
+                        "Poissonnerie" -> Icons.Default.SetMeal
+                        "Agro-pastoral" -> Icons.Default.Agriculture
+                        "Informatique" -> Icons.Default.Smartphone
+                        "Librairie" -> Icons.Default.MenuBook
+                        "Bijouterie" -> Icons.Default.Diamond
+                        "Lavage Auto-Moto" -> Icons.Default.LocalCarWash
                         "Électricité" -> Icons.Default.Bolt
                         "Maçonnerie", "Menuiserie", "Soudure", "Plomberie", "Mécanique" -> Icons.Default.Build
                         else -> Icons.Default.Category
@@ -112,6 +182,16 @@ fun SectorCustomizationDialog(
                         "Kiosque" -> Color(0xFF0284C7)
                         "Vendeur ambulant" -> Color(0xFFE11D48)
                         "Commerce général" -> Color(0xFF0D9488)
+                        "Boulangerie" -> Color(0xFFD97706)
+                        "Couture" -> Color(0xFF8B5CF6)
+                        "Pressing" -> Color(0xFF0284C7)
+                        "Boucherie" -> Color(0xFFDC2626)
+                        "Poissonnerie" -> Color(0xFF0891B2)
+                        "Agro-pastoral" -> Color(0xFF15803D)
+                        "Informatique" -> Color(0xFF2563EB)
+                        "Librairie" -> Color(0xFF4F46E5)
+                        "Bijouterie" -> Color(0xFFEAB308)
+                        "Lavage Auto-Moto" -> Color(0xFF0D9488)
                         "Maçonnerie" -> Color(0xFFC2410C)
                         "Menuiserie" -> Color(0xFF92400E)
                         "Soudure" -> Color(0xFF0369A1)

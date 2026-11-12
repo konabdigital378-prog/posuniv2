@@ -36,6 +36,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.activity.compose.BackHandler
@@ -1451,16 +1452,29 @@ private fun WizardStepActivityType(
     selectedType: String,
     onSelectType: (String) -> Unit
 ) {
-    val types = listOf(
-        Triple("Boutique", Icons.Default.ShoppingBag, "Prêt-à-porter, vêtements, sacs"),
-        Triple("Coiffure", Icons.Default.ContentCut, "Coupes hommes, tresses, cosmétiques"),
-        Triple("Kiosque", Icons.Default.Storefront, "Café Touba, thé, sandwiches, petits déjeuners"),
-        Triple("Restaurant", Icons.Default.Restaurant, "Plats chauds, grillades, boissons locales"),
-        Triple("Pharmacie", Icons.Default.LocalPharmacy, "Médicaments, premiers secours, vitamines"),
-        Triple("Quincaillerie", Icons.Default.Build, "Ciment, outillage, plomberie, électricité"),
-        Triple("Commerce général", Icons.Default.Category, "Alimentation générale, riz, savons"),
-        Triple("Autre", Icons.Default.MoreHoriz, "Services et commerces divers")
-    )
+    var searchQuery by remember { mutableStateOf("") }
+    var selectedGroup by remember { mutableStateOf("Tous") }
+
+    val allTypes = remember { BusinessTypePresets.getAllTypes() }
+
+    val filteredTypes = remember(searchQuery, selectedGroup) {
+        allTypes.filter { type ->
+            val preset = BusinessTypePresets.getPreset(type)
+            val matchSearch = searchQuery.isBlank() ||
+                    type.contains(searchQuery, ignoreCase = true) ||
+                    preset.title.contains(searchQuery, ignoreCase = true) ||
+                    preset.description.contains(searchQuery, ignoreCase = true)
+
+            val matchGroup = when (selectedGroup) {
+                "Commerce" -> type in listOf("Boutique", "Commerce général", "Kiosque", "Vendeur ambulant", "Bijouterie", "Librairie")
+                "Alimentation" -> type in listOf("Restaurant", "Boulangerie", "Boucherie", "Poissonnerie", "Commerce général", "Kiosque")
+                "Artisanat & BTP" -> type in listOf("Maçonnerie", "Menuiserie", "Soudure", "Plomberie", "Électricité", "Quincaillerie", "Agro-pastoral")
+                "Services & Tech" -> type in listOf("Coiffure", "Couture", "Pressing", "Informatique", "Lavage Auto-Moto", "Mécanique", "Pharmacie")
+                else -> true
+            }
+            matchSearch && matchGroup
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -1478,7 +1492,48 @@ private fun WizardStepActivityType(
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Search Bar
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = { searchQuery = it },
+            placeholder = { Text("Rechercher votre profession (ex: boulangerie, couture, moto...)") },
+            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = KonabBlue) },
+            trailingIcon = {
+                if (searchQuery.isNotBlank()) {
+                    IconButton(onClick = { searchQuery = "" }) {
+                        Icon(Icons.Default.Clear, contentDescription = "Effacer")
+                    }
+                }
+            },
+            singleLine = true,
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("input_wizard_search_activity")
+        )
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // Category Filter Chips
+        val groups = listOf("Tous", "Commerce", "Alimentation", "Artisanat & BTP", "Services & Tech")
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(groups) { grp ->
+                val isSel = selectedGroup == grp
+                FilterChip(
+                    selected = isSel,
+                    onClick = { selectedGroup = grp },
+                    label = { Text(grp, fontSize = 11.sp, fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal) },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = KonabGreen,
+                        selectedLabelColor = Color.White
+                    )
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
 
         LazyVerticalGrid(
             columns = GridCells.Fixed(2),
@@ -1486,15 +1541,41 @@ private fun WizardStepActivityType(
             verticalArrangement = Arrangement.spacedBy(12.dp),
             modifier = Modifier.fillMaxSize()
         ) {
-            items(types) { (type, icon, description) ->
-                val isSelected = selectedType == type
+            items(filteredTypes) { type ->
+                val preset = BusinessTypePresets.getPreset(type)
+                val isSelected = selectedType.equals(type, ignoreCase = true)
+
+                val icon: ImageVector = when (type) {
+                    "Boutique" -> Icons.Default.ShoppingBag
+                    "Restaurant" -> Icons.Default.Restaurant
+                    "Kiosque" -> Icons.Default.Storefront
+                    "Vendeur ambulant" -> Icons.Default.DirectionsWalk
+                    "Pharmacie" -> Icons.Default.LocalPharmacy
+                    "Quincaillerie" -> Icons.Default.Build
+                    "Coiffure" -> Icons.Default.ContentCut
+                    "Commerce général" -> Icons.Default.Storefront
+                    "Boulangerie" -> Icons.Default.BakeryDining
+                    "Couture" -> Icons.Default.Checkroom
+                    "Pressing" -> Icons.Default.LocalLaundryService
+                    "Boucherie" -> Icons.Default.Restaurant
+                    "Poissonnerie" -> Icons.Default.SetMeal
+                    "Agro-pastoral" -> Icons.Default.Agriculture
+                    "Informatique" -> Icons.Default.Smartphone
+                    "Librairie" -> Icons.Default.MenuBook
+                    "Bijouterie" -> Icons.Default.Diamond
+                    "Lavage Auto-Moto" -> Icons.Default.LocalCarWash
+                    "Électricité" -> Icons.Default.Bolt
+                    "Maçonnerie", "Menuiserie", "Soudure", "Plomberie", "Mécanique" -> Icons.Default.Build
+                    else -> Icons.Default.Category
+                }
+
                 Card(
                     shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(
                         containerColor = if (isSelected) KonabGreenLight else MaterialTheme.colorScheme.surface
                     ),
                     modifier = Modifier
-                        .height(130.dp)
+                        .height(138.dp)
                         .border(
                             width = if (isSelected) 2.dp else 1.dp,
                             color = if (isSelected) KonabGreen else KonabBorder,
@@ -1506,7 +1587,7 @@ private fun WizardStepActivityType(
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(12.dp),
+                            .padding(10.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center
                     ) {
@@ -1525,21 +1606,24 @@ private fun WizardStepActivityType(
                             )
                         }
 
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(6.dp))
 
                         Text(
-                            text = type,
+                            text = "${preset.emoji} ${preset.title}",
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
-                            fontSize = 13.sp,
+                            fontSize = 12.sp,
                             textAlign = TextAlign.Center,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                             color = if (isSelected) KonabGreenDark else MaterialTheme.colorScheme.onSurface
                         )
 
                         Text(
-                            text = description,
-                            fontSize = 10.sp,
+                            text = preset.description,
+                            fontSize = 9.5.sp,
                             textAlign = TextAlign.Center,
                             maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }

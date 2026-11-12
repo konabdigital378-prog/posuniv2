@@ -40,6 +40,16 @@ object BusinessTypePresets {
         "Quincaillerie",
         "Coiffure",
         "Commerce général",
+        "Boulangerie",
+        "Couture",
+        "Pressing",
+        "Boucherie",
+        "Poissonnerie",
+        "Agro-pastoral",
+        "Informatique",
+        "Librairie",
+        "Bijouterie",
+        "Lavage Auto-Moto",
         "Maçonnerie",
         "Menuiserie",
         "Soudure",
@@ -316,6 +326,205 @@ object BusinessTypePresets {
                     ProductEntity(name = "Pneu moto 17\" Tubeless résistant", category = "Pneumatiques", buyPrice = 9000, sellPrice = 14500, stockQuantity = 12, minStockAlert = 4, unit = "pièce", imageUri = "img_prod_quincaillerie"),
                     ProductEntity(name = "Forfait vidange complète moteur + filtres", category = "Prestations & Révision", buyPrice = 0, sellPrice = 5000, stockQuantity = 50, minStockAlert = 1, unit = "forfait", imageUri = "img_prod_quincaillerie"),
                     ProductEntity(name = "Diagnostic mécanique & parallélisme train avant", category = "Prestations & Révision", buyPrice = 0, sellPrice = 15000, stockQuantity = 25, minStockAlert = 1, unit = "forfait", imageUri = "img_prod_quincaillerie")
+                )
+            )
+
+            "Boulangerie" -> BusinessTypeInfo(
+                id = "Boulangerie",
+                title = "Boulangerie & Pâtisserie",
+                iconName = "bakery_dining",
+                description = "Fournil artisanal, baguettes chaudes, viennoiseries, gâteaux sur commande, farines et traiteur",
+                defaultCategories = listOf("Pains & Baguettes", "Viennoiseries", "Pâtisserie & Gâteaux", "Snacks salés", "Matières premières"),
+                quickUnits = listOf("baguette", "croissant", "miche", "gâteau", "part", "pièce", "sac", "lot"),
+                sectorFeatures = SectorFeatures(hasSpeedCashShortcuts = true, hasVariations = true),
+                emoji = "🥖",
+                defaultProducts = listOf(
+                    ProductEntity(name = "Baguette tradition croustillante", category = "Pains & Baguettes", buyPrice = 100, sellPrice = 150, stockQuantity = 150, minStockAlert = 30, unit = "baguette", imageUri = "img_prod_resto"),
+                    ProductEntity(name = "Croissant pur beurre doré", category = "Viennoiseries", buyPrice = 150, sellPrice = 250, stockQuantity = 60, minStockAlert = 15, unit = "croissant", imageUri = "img_prod_resto"),
+                    ProductEntity(name = "Pain au chocolat feuilleté", category = "Viennoiseries", buyPrice = 160, sellPrice = 300, stockQuantity = 50, minStockAlert = 12, unit = "pièce", imageUri = "img_prod_resto"),
+                    ProductEntity(name = "Pain de mie tranché familial", category = "Pains & Baguettes", buyPrice = 400, sellPrice = 750, stockQuantity = 25, minStockAlert = 5, unit = "miche", imageUri = "img_prod_resto"),
+                    ProductEntity(name = "Gâteau anniversaire chocolat 8 parts", category = "Pâtisserie & Gâteaux", buyPrice = 4000, sellPrice = 9000, stockQuantity = 6, minStockAlert = 2, unit = "gâteau", imageUri = "img_prod_resto"),
+                    ProductEntity(name = "Brioche tressée au sucre", category = "Viennoiseries", buyPrice = 300, sellPrice = 600, stockQuantity = 20, minStockAlert = 5, unit = "pièce", imageUri = "img_prod_resto"),
+                    ProductEntity(name = "Farine de blé boulangère T55 (Sac 25kg)", category = "Matières premières", buyPrice = 12000, sellPrice = 15500, stockQuantity = 10, minStockAlert = 3, unit = "sac", imageUri = "img_prod_epicerie")
+                )
+            )
+
+            "Couture" -> BusinessTypeInfo(
+                id = "Couture",
+                title = "Couture, Stylisme & Mercerie",
+                iconName = "checkroom",
+                description = "Atelier de confection sur-mesure, broderie bazin, retouches, tenues d'apparat, boutons et mercerie",
+                defaultCategories = listOf("Confections Hommes", "Confections Dames", "Retouches & Ajustages", "Mercerie & Fils", "Tissus & Bazins"),
+                quickUnits = listOf("tenue", "confection", "mètre", "bobine", "pièce", "lot", "forfait", "retouche"),
+                sectorFeatures = SectorFeatures(hasVariations = true, hasJobSiteQuotes = true, hasOperatorStylist = true),
+                emoji = "✂️",
+                defaultProducts = listOf(
+                    ProductEntity(name = "Confection complet boubou Bazin 3 pièces", category = "Confections Hommes", buyPrice = 5000, sellPrice = 25000, stockQuantity = 20, minStockAlert = 2, unit = "tenue", imageUri = "img_prod_mode"),
+                    ProductEntity(name = "Robe moderne pagne Faso Danfani", category = "Confections Dames", buyPrice = 4000, sellPrice = 18000, stockQuantity = 15, minStockAlert = 2, unit = "confection", imageUri = "img_prod_mode"),
+                    ProductEntity(name = "Retouche ourlet pantalon ou robe", category = "Retouches & Ajustages", buyPrice = 0, sellPrice = 1000, stockQuantity = 100, minStockAlert = 1, unit = "retouche", imageUri = "img_prod_mode"),
+                    ProductEntity(name = "Fil à coudre haute ténacité (Bobine)", category = "Mercerie & Fils", buyPrice = 250, sellPrice = 500, stockQuantity = 80, minStockAlert = 15, unit = "bobine", imageUri = "img_prod_mode"),
+                    ProductEntity(name = "Fermeture à glissière métallique 60cm", category = "Mercerie & Fils", buyPrice = 200, sellPrice = 500, stockQuantity = 60, minStockAlert = 10, unit = "pièce", imageUri = "img_prod_mode"),
+                    ProductEntity(name = "Boutons de manchette nacrés (Lot de 10)", category = "Mercerie & Fils", buyPrice = 400, sellPrice = 1000, stockQuantity = 40, minStockAlert = 8, unit = "lot", imageUri = "img_prod_mode"),
+                    ProductEntity(name = "Tissu Bazin riche Getzner teinté (Mètre)", category = "Tissus & Bazins", buyPrice = 4500, sellPrice = 7500, stockQuantity = 30, minStockAlert = 5, unit = "mètre", imageUri = "img_prod_mode")
+                )
+            )
+
+            "Pressing" -> BusinessTypeInfo(
+                id = "Pressing",
+                title = "Pressing & Blanchisserie",
+                iconName = "local_laundry_service",
+                description = "Nettoyage à sec, repassage vapeur, couettes, draps d'hôtels, détachage express et gestion de linge",
+                defaultCategories = listOf("Vêtements quotidiens", "Costumes & Cérémonie", "Linge de maison & Couettes", "Prestations Express"),
+                quickUnits = listOf("pièce", "costume", "couette", "drap", "kg", "forfait", "paire"),
+                sectorFeatures = SectorFeatures(hasSpeedCashShortcuts = true, hasJobSiteQuotes = true),
+                emoji = "👔",
+                defaultProducts = listOf(
+                    ProductEntity(name = "Nettoyage complet costume 2 pièces", category = "Costumes & Cérémonie", buyPrice = 300, sellPrice = 2500, stockQuantity = 80, minStockAlert = 1, unit = "costume", imageUri = "img_prod_mode"),
+                    ProductEntity(name = "Repassage vapeur chemise ou pantalon", category = "Vêtements quotidiens", buyPrice = 50, sellPrice = 500, stockQuantity = 150, minStockAlert = 1, unit = "pièce", imageUri = "img_prod_mode"),
+                    ProductEntity(name = "Lavage grand boubou brodé Bazin", category = "Costumes & Cérémonie", buyPrice = 400, sellPrice = 3500, stockQuantity = 50, minStockAlert = 1, unit = "pièce", imageUri = "img_prod_mode"),
+                    ProductEntity(name = "Lavage grande couette 2 places / édredon", category = "Linge de maison & Couettes", buyPrice = 800, sellPrice = 4000, stockQuantity = 40, minStockAlert = 1, unit = "couette", imageUri = "img_prod_mode"),
+                    ProductEntity(name = "Lavage au kilo linge quotidien (kg)", category = "Vêtements quotidiens", buyPrice = 200, sellPrice = 1200, stockQuantity = 200, minStockAlert = 1, unit = "kg", imageUri = "img_prod_mode"),
+                    ProductEntity(name = "Forfait détachage express vêtement délicat", category = "Prestations Express", buyPrice = 100, sellPrice = 1500, stockQuantity = 60, minStockAlert = 1, unit = "forfait", imageUri = "img_prod_mode")
+                )
+            )
+
+            "Boucherie" -> BusinessTypeInfo(
+                id = "Boucherie",
+                title = "Boucherie & Charcuterie",
+                iconName = "restaurant",
+                description = "Viande fraîche de bœuf, mouton, volailles, découpe sur commande, abats et charcuterie",
+                defaultCategories = listOf("Viande de Bœuf", "Mouton & Chèvre", "Volailles fraîches", "Abats & Grillades", "Saucisses & Préparations"),
+                quickUnits = listOf("kg", "demi-kg", "morceau", "gigot", "pièce", "barquette", "tas"),
+                sectorFeatures = SectorFeatures(hasFractionalUnits = true, hasSpeedCashShortcuts = true),
+                emoji = "🥩",
+                defaultProducts = listOf(
+                    ProductEntity(name = "Viande de bœuf avec os (kg)", category = "Viande de Bœuf", buyPrice = 2200, sellPrice = 2800, stockQuantity = 60, minStockAlert = 10, unit = "kg", imageUri = "img_prod_resto"),
+                    ProductEntity(name = "Filet de bœuf sans os 1er choix (kg)", category = "Viande de Bœuf", buyPrice = 3000, sellPrice = 4000, stockQuantity = 35, minStockAlert = 5, unit = "kg", imageUri = "img_prod_resto"),
+                    ProductEntity(name = "Gigot de mouton frais entier (kg)", category = "Mouton & Chèvre", buyPrice = 3500, sellPrice = 4500, stockQuantity = 20, minStockAlert = 4, unit = "kg", imageUri = "img_prod_resto"),
+                    ProductEntity(name = "Poulet fermier découpé prêt à cuire", category = "Volailles fraîches", buyPrice = 2200, sellPrice = 3200, stockQuantity = 30, minStockAlert = 6, unit = "pièce", imageUri = "img_prod_resto"),
+                    ProductEntity(name = "Foie et rognons de bœuf frais (kg)", category = "Abats & Grillades", buyPrice = 2500, sellPrice = 3500, stockQuantity = 15, minStockAlert = 3, unit = "kg", imageUri = "img_prod_resto"),
+                    ProductEntity(name = "Saucisses fraîches bœuf épicées (kg)", category = "Saucisses & Préparations", buyPrice = 2800, sellPrice = 4200, stockQuantity = 25, minStockAlert = 5, unit = "kg", imageUri = "img_prod_resto"),
+                    ProductEntity(name = "Viande hachée pur bœuf assaisonnée (kg)", category = "Saucisses & Préparations", buyPrice = 2600, sellPrice = 3800, stockQuantity = 30, minStockAlert = 5, unit = "kg", imageUri = "img_prod_resto")
+                )
+            )
+
+            "Poissonnerie" -> BusinessTypeInfo(
+                id = "Poissonnerie",
+                title = "Poissonnerie & Produits Halieutiques",
+                iconName = "set_meal",
+                description = "Poissons frais du fleuve et mer, carpes, capitaines, tilapias, poissons fumés et crevettes",
+                defaultCategories = listOf("Poissons d'eau douce", "Poissons de mer", "Poissons fumés & séchés", "Crustacés & Fruits de mer"),
+                quickUnits = listOf("kg", "carton", "tas", "pièce", "barquette", "sachet"),
+                sectorFeatures = SectorFeatures(hasFractionalUnits = true, hasSpeedCashShortcuts = true),
+                emoji = "🐟",
+                defaultProducts = listOf(
+                    ProductEntity(name = "Capitaine frais du fleuve (kg)", category = "Poissons d'eau douce", buyPrice = 3200, sellPrice = 4500, stockQuantity = 25, minStockAlert = 5, unit = "kg", imageUri = "img_prod_resto"),
+                    ProductEntity(name = "Carpe fraîche vivante de retenue (kg)", category = "Poissons d'eau douce", buyPrice = 2000, sellPrice = 3000, stockQuantity = 40, minStockAlert = 8, unit = "kg", imageUri = "img_prod_resto"),
+                    ProductEntity(name = "Tilapia rouge frais entier (kg)", category = "Poissons d'eau douce", buyPrice = 1800, sellPrice = 2600, stockQuantity = 35, minStockAlert = 6, unit = "kg", imageUri = "img_prod_resto"),
+                    ProductEntity(name = "Poisson fumé traditionnel de Bagré (Tas)", category = "Poissons fumés & séchés", buyPrice = 1200, sellPrice = 2000, stockQuantity = 50, minStockAlert = 10, unit = "tas", imageUri = "img_prod_resto"),
+                    ProductEntity(name = "Chinchard surgelé (Carton de 10kg)", category = "Poissons de mer", buyPrice = 11000, sellPrice = 14500, stockQuantity = 15, minStockAlert = 3, unit = "carton", imageUri = "img_prod_resto"),
+                    ProductEntity(name = "Crevettes fraîches calibre moyen (kg)", category = "Crustacés & Fruits de mer", buyPrice = 4500, sellPrice = 7000, stockQuantity = 12, minStockAlert = 2, unit = "kg", imageUri = "img_prod_resto")
+                )
+            )
+
+            "Agro-pastoral" -> BusinessTypeInfo(
+                id = "Agro-pastoral",
+                title = "Agro-pastoral, Élevage & Aliments Bétail",
+                iconName = "agriculture",
+                description = "Provende volaille, tourteau de coton, céréales concassées, sel gemme, engrais et intrants",
+                defaultCategories = listOf("Aliments Volailles", "Aliments Ruminants & Bétail", "Céréales & Sons", "Engrais & Intrants", "Vitamines & Soins"),
+                quickUnits = listOf("sac", "kg", "tonne", "bloc", "boîte", "bidon", "flacon"),
+                sectorFeatures = SectorFeatures(hasFractionalUnits = true, hasJobSiteQuotes = true),
+                emoji = "🌾",
+                defaultProducts = listOf(
+                    ProductEntity(name = "Tourteau de coton SN-CITEC (Sac 50kg)", category = "Aliments Ruminants & Bétail", buyPrice = 11500, sellPrice = 13500, stockQuantity = 40, minStockAlert = 8, unit = "sac", imageUri = "img_prod_epicerie"),
+                    ProductEntity(name = "Aliment démarrage poussins provende (50kg)", category = "Aliments Volailles", buyPrice = 14000, sellPrice = 17000, stockQuantity = 25, minStockAlert = 5, unit = "sac", imageUri = "img_prod_epicerie"),
+                    ProductEntity(name = "Aliment finition poulets de chair (50kg)", category = "Aliments Volailles", buyPrice = 13500, sellPrice = 16500, stockQuantity = 30, minStockAlert = 6, unit = "sac", imageUri = "img_prod_epicerie"),
+                    ProductEntity(name = "Maïs blanc concassé sec (Sac 100kg)", category = "Céréales & Sons", buyPrice = 16000, sellPrice = 19500, stockQuantity = 20, minStockAlert = 4, unit = "sac", imageUri = "img_prod_epicerie"),
+                    ProductEntity(name = "Bloc de sel minéralisé à lécher (5kg)", category = "Aliments Ruminants & Bétail", buyPrice = 1800, sellPrice = 2800, stockQuantity = 35, minStockAlert = 6, unit = "bloc", imageUri = "img_prod_epicerie"),
+                    ProductEntity(name = "Engrais NPK 14-23-14 certifié (Sac 50kg)", category = "Engrais & Intrants", buyPrice = 22000, sellPrice = 26000, stockQuantity = 30, minStockAlert = 5, unit = "sac", imageUri = "img_prod_quincaillerie"),
+                    ProductEntity(name = "Complexe multivitaminé aviaire (Boîte 100g)", category = "Vitamines & Soins", buyPrice = 1200, sellPrice = 2000, stockQuantity = 40, minStockAlert = 8, unit = "boîte", imageUri = "img_prod_epicerie")
+                )
+            )
+
+            "Informatique" -> BusinessTypeInfo(
+                id = "Informatique",
+                title = "Informatique, Téléphonie & Réparation",
+                iconName = "smartphone",
+                description = "Smartphones, ordinateurs portables, accessoires connectés, réparation écrans et microsoudure",
+                defaultCategories = listOf("Smartphones & Téléphones", "Accessoires Mobiles", "Ordinateurs & Périphériques", "Réparations & Dépannages"),
+                quickUnits = listOf("pièce", "unité", "forfait", "câble", "écran", "réparation"),
+                sectorFeatures = SectorFeatures(hasVariations = true, hasJobSiteQuotes = true, hasOperatorStylist = true),
+                emoji = "📱",
+                defaultProducts = listOf(
+                    ProductEntity(name = "Smartphone 4G 64GB double SIM", category = "Smartphones & Téléphones", buyPrice = 42000, sellPrice = 55000, stockQuantity = 12, minStockAlert = 3, unit = "pièce", imageUri = "img_prod_quincaillerie"),
+                    ProductEntity(name = "Verre trempé 9D incassable tous modèles", category = "Accessoires Mobiles", buyPrice = 500, sellPrice = 1500, stockQuantity = 80, minStockAlert = 15, unit = "pièce", imageUri = "img_prod_quincaillerie"),
+                    ProductEntity(name = "Chargeur rapide 33W Type-C original", category = "Accessoires Mobiles", buyPrice = 2200, sellPrice = 4500, stockQuantity = 30, minStockAlert = 6, unit = "pièce", imageUri = "img_prod_quincaillerie"),
+                    ProductEntity(name = "Câble blindé USB-C tresse nylon 1.5m", category = "Accessoires Mobiles", buyPrice = 800, sellPrice = 2000, stockQuantity = 50, minStockAlert = 10, unit = "câble", imageUri = "img_prod_quincaillerie"),
+                    ProductEntity(name = "Écouteurs sans fil Bluetooth stéréo", category = "Accessoires Mobiles", buyPrice = 3800, sellPrice = 7500, stockQuantity = 20, minStockAlert = 4, unit = "pièce", imageUri = "img_prod_quincaillerie"),
+                    ProductEntity(name = "Remplacement écran complet tactile smartphone", category = "Réparations & Dépannages", buyPrice = 8000, sellPrice = 18000, stockQuantity = 15, minStockAlert = 2, unit = "forfait", imageUri = "img_prod_quincaillerie"),
+                    ProductEntity(name = "Flashage, déblocage système Android ou iOS", category = "Réparations & Dépannages", buyPrice = 0, sellPrice = 5000, stockQuantity = 50, minStockAlert = 1, unit = "forfait", imageUri = "img_prod_quincaillerie"),
+                    ProductEntity(name = "Clé USB 64GB Kingston métal résistante", category = "Ordinateurs & Périphériques", buyPrice = 3000, sellPrice = 5500, stockQuantity = 25, minStockAlert = 5, unit = "pièce", imageUri = "img_prod_quincaillerie")
+                )
+            )
+
+            "Librairie" -> BusinessTypeInfo(
+                id = "Librairie",
+                title = "Librairie, Papeterie & Bureautique",
+                iconName = "menu_book",
+                description = "Fournitures scolaires, livres, cahiers, rames de papier A4, bureautique, photocopies et reliures",
+                defaultCategories = listOf("Papeterie & Cahiers", "Écriture & Traçage", "Bureautique & Rames", "Services Reprographie", "Livres Scolaires"),
+                quickUnits = listOf("cahier", "rame", "pièce", "paquet", "boîte", "copie", "reliure"),
+                sectorFeatures = SectorFeatures(hasSpeedCashShortcuts = true),
+                emoji = "📚",
+                defaultProducts = listOf(
+                    ProductEntity(name = "Rame papier blanc A4 80g Double A (500f)", category = "Bureautique & Rames", buyPrice = 3200, sellPrice = 4500, stockQuantity = 40, minStockAlert = 10, unit = "rame", imageUri = "img_prod_epicerie"),
+                    ProductEntity(name = "Cahier grand format 200 pages quadrillé", category = "Papeterie & Cahiers", buyPrice = 600, sellPrice = 1000, stockQuantity = 100, minStockAlert = 20, unit = "cahier", imageUri = "img_prod_epicerie"),
+                    ProductEntity(name = "Cahier 100 pages petit format", category = "Papeterie & Cahiers", buyPrice = 250, sellPrice = 400, stockQuantity = 150, minStockAlert = 30, unit = "cahier", imageUri = "img_prod_epicerie"),
+                    ProductEntity(name = "Boîte de 50 stylos à bille bleus BIC", category = "Écriture & Traçage", buyPrice = 4500, sellPrice = 6500, stockQuantity = 15, minStockAlert = 3, unit = "boîte", imageUri = "img_prod_epicerie"),
+                    ProductEntity(name = "Boîte d'instruments géométrie métal Maped", category = "Écriture & Traçage", buyPrice = 900, sellPrice = 1600, stockQuantity = 30, minStockAlert = 6, unit = "pièce", imageUri = "img_prod_epicerie"),
+                    ProductEntity(name = "Service Photocopie noir et blanc A4", category = "Services Reprographie", buyPrice = 10, sellPrice = 25, stockQuantity = 500, minStockAlert = 50, unit = "copie", imageUri = "img_prod_epicerie"),
+                    ProductEntity(name = "Forfait Reliure spirale plastique document", category = "Services Reprographie", buyPrice = 200, sellPrice = 750, stockQuantity = 80, minStockAlert = 10, unit = "reliure", imageUri = "img_prod_epicerie")
+                )
+            )
+
+            "Bijouterie" -> BusinessTypeInfo(
+                id = "Bijouterie",
+                title = "Bijouterie, Horlogerie & Joaillerie",
+                iconName = "diamond",
+                description = "Bijoux en or, argent, parures traditionnelles, perles de mariage, montres, réparations et gravures",
+                defaultCategories = listOf("Bijoux en Or 18k", "Bijoux en Argent 925", "Parures & Perles Tradition", "Montres & Horlogerie", "Prestations & Gravures"),
+                quickUnits = listOf("pièce", "gramme", "parure", "paire", "forfait", "service"),
+                sectorFeatures = SectorFeatures(hasVariations = true, hasFractionalUnits = true, hasJobSiteQuotes = true),
+                emoji = "💍",
+                defaultProducts = listOf(
+                    ProductEntity(name = "Chaîne or 18k maille forçat (le gramme)", category = "Bijoux en Or 18k", buyPrice = 32000, sellPrice = 42000, stockQuantity = 20, minStockAlert = 3, unit = "gramme", imageUri = "img_prod_mode"),
+                    ProductEntity(name = "Bague solitaire élégante argent massif 925", category = "Bijoux en Argent 925", buyPrice = 6000, sellPrice = 12000, stockQuantity = 15, minStockAlert = 3, unit = "pièce", imageUri = "img_prod_mode"),
+                    ProductEntity(name = "Boucles d'oreilles créoles argent ciselé", category = "Bijoux en Argent 925", buyPrice = 4500, sellPrice = 9000, stockQuantity = 18, minStockAlert = 4, unit = "paire", imageUri = "img_prod_mode"),
+                    ProductEntity(name = "Parure collier + bracelet perles de mariage", category = "Parures & Perles Tradition", buyPrice = 15000, sellPrice = 30000, stockQuantity = 8, minStockAlert = 2, unit = "parure", imageUri = "img_prod_mode"),
+                    ProductEntity(name = "Montre quartz bracelet acier étanche", category = "Montres & Horlogerie", buyPrice = 7000, sellPrice = 15000, stockQuantity = 12, minStockAlert = 3, unit = "pièce", imageUri = "img_prod_mode"),
+                    ProductEntity(name = "Remplacement pile montre + test étanchéité", category = "Prestations & Gravures", buyPrice = 500, sellPrice = 1500, stockQuantity = 50, minStockAlert = 5, unit = "service", imageUri = "img_prod_mode"),
+                    ProductEntity(name = "Gravure personnalisée prénom ou date", category = "Prestations & Gravures", buyPrice = 0, sellPrice = 2500, stockQuantity = 40, minStockAlert = 1, unit = "forfait", imageUri = "img_prod_mode")
+                )
+            )
+
+            "Lavage Auto-Moto" -> BusinessTypeInfo(
+                id = "Lavage Auto-Moto",
+                title = "Lavage Auto-Moto & Esthétique Véhicule",
+                iconName = "local_car_wash",
+                description = "Station de lavage haute pression, mousse active karcher, intérieur/extérieur moto, auto, 4x4",
+                defaultCategories = listOf("Lavage Deux-Roues", "Lavage Véhicules Légers", "Lavage 4x4 & Utilitaires", "Soins & Esthétique"),
+                quickUnits = listOf("lavage", "forfait", "service", "passage", "pièce"),
+                sectorFeatures = SectorFeatures(hasSpeedCashShortcuts = true, hasOperatorStylist = true),
+                emoji = "🚿",
+                defaultProducts = listOf(
+                    ProductEntity(name = "Lavage moto express karcher", category = "Lavage Deux-Roues", buyPrice = 100, sellPrice = 500, stockQuantity = 200, minStockAlert = 1, unit = "lavage", imageUri = "img_prod_quincaillerie"),
+                    ProductEntity(name = "Lavage moto complet mousse + brillant pneus", category = "Lavage Deux-Roues", buyPrice = 200, sellPrice = 1000, stockQuantity = 150, minStockAlert = 1, unit = "lavage", imageUri = "img_prod_quincaillerie"),
+                    ProductEntity(name = "Lavage simple extérieur voiture citadine", category = "Lavage Véhicules Légers", buyPrice = 300, sellPrice = 1500, stockQuantity = 100, minStockAlert = 1, unit = "lavage", imageUri = "img_prod_quincaillerie"),
+                    ProductEntity(name = "Lavage complet voiture (Intérieur + Extérieur)", category = "Lavage Véhicules Légers", buyPrice = 500, sellPrice = 3000, stockQuantity = 80, minStockAlert = 1, unit = "lavage", imageUri = "img_prod_quincaillerie"),
+                    ProductEntity(name = "Lavage complet 4x4, SUV ou Pick-up", category = "Lavage 4x4 & Utilitaires", buyPrice = 800, sellPrice = 5000, stockQuantity = 50, minStockAlert = 1, unit = "lavage", imageUri = "img_prod_quincaillerie"),
+                    ProductEntity(name = "Nettoyage vapeur en profondeur sièges auto", category = "Soins & Esthétique", buyPrice = 1500, sellPrice = 12000, stockQuantity = 25, minStockAlert = 1, unit = "forfait", imageUri = "img_prod_quincaillerie"),
+                    ProductEntity(name = "Rénovation optiques de phares jaunis", category = "Soins & Esthétique", buyPrice = 1000, sellPrice = 7500, stockQuantity = 30, minStockAlert = 1, unit = "forfait", imageUri = "img_prod_quincaillerie")
                 )
             )
 

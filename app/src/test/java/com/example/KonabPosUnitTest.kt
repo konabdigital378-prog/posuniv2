@@ -27,10 +27,32 @@ class KonabPosUnitTest {
         assertTrue(types.contains("Restaurant"))
         assertTrue(types.contains("Pharmacie"))
         assertTrue(types.contains("Quincaillerie"))
+        assertTrue(types.contains("Boulangerie"))
+        assertTrue(types.contains("Couture"))
+        assertTrue(types.contains("Pressing"))
+        assertTrue(types.contains("Boucherie"))
+        assertTrue(types.contains("Poissonnerie"))
+        assertTrue(types.contains("Agro-pastoral"))
+        assertTrue(types.contains("Informatique"))
+        assertTrue(types.contains("Librairie"))
+        assertTrue(types.contains("Bijouterie"))
+        assertTrue(types.contains("Lavage Auto-Moto"))
 
         val boutique = BusinessTypePresets.getPreset("Boutique")
         assertFalse(boutique.defaultProducts.isEmpty())
         assertTrue(boutique.defaultProducts.any { it.name.contains("T-shirt", ignoreCase = true) })
+
+        val boulangerie = BusinessTypePresets.getPreset("Boulangerie")
+        assertFalse(boulangerie.defaultProducts.isEmpty())
+        assertTrue(boulangerie.defaultProducts.any { it.name.contains("Baguette", ignoreCase = true) })
+
+        val couture = BusinessTypePresets.getPreset("Couture")
+        assertFalse(couture.defaultProducts.isEmpty())
+        assertTrue(couture.defaultProducts.any { it.name.contains("Bazin", ignoreCase = true) })
+
+        val boucherie = BusinessTypePresets.getPreset("Boucherie")
+        assertFalse(boucherie.defaultProducts.isEmpty())
+        assertTrue(boucherie.defaultProducts.any { it.name.contains("Boeuf", ignoreCase = true) || it.name.contains("Bœuf", ignoreCase = true) })
     }
 
     @Test

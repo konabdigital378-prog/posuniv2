@@ -105,8 +105,8 @@ object ProductImageHelper {
         val words = combined.split("[\\s,.-]+".toRegex()).filter { it.isNotBlank() }
 
         return when {
-            // Hardware, tools, construction, electric (Checked before generic items)
-            listOf("quincaillerie", "outil", "outillage", "ciment", "ampoule", "robinet", "marteau", "mètre", "pointe", "plomberie", "électricité", "vis", "bâtiment", "bricolage").any { combined.contains(it) } -> {
+            // Hardware, tools, construction, electric, tech, automotive, car wash
+            listOf("quincaillerie", "outil", "outillage", "ciment", "ampoule", "robinet", "marteau", "mètre", "pointe", "plomberie", "électricité", "vis", "bâtiment", "bricolage", "smartphone", "téléphone", "écran", "chargeur", "câble", "informatique", "clé usb", "lavage", "karcher", "moto", "voiture", "pneu", "huile moteur", "vidange", "frein").any { combined.contains(it) } -> {
                 R.drawable.img_prod_quincaillerie
             }
 
@@ -115,19 +115,18 @@ object ProductImageHelper {
                 R.drawable.img_prod_boisson
             }
 
-            // Food & Restaurant & Snacks
-            listOf("plat", "grillade", "poulet", "alloco", "tô", "brochette", "omelette", "pain", "sandwich", "riz gras", "restaurant", "boeuf", "viande", "repas", "beignet").any { combined.contains(it) } -> {
+            // Food & Restaurant & Bakery & Butchery & Fish
+            listOf("plat", "grillade", "poulet", "alloco", "tô", "brochette", "omelette", "pain", "sandwich", "riz gras", "restaurant", "boeuf", "viande", "repas", "beignet", "baguette", "croissant", "gâteau", "boulangerie", "pâtisserie", "boucherie", "mouton", "saucisse", "poisson", "carpe", "capitaine", "tilapia", "crevette", "chinchard").any { combined.contains(it) } -> {
                 R.drawable.img_prod_resto
             }
 
-            // Fashion, clothes, shoes, accessories
-            listOf("vêtement", "chaussure", "mode", "t-shirt", "chemise", "pantalon", "jeans", "robe", "pagne", "danfani", "sac", "accessoire", "casquette", "ceinture", "montre", "mèche", "coiffure", "tresse").any { combined.contains(it) } -> {
+            // Fashion, clothes, shoes, tailoring, pressing, jewelry
+            listOf("vêtement", "chaussure", "mode", "t-shirt", "chemise", "pantalon", "jeans", "robe", "pagne", "danfani", "sac", "accessoire", "casquette", "ceinture", "montre", "mèche", "coiffure", "tresse", "couture", "boubou", "bazin", "mercerie", "costume", "pressing", "couette", "drap", "bijou", "bague", "chaîne", "collier", "or 18k", "argent 925").any { combined.contains(it) } -> {
                 R.drawable.img_prod_mode
             }
 
-
-            // Food grocery & market
-            listOf("alimentation", "épicerie", "riz", "huile", "savon", "sucre", "lait", "pâtes", "farine", "sel", "tomate", "magasin").any { combined.contains(it) } -> {
+            // Food grocery, agro-pastoral, stationery, library
+            listOf("alimentation", "épicerie", "riz", "huile", "savon", "sucre", "lait", "pâtes", "farine", "sel", "tomate", "magasin", "cahier", "stylo", "rame", "livre", "papeterie", "bureautique", "copie", "provende", "tourteau", "engrais", "maïs", "bétail", "poussin").any { combined.contains(it) } -> {
                 R.drawable.img_prod_epicerie
             }
 

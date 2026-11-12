@@ -56,14 +56,18 @@ fun StockScreen(
 
     var searchQuery by remember { mutableStateOf("") }
     var selectedFilter by remember { mutableStateOf("Tous") } // Tous, En stock, Faible, Rupture
+    var selectedCategory by remember { mutableStateOf("Tous") }
     var showProductDialog by remember { mutableStateOf(false) }
     var showStockScanDialog by remember { mutableStateOf(false) }
     var editingProduct by remember { mutableStateOf<ProductEntity?>(null) }
     var zoomingProduct by remember { mutableStateOf<ProductEntity?>(null) }
 
     val filters = listOf("Tous", "En stock", "Faible", "Rupture")
+    val stockCategories = remember(products) {
+        listOf("Tous") + products.map { it.category }.distinct().filter { it.isNotBlank() }
+    }
 
-    val filteredProducts = remember(products, searchQuery, selectedFilter) {
+    val filteredProducts = remember(products, searchQuery, selectedFilter, selectedCategory) {
         products.filter { p ->
             val matchQuery = searchQuery.isBlank() ||
                     p.name.contains(searchQuery, ignoreCase = true) ||
@@ -75,7 +79,8 @@ fun StockScreen(
                 "Rupture" -> p.stockQuantity <= 0
                 else -> true
             }
-            matchQuery && matchFilter
+            val matchCategory = selectedCategory == "Tous" || p.category.equals(selectedCategory, ignoreCase = true)
+            matchQuery && matchFilter && matchCategory
         }
     }
 
@@ -193,6 +198,26 @@ fun StockScreen(
                 }
             }
 
+            // Category Filter Chips
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                items(stockCategories) { cat ->
+                    val isCatSel = selectedCategory == cat
+                    val catCount = if (cat == "Tous") products.size else products.count { it.category.equals(cat, ignoreCase = true) }
+                    FilterChip(
+                        selected = isCatSel,
+                        onClick = { selectedCategory = cat },
+                        label = { Text(if (cat == "Tous") "Tous ($catCount)" else "$cat ($catCount)", fontSize = 11.sp, fontWeight = if (isCatSel) FontWeight.Bold else FontWeight.Normal) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = KonabBlue,
+                            selectedLabelColor = Color.White
+                        )
+                    )
+                }
+            }
+
             // Valuation Summary Card
             Card(
                 shape = RoundedCornerShape(18.dp),
@@ -281,6 +306,9 @@ fun StockScreen(
                                     android.widget.Toast.makeText(context, "Imprimante non connectée (Voir Paramètres -> Imprimante)", android.widget.Toast.LENGTH_SHORT).show()
                                 }
                             }
+                        },
+                        onQuickAdjustStock = { delta ->
+                            onSaveProduct(product.copy(stockQuantity = maxOf(0, product.stockQuantity + delta)))
                         }
                     )
                 }
@@ -335,11 +363,13 @@ private fun ProductStockItem(
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     onZoom: () -> Unit = {},
-    onPrintPriceTag: () -> Unit
+    onPrintPriceTag: () -> Unit,
+    onQuickAdjustStock: (delta: Int) -> Unit = {}
 ) {
     val isLow = product.stockQuantity <= product.minStockAlert
     val isOut = product.stockQuantity <= 0
     val margin = product.sellPrice - product.buyPrice
+    val marginPct = if (product.buyPrice > 0) ((margin.toDouble() / product.buyPrice.toDouble()) * 100).toInt() else 0
 
     Card(
         shape = RoundedCornerShape(14.dp),
@@ -414,7 +444,7 @@ private fun ProductStockItem(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Text(
-                        text = "Achat : ${CurrencyFormatter.formatFCFA(product.buyPrice)} (Marge : +${CurrencyFormatter.formatFCFA(margin)})",
+                        text = "Achat : ${CurrencyFormatter.formatFCFA(product.buyPrice)} • Marge : +${CurrencyFormatter.formatFCFA(margin)} ($marginPct%)",
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = KonabSuccess
@@ -424,40 +454,65 @@ private fun ProductStockItem(
 
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 IconButton(
                     onClick = onPrintPriceTag,
-                    modifier = Modifier.size(32.dp).testTag("btn_print_tag_${product.name}")
+                    modifier = Modifier.size(30.dp).testTag("btn_print_tag_${product.name}")
                 ) {
                     Icon(
                         imageVector = Icons.Default.Print,
                         contentDescription = "Imprimer étiquette",
                         tint = KonabBlue,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+
+                // Quick Stock Adjustment Buttons (-1 and +1)
+                IconButton(
+                    onClick = { onQuickAdjustStock(-1) },
+                    modifier = Modifier.size(28.dp).testTag("btn_quick_minus_stock_${product.name}")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.RemoveCircleOutline,
+                        contentDescription = "Diminuer stock",
+                        tint = KonabRed,
                         modifier = Modifier.size(18.dp)
                     )
                 }
 
-                Column(horizontalAlignment = Alignment.End) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Surface(
                         color = if (isOut) KonabRedContainer else if (isLow) Color(0xFFFEF3C7) else KonabSuccessContainer,
                         shape = RoundedCornerShape(8.dp)
                     ) {
                         Text(
-                            text = if (isOut) "Épuisé (0)" else "Stock : ${product.stockQuantity} ${product.unit}",
+                            text = if (isOut) "0 ${product.unit}" else "${product.stockQuantity} ${product.unit}",
                             fontWeight = FontWeight.Bold,
                             fontSize = 11.sp,
                             color = if (isOut) KonabRed else if (isLow) Color(0xFFD97706) else KonabSuccess,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(modifier = Modifier.height(2.dp))
 
                     Text(
-                        text = "Seuil : ${product.minStockAlert}",
-                        fontSize = 10.sp,
+                        text = "Seuil: ${product.minStockAlert}",
+                        fontSize = 9.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                IconButton(
+                    onClick = { onQuickAdjustStock(1) },
+                    modifier = Modifier.size(28.dp).testTag("btn_quick_plus_stock_${product.name}")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AddCircleOutline,
+                        contentDescription = "Augmenter stock",
+                        tint = KonabGreen,
+                        modifier = Modifier.size(18.dp)
                     )
                 }
             }

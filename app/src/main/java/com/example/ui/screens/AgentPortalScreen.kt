@@ -1354,12 +1354,16 @@ fun AgentPortalScreen(
                                                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                                                 ) {
                                                     rowTypes.forEach { t ->
+                                                        val preset = BusinessTypePresets.getPreset(t)
                                                         FilterChip(
                                                             selected = configBusinessType == t,
                                                             onClick = { configBusinessType = t },
-                                                            label = { Text(t, fontSize = 10.5.sp) },
+                                                            label = { Text("${preset.emoji} $t", fontSize = 10.sp, maxLines = 1) },
                                                             modifier = Modifier.weight(1f)
                                                         )
+                                                    }
+                                                    repeat(3 - rowTypes.size) {
+                                                        Spacer(modifier = Modifier.weight(1f))
                                                     }
                                                 }
                                             }
