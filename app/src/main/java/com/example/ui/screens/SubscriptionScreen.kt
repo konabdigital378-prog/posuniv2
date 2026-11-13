@@ -51,12 +51,40 @@ fun SubscriptionScreen(
     var activationCodeInput by remember { mutableStateOf("") }
     var showActivationDialog by remember { mutableStateOf(false) }
 
-    val tiers = listOf(
-        Triple("Gratuit", "0 FCFA", "10 produits max, fonctions de base caisse"),
-        Triple("Standard", "5 000 FCFA / mois", "Produits illimités, reçus WhatsApp, gestion caisse"),
-        Triple("Professionnel", "10 000 FCFA / mois", "Rapports avancés, dettes clients, gestion stocks et alertes"),
-        Triple("Entreprise", "25 000 FCFA / mois", "Multi-utilisateurs, sauvegarde automatique, support prioritaire 24/7")
-    )
+    val businessType = shopProfile?.businessType ?: "Boutique"
+    val sectorPreset = remember(businessType) {
+        com.example.util.BusinessTypePresets.getPreset(businessType)
+    }
+    val pricingProfile = remember(businessType) {
+        com.example.util.SubscriptionPricingHelper.getPricingProfile(businessType)
+    }
+    val isReducedTariff = pricingProfile.isReducedTariff
+
+    val tiers = remember(pricingProfile) {
+        listOf(
+            Triple("Gratuit", "0 FCFA", "10 produits max, fonctions de base caisse (essai 30 jours)"),
+            Triple(
+                "Standard",
+                com.example.util.SubscriptionPricingHelper.formatCompactPrice(pricingProfile.standardMonthly, "/ mois"),
+                "Produits illimités, reçus WhatsApp, gestion caisse"
+            ),
+            Triple(
+                "Professionnel",
+                "${com.example.util.SubscriptionPricingHelper.formatCompactPrice(pricingProfile.proMonthly, "/ mois")} • ou ${com.example.util.SubscriptionPricingHelper.formatCompactPrice(pricingProfile.proAnnual, "/ an")}",
+                "Rapports avancés, dettes clients, gestion stocks et alertes"
+            ),
+            Triple(
+                "Entreprise",
+                com.example.util.SubscriptionPricingHelper.formatCompactPrice(pricingProfile.entrepriseMonthly, "/ mois"),
+                "Multi-utilisateurs, sauvegarde automatique, support prioritaire 24/7"
+            ),
+            Triple(
+                "Premium",
+                com.example.util.SubscriptionPricingHelper.formatCompactPrice(pricingProfile.premiumLifetime, "(À vie)"),
+                "Licence permanente 10 ans, toutes options Cloud & multi-postes"
+            )
+        )
+    }
 
     Scaffold(
         topBar = {
@@ -97,6 +125,64 @@ fun SubscriptionScreen(
                     .padding(bottom = 80.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
+                // Activity-Adjusted Tariff Card
+                KonabStaggeredReveal(index = 0) {
+                    val accent = Color(pricingProfile.category.accentColorHex)
+                    Card(
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = accent.copy(alpha = 0.08f)),
+                        border = BorderStroke(1.5.dp, accent.copy(alpha = 0.45f)),
+                        modifier = Modifier.fillMaxWidth().testTag("card_activity_tariff_info")
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "${sectorPreset.emoji} ${sectorPreset.title}",
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 14.sp,
+                                    color = accent,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Surface(
+                                    color = accent,
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Text(
+                                        text = pricingProfile.category.badgeLabel,
+                                        color = Color.White,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Black,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                    )
+                                }
+                            }
+                            Text(
+                                text = pricingProfile.category.title,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = if (isReducedTariff) {
+                                    "Votre activité bénéficie du tarif social allégé (dès 1 500 FCFA/mois), distinct des boutiques et grandes entreprises."
+                                } else {
+                                    pricingProfile.category.description + " (Note : les vendeurs ambulants et courtiers disposent d'un tarif réduit dédié.)"
+                                },
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                lineHeight = 16.sp
+                            )
+                        }
+                    }
+                }
+
                 // Official Konab Deposit Notice
                 KonabStaggeredReveal(index = 0) {
                     Card(

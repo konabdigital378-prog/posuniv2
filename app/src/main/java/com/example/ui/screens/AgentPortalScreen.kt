@@ -64,7 +64,8 @@ data class AgentUser(
     val phone: String,
     val zone: String,
     val pin: String,
-    val role: String = "Agent Déployeur"
+    val role: String = "Agent Déployeur",
+    val photoUri: String = ""
 )
 
 object AgentDirectory {
@@ -1048,6 +1049,59 @@ fun AgentPortalScreen(
                                             )
                                         }
 
+                                        val targetBusinessType = shopProfile?.businessType ?: "Boutique"
+                                        val pricingProfile = remember(targetBusinessType) {
+                                            com.example.util.SubscriptionPricingHelper.getPricingProfile(targetBusinessType)
+                                        }
+                                        val computedPrice = remember(targetBusinessType, activationTier, activationDays) {
+                                            com.example.util.SubscriptionPricingHelper.getPriceForDuration(
+                                                businessType = targetBusinessType,
+                                                tier = activationTier,
+                                                durationDays = activationDays
+                                            )
+                                        }
+
+                                        // Activity Pricing Category Banner
+                                        Surface(
+                                            shape = RoundedCornerShape(12.dp),
+                                            color = Color(pricingProfile.category.accentColorHex).copy(alpha = 0.09f),
+                                            border = BorderStroke(1.dp, Color(pricingProfile.category.accentColorHex).copy(alpha = 0.35f)),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Text(
+                                                        text = "Activité : $targetBusinessType",
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 12.sp,
+                                                        color = Color(pricingProfile.category.accentColorHex)
+                                                    )
+                                                    Surface(
+                                                        color = Color(pricingProfile.category.accentColorHex),
+                                                        shape = RoundedCornerShape(6.dp)
+                                                    ) {
+                                                        Text(
+                                                            text = pricingProfile.category.badgeLabel,
+                                                            color = Color.White,
+                                                            fontSize = 9.5.sp,
+                                                            fontWeight = FontWeight.ExtraBold,
+                                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                        )
+                                                    }
+                                                }
+                                                Text(
+                                                    text = "${pricingProfile.category.title} • ${pricingProfile.category.description}",
+                                                    fontSize = 11.sp,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    lineHeight = 14.sp
+                                                )
+                                            }
+                                        }
+
                                         // Formula selection
                                         Text("1. Sélectionner la Formule :", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                         val tiersList = listOf("Standard", "Professionnel", "Entreprise", "Premium")
@@ -1123,17 +1177,35 @@ fun AgentPortalScreen(
                                         ) {
                                             Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                                 Text(
-                                                    text = "Récapitulatif de l'activation :",
+                                                    text = "Récapitulatif de l'activation (${pricingProfile.category.title}) :",
                                                     fontWeight = FontWeight.Bold,
                                                     fontSize = 11.sp,
                                                     color = Color(0xFF065F46)
                                                 )
-                                                Text(
-                                                    text = "Formule $activationTier • Durée : $activationDays jours",
-                                                    fontWeight = FontWeight.ExtraBold,
-                                                    fontSize = 13.5.sp,
-                                                    color = Color(0xFF047857)
-                                                )
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Text(
+                                                        text = "Formule $activationTier • $activationDays j",
+                                                        fontWeight = FontWeight.ExtraBold,
+                                                        fontSize = 13.5.sp,
+                                                        color = Color(0xFF047857)
+                                                    )
+                                                    Surface(
+                                                        color = Color(0xFF047857),
+                                                        shape = RoundedCornerShape(8.dp)
+                                                    ) {
+                                                        Text(
+                                                            text = com.example.util.SubscriptionPricingHelper.formatCompactPrice(computedPrice),
+                                                            color = Color.White,
+                                                            fontWeight = FontWeight.ExtraBold,
+                                                            fontSize = 12.sp,
+                                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                                        )
+                                                    }
+                                                }
                                                 Text(
                                                     text = "Date d'expiration calculée : ${sdf.format(Date(newExpiry))}",
                                                     fontSize = 11.5.sp,
