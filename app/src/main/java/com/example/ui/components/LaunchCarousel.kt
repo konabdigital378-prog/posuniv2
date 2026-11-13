@@ -112,6 +112,13 @@ fun LaunchImageCarousel(
         }
     }
 
+    val widthClass = LocalKonabWidthClass.current
+    val carouselHeight = when (widthClass) {
+        KonabWidthClass.COMPACT -> 230.dp
+        KonabWidthClass.MEDIUM -> 255.dp
+        KonabWidthClass.EXPANDED -> 285.dp
+    }
+
     Column(
         modifier = modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally
@@ -122,7 +129,7 @@ fun LaunchImageCarousel(
             elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
             modifier = Modifier
                 .fillMaxWidth()
-                .height(270.dp)
+                .height(carouselHeight)
                 .testTag("launch_image_carousel")
         ) {
             Box(modifier = Modifier.fillMaxSize()) {

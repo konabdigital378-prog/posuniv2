@@ -5,8 +5,9 @@ import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -27,6 +28,12 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.local.entity.CustomerEntity
+import com.example.ui.components.KonabEmptyState
+import com.example.ui.components.KonabStaggeredReveal
+import com.example.ui.components.KonabWidthClass
+import com.example.ui.components.LocalKonabWidthClass
+import com.example.ui.components.ResponsiveMaxWidthBox
+import com.example.ui.components.konabPressScale
 import com.example.ui.theme.*
 import com.example.util.CurrencyFormatter
 
@@ -74,18 +81,26 @@ fun CustomersScreen(
                 containerColor = KonabGreen,
                 contentColor = Color.White,
                 shape = CircleShape,
-                modifier = Modifier.testTag("fab_add_customer")
+                modifier = Modifier
+                    .konabPressScale()
+                    .testTag("fab_add_customer")
             ) {
                 Icon(Icons.Default.Add, contentDescription = "Nouveau client")
             }
         }
     ) { paddingValues ->
-        Column(
+        val widthClass = LocalKonabWidthClass.current
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
                 .background(MaterialTheme.colorScheme.background)
         ) {
+            ResponsiveMaxWidthBox(
+                maxWidth = 1120.dp,
+                modifier = Modifier.fillMaxSize()
+            ) {
+                Column(modifier = Modifier.fillMaxSize()) {
             // Search Input
             OutlinedTextField(
                 value = searchQuery,
@@ -150,21 +165,48 @@ fun CustomersScreen(
                 }
             }
 
-            // Customer List
-            LazyColumn(
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 90.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier.fillMaxSize()
-            ) {
-                items(filteredCustomers) { customer ->
-                    Card(
-                        shape = RoundedCornerShape(14.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { selectedCustomerForDetails = customer }
-                            .testTag("customer_card_${customer.name}")
-                    ) {
+            // Customer List / Adaptive Grid
+            if (filteredCustomers.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(24.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    KonabEmptyState(
+                        icon = Icons.Default.PeopleOutline,
+                        title = "Aucun client trouvé",
+                        subtitle = "Ajoutez vos clients réguliers pour suivre leurs achats et crédits en cours.",
+                        accentColor = KonabGreen,
+                        actionLabel = if (searchQuery.isNotBlank()) "Afficher tous les clients" else "Nouveau client",
+                        onAction = {
+                            if (searchQuery.isNotBlank()) searchQuery = "" else showAddDialog = true
+                        }
+                    )
+                }
+            } else {
+                LazyVerticalGrid(
+                    columns = if (widthClass == KonabWidthClass.COMPACT) {
+                        GridCells.Fixed(1)
+                    } else {
+                        GridCells.Adaptive(minSize = 310.dp)
+                    },
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 90.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    itemsIndexed(filteredCustomers, key = { _, c -> c.id }) { idx, customer ->
+                        KonabStaggeredReveal(index = idx) {
+                            Card(
+                                shape = RoundedCornerShape(14.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .konabPressScale(pressedScale = 0.985f)
+                                    .clickable { selectedCustomerForDetails = customer }
+                                    .testTag("customer_card_${customer.name}")
+                            ) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -243,8 +285,12 @@ fun CustomersScreen(
                         }
                     }
                 }
+                }
+            }
+                }
             }
         }
+    }
     }
 
     // Customer Details Dialog

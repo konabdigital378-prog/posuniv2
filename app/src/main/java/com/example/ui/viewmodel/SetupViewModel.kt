@@ -15,22 +15,23 @@ import kotlinx.coroutines.launch
 
 data class SetupUiState(
     val currentStep: SetupWizardStep = SetupWizardStep.WELCOME,
-    val shopName: String = "Boutique Kaba",
-    val slogan: String = "Mode - Chaussures - Accessoires",
-    val phone: String = "65413799",
-    val address: String = "Avenue de la Nation",
-    val city: String = "Bobo-Dioulasso",
+    val shopName: String = "",
+    val slogan: String = "",
+    val phone: String = "",
+    val address: String = "",
+    val city: String = "Ouagadougou",
     val currency: String = "FCFA",
     val selectedLogoIcon: String = "storefront",
     val selectedLogoColorHex: Long = 0xFF087A45,
     val selectedBusinessType: String = "Boutique",
-    val adminName: String = "Gérant",
-    val adminPhone: String = "65413799",
-    val adminPin: String = "1234",
-    val confirmPin: String = "1234",
+    val adminName: String = "",
+    val adminPhone: String = "",
+    val adminPin: String = "",
+    val confirmPin: String = "",
     val preloadDemoData: Boolean = false,
     val selectedSubscriptionTier: String = "Professionnel",
     val validationError: String? = null,
+    val isCheckingName: Boolean = false,
     val isSubmitting: Boolean = false,
     val isCompleted: Boolean = false,
     val cloudShopId: Long? = null,
@@ -129,6 +130,51 @@ class SetupViewModel(application: Application) : AndroidViewModel(application) {
         return true
     }
 
+    fun validateBusinessInfoAndCheckUniqueness(onValid: () -> Unit) {
+        if (!validateBusinessInfo()) return
+        val state = _uiState.value
+        if (_uiState.value.isCheckingName) return
+
+        val app = getApplication<Application>()
+        val activeAgent = com.example.data.remote.supabase.AgentDeploymentStorage.getSavedAgentSession(app)
+        if (activeAgent == null) {
+            _uiState.update {
+                it.copy(validationError = "Veuillez d'abord créer ou connecter un compte Agent Déployeur.")
+            }
+            return
+        }
+
+        _uiState.update { it.copy(isCheckingName = true, validationError = null) }
+        viewModelScope.launch {
+            val existing = repository.getShopProfileOnce()
+            if (existing != null && existing.isConfigured && existing.name.isNotBlank()) {
+                _uiState.update {
+                    it.copy(
+                        isCheckingName = false,
+                        validationError = "La boutique « ${existing.name} » est déjà créée sur cet appareil et ne peut pas être recréée."
+                    )
+                }
+                return@launch
+            }
+
+            val syncManager = com.example.data.remote.supabase.SupabaseSyncManager(app)
+            val uniqueness = syncManager.verifyShopNameAvailable(state.shopName.trim())
+            if (uniqueness.isFailure) {
+                _uiState.update {
+                    it.copy(
+                        isCheckingName = false,
+                        validationError = uniqueness.exceptionOrNull()?.message
+                            ?: "Une boutique avec ce nom existe déjà. Chaque boutique doit avoir un nom unique."
+                    )
+                }
+                return@launch
+            }
+
+            _uiState.update { it.copy(isCheckingName = false, validationError = null) }
+            onValid()
+        }
+    }
+
     fun validateAdminAccount(): Boolean {
         val state = _uiState.value
         if (state.adminName.isBlank()) {
@@ -219,9 +265,55 @@ class SetupViewModel(application: Application) : AndroidViewModel(application) {
         onSuccess: () -> Unit
     ) {
         val state = _uiState.value
-        _uiState.update { it.copy(isSubmitting = true, selectedSubscriptionTier = tier) }
+        if (state.isSubmitting || state.isCompleted) {
+            _uiState.update {
+                it.copy(validationError = "Cette boutique a déjà été créée et ne peut pas être recréée.")
+            }
+            return
+        }
+
+        val app = getApplication<Application>()
+        val currentAgent = com.example.data.remote.supabase.AgentDeploymentStorage.getSavedAgentSession(app)
+        if (currentAgent == null) {
+            _uiState.update {
+                it.copy(validationError = "Vous devez d'abord créer ou connecter un compte Agent Déployeur.")
+            }
+            return
+        }
+
+        _uiState.update { it.copy(isSubmitting = true, validationError = null, selectedSubscriptionTier = tier) }
 
         viewModelScope.launch {
+            // Guard 1: Une fois qu'une boutique est créée, on ne peut plus la recréer
+            val existing = repository.getShopProfileOnce()
+            if (existing != null && existing.isConfigured && existing.name.isNotBlank()) {
+                _uiState.update {
+                    it.copy(
+                        isSubmitting = false,
+                        validationError = "La boutique « ${existing.name} » est déjà créée et ne peut plus être recréée."
+                    )
+                }
+                return@launch
+            }
+
+            val syncManager = com.example.data.remote.supabase.SupabaseSyncManager(app)
+
+            // Guard 2: Unicité absolue du nom de boutique (local + Supabase Cloud)
+            val uniqueness = syncManager.verifyShopNameAvailable(state.shopName.trim())
+            if (uniqueness.isFailure) {
+                val err = uniqueness.exceptionOrNull()?.message
+                    ?: "Une boutique portant ce nom existe déjà dans la base de données."
+                _uiState.update {
+                    it.copy(
+                        isSubmitting = false,
+                        validationError = err,
+                        isCloudSyncSuccess = false,
+                        cloudSyncMessage = err
+                    )
+                }
+                return@launch
+            }
+
             // 1. Save to DataStore
             dataStore.saveSetupWizardData(
                 shopName = state.shopName.trim(),
@@ -238,11 +330,9 @@ class SetupViewModel(application: Application) : AndroidViewModel(application) {
                 logoColor = state.selectedLogoColorHex
             )
 
-            // Get connected agent deployer ID if logged in
-            val currentAgent = com.example.data.remote.supabase.AgentDeploymentStorage.getSavedAgentSession(getApplication())
-            val currentDeployerId = currentAgent?.id
+            val currentDeployerId = currentAgent.id.trim().uppercase()
 
-            // 2. Initialize Room Database with presets
+            // 2. Initialize local Room database
             repository.initializeStore(
                 name = state.shopName.trim(),
                 slogan = state.slogan.trim(),
@@ -257,6 +347,7 @@ class SetupViewModel(application: Application) : AndroidViewModel(application) {
                 subscriptionTier = tier,
                 deployerId = currentDeployerId
             )
+            com.example.util.BiometricSecurityHelper.setShopConfiguredCache(app, true)
 
             val profile = com.example.data.local.entity.ShopProfileEntity(
                 id = 1,
@@ -274,39 +365,42 @@ class SetupViewModel(application: Application) : AndroidViewModel(application) {
                 receiptFooter = "Merci pour votre confiance ! À très bientôt !",
                 deployerId = currentDeployerId
             )
-            val syncManager = com.example.data.remote.supabase.SupabaseSyncManager(getApplication())
-            val cloudId = syncManager.getOrCreateCloudShopId()
+            val cloudId = syncManager.resetCloudShopId()
             var cloudSuccess = false
             var cloudMsg = ""
 
             try {
                 val syncResult = syncManager.pushShopProfileDirectly(profile, isNewShop = true)
                 if (syncResult.isSuccess) {
+                    if (state.preloadDemoData) {
+                        try {
+                            syncManager.syncProductsOnly(repository)
+                        } catch (_: Exception) {}
+                    }
                     cloudSuccess = true
-                    cloudMsg = "Boutique \"${profile.name}\" enregistrée et synchronisée avec succès dans le Cloud."
+                    cloudMsg = "Boutique « ${profile.name} » créée et liée à l'agent ${currentAgent.name} ($currentDeployerId)."
                 } else {
-                    cloudMsg = syncResult.exceptionOrNull()?.message ?: "Erreur synchronisation Cloud"
+                    cloudMsg = syncResult.exceptionOrNull()?.message ?: "Enregistrée localement (sync Cloud en attente)"
                     android.util.Log.e("SetupViewModel", "Erreur envoi boutique vers Cloud: $cloudMsg")
                 }
-                // Also synchronize all store tables (products, customers, etc.) to the cloud
-                try {
-                    syncManager.syncFullStore(repository)
-                } catch (e: Exception) {
-                    android.util.Log.e("SetupViewModel", "Erreur syncFullStore initial: ${e.message}")
-                }
+                com.example.data.remote.supabase.AgentDeploymentStorage.markCreatedShopOnDevice(
+                    app,
+                    profile.name,
+                    currentDeployerId
+                )
             } catch (e: Exception) {
                 cloudMsg = e.message ?: "Erreur de connexion"
                 android.util.Log.e("SetupViewModel", "Exception envoi direct boutique vers Cloud: ${e.message}", e)
             }
 
-            _uiState.update { 
+            _uiState.update {
                 it.copy(
-                    isSubmitting = false, 
+                    isSubmitting = false,
                     isCompleted = true,
                     cloudShopId = cloudId,
                     isCloudSyncSuccess = cloudSuccess,
                     cloudSyncMessage = cloudMsg
-                ) 
+                )
             }
             onSuccess()
         }

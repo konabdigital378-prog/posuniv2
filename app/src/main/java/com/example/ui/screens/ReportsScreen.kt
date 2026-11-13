@@ -1,6 +1,15 @@
 package com.example.ui.screens
 
 import android.content.Intent
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -8,6 +17,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -33,6 +43,13 @@ import com.example.data.local.entity.CashMovementEntity
 import com.example.data.local.entity.ProductEntity
 import com.example.data.local.entity.SaleEntity
 import com.example.data.local.entity.SaleItemEntity
+import com.example.ui.components.KonabEmptyState
+import com.example.ui.components.KonabStaggeredReveal
+import com.example.ui.components.KonabWidthClass
+import com.example.ui.components.LocalKonabWidthClass
+import com.example.ui.components.ResponsiveMaxWidthBox
+import com.example.ui.components.konabHeroShimmer
+import com.example.ui.components.konabPressScale
 import com.example.ui.theme.*
 import com.example.util.CurrencyFormatter
 import java.util.Calendar
@@ -86,7 +103,7 @@ fun ReportsScreen(
             }
             else -> 0L
         }
-        sales.filter { it.timestamp >= startTime }
+        sales.filter { !it.isCancelled && it.timestamp >= startTime }
     }
 
     val totalRevenue = remember(filteredSales) { filteredSales.sumOf { it.totalAmount } }
@@ -128,12 +145,12 @@ fun ReportsScreen(
         products.filter { it.stockQuantity <= it.minStockAlert }.sortedBy { it.stockQuantity }
     }
 
-    // Cash movement analytics
+    // Cash movement analytics (supports actual repository types: SALE, CASH_IN, DEBT_PAYMENT, EXPENSE, CASH_OUT, SUPPLIER_PAYMENT)
     val totalCashIn = remember(cashMovements) {
-        cashMovements.filter { it.type == "IN" }.sumOf { it.amount }
+        cashMovements.filter { it.type in listOf("SALE", "CASH_IN", "DEBT_PAYMENT", "IN") }.sumOf { it.amount }
     }
     val totalCashOut = remember(cashMovements) {
-        cashMovements.filter { it.type == "OUT" }.sumOf { it.amount }
+        cashMovements.filter { it.type in listOf("EXPENSE", "CASH_OUT", "SUPPLIER_PAYMENT", "OUT") }.sumOf { it.amount }
     }
     val netCashMovement = totalCashIn - totalCashOut
 
@@ -186,6 +203,10 @@ fun ReportsScreen(
             )
         }
     ) { paddingValues ->
+        val widthClass = LocalKonabWidthClass.current
+        val horizontalPad = if (widthClass == KonabWidthClass.COMPACT) 16.dp else 24.dp
+        val cardOutlineColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f)
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -197,82 +218,98 @@ fun ReportsScreen(
                 color = MaterialTheme.colorScheme.surface,
                 shadowElevation = 1.dp
             ) {
-                TabRow(
-                    selectedTabIndex = selectedTab,
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    contentColor = KonabBlue
-                ) {
-                    Tab(
-                        selected = selectedTab == 0,
-                        onClick = { selectedTab = 0 },
-                        text = {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.AutoMirrored.Filled.TrendingUp, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Ventes", fontWeight = if (selectedTab == 0) FontWeight.Bold else FontWeight.Medium)
+                ResponsiveMaxWidthBox(maxWidth = 1040.dp) {
+                    TabRow(
+                        selectedTabIndex = selectedTab,
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        contentColor = KonabBlue
+                    ) {
+                        Tab(
+                            selected = selectedTab == 0,
+                            onClick = { selectedTab = 0 },
+                            text = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.AutoMirrored.Filled.TrendingUp, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Ventes", fontWeight = if (selectedTab == 0) FontWeight.Bold else FontWeight.Medium)
+                                }
                             }
-                        }
-                    )
-                    Tab(
-                        selected = selectedTab == 1,
-                        onClick = { selectedTab = 1 },
-                        text = {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.Inventory2, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Stock", fontWeight = if (selectedTab == 1) FontWeight.Bold else FontWeight.Medium)
+                        )
+                        Tab(
+                            selected = selectedTab == 1,
+                            onClick = { selectedTab = 1 },
+                            text = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.Inventory2, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Stock", fontWeight = if (selectedTab == 1) FontWeight.Bold else FontWeight.Medium)
+                                }
                             }
-                        }
-                    )
-                    Tab(
-                        selected = selectedTab == 2,
-                        onClick = { selectedTab = 2 },
-                        text = {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.AccountBalanceWallet, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Dépenses", fontWeight = if (selectedTab == 2) FontWeight.Bold else FontWeight.Medium)
+                        )
+                        Tab(
+                            selected = selectedTab == 2,
+                            onClick = { selectedTab = 2 },
+                            text = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.AccountBalanceWallet, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Dépenses", fontWeight = if (selectedTab == 2) FontWeight.Bold else FontWeight.Medium)
+                                }
                             }
-                        }
-                    )
+                        )
+                    }
                 }
             }
 
-            when (selectedTab) {
-                0 -> {
-                    // TAB 0 : VENTES & REVENUS
-                    LazyColumn(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(horizontal = 16.dp),
-                        contentPadding = PaddingValues(top = 16.dp, bottom = 90.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        // Period Selector Bar
-                        item {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
+            ResponsiveMaxWidthBox(
+                maxWidth = 1040.dp,
+                modifier = Modifier.weight(1f)
+            ) {
+                AnimatedContent(
+                    targetState = selectedTab,
+                    transitionSpec = {
+                        fadeIn(tween(220)) togetherWith fadeOut(tween(150))
+                    },
+                    label = "reports_tab_transition"
+                ) { currentTab ->
+                    when (currentTab) {
+                        0 -> {
+                            // TAB 0 : VENTES & REVENUS
+                            LazyColumn(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(horizontal = horizontalPad),
+                                contentPadding = PaddingValues(top = 16.dp, bottom = 96.dp),
+                                verticalArrangement = Arrangement.spacedBy(16.dp)
                             ) {
-                                Box {
-                                    OutlinedButton(
-                                        onClick = { showPeriodMenu = true },
-                                        shape = RoundedCornerShape(12.dp),
-                                        border = androidx.compose.foundation.BorderStroke(1.dp, KonabBorder),
-                                        colors = ButtonDefaults.outlinedButtonColors(containerColor = MaterialTheme.colorScheme.surface)
+                                // Period Selector Bar
+                                item {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Icon(Icons.Default.CalendarToday, contentDescription = null, modifier = Modifier.size(15.dp), tint = KonabBlue)
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text(selectedPeriod, fontWeight = FontWeight.Bold, color = KonabTextPrimary, fontSize = 13.sp)
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = KonabTextMuted)
-                                    }
+                                        Box {
+                                            OutlinedButton(
+                                                onClick = { showPeriodMenu = true },
+                                                shape = RoundedCornerShape(12.dp),
+                                                border = BorderStroke(1.dp, cardOutlineColor),
+                                                colors = ButtonDefaults.outlinedButtonColors(containerColor = MaterialTheme.colorScheme.surface),
+                                                modifier = Modifier
+                                                    .heightIn(min = 48.dp)
+                                                    .konabPressScale()
+                                            ) {
+                                                Icon(Icons.Default.CalendarToday, contentDescription = null, modifier = Modifier.size(15.dp), tint = KonabBlue)
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Text(selectedPeriod, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface, fontSize = 13.sp)
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            }
 
-                                    DropdownMenu(
-                                        expanded = showPeriodMenu,
-                                        onDismissRequest = { showPeriodMenu = false }
-                                    ) {
+                                            DropdownMenu(
+                                                expanded = showPeriodMenu,
+                                                onDismissRequest = { showPeriodMenu = false }
+                                            ) {
                                         periods.forEach { p ->
                                             DropdownMenuItem(
                                                 text = { Text(p, fontWeight = if (p == selectedPeriod) FontWeight.Bold else FontWeight.Normal) },
@@ -308,116 +345,119 @@ fun ReportsScreen(
 
                         // Sapphire Gradient Hero Card
                         item {
-                            Card(
-                                shape = RoundedCornerShape(22.dp),
-                                colors = CardDefaults.cardColors(containerColor = Color.Transparent),
-                                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .background(
-                                            Brush.verticalGradient(
-                                                listOf(Color(0xFF0B4BD9), Color(0xFF071E54))
-                                            )
-                                        )
-                                        .padding(22.dp)
+                            KonabStaggeredReveal(index = 0) {
+                                Card(
+                                    shape = RoundedCornerShape(22.dp),
+                                    colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+                                    elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+                                    modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Column {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Text(
-                                                text = "Chiffre d'affaires total",
-                                                color = Color.White.copy(alpha = 0.8f),
-                                                fontSize = 13.sp,
-                                                fontWeight = FontWeight.Medium
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .background(
+                                                Brush.verticalGradient(
+                                                    listOf(Color(0xFF0B4BD9), Color(0xFF071E54))
+                                                )
                                             )
-                                            Surface(
-                                                color = Color.White.copy(alpha = 0.15f),
-                                                shape = RoundedCornerShape(8.dp)
+                                            .konabHeroShimmer(maxAlpha = 0.09f)
+                                            .padding(22.dp)
+                                    ) {
+                                        Column {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
                                             ) {
                                                 Text(
-                                                    text = selectedPeriod,
-                                                    color = Color.White,
-                                                    fontSize = 11.sp,
-                                                    fontWeight = FontWeight.SemiBold,
-                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                                    text = "Chiffre d'affaires total",
+                                                    color = Color.White.copy(alpha = 0.8f),
+                                                    fontSize = 13.sp,
+                                                    fontWeight = FontWeight.Medium
                                                 )
-                                            }
-                                        }
-
-                                        Spacer(modifier = Modifier.height(6.dp))
-
-                                        Text(
-                                            text = CurrencyFormatter.formatFCFA(totalRevenue),
-                                            fontFamily = OutfitFontFamily,
-                                            fontWeight = FontWeight.ExtraBold,
-                                            fontSize = 32.sp,
-                                            color = Color.White
-                                        )
-
-                                        Spacer(modifier = Modifier.height(18.dp))
-
-                                        // Financial breakdown pills inside hero
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                        ) {
-                                            Surface(
-                                                color = Color.White.copy(alpha = 0.12f),
-                                                shape = RoundedCornerShape(12.dp),
-                                                modifier = Modifier.weight(1f)
-                                            ) {
-                                                Column(modifier = Modifier.padding(10.dp)) {
-                                                    Text("Bénéfices estimés", color = Color.White.copy(alpha = 0.75f), fontSize = 10.sp)
-                                                    Spacer(modifier = Modifier.height(2.dp))
+                                                Surface(
+                                                    color = Color.White.copy(alpha = 0.15f),
+                                                    shape = RoundedCornerShape(8.dp)
+                                                ) {
                                                     Text(
-                                                        CurrencyFormatter.formatFCFA(estimatedProfit),
-                                                        color = Color(0xFF6EE7B7),
-                                                        fontWeight = FontWeight.Bold,
-                                                        fontFamily = OutfitFontFamily,
-                                                        fontSize = 14.sp
+                                                        text = selectedPeriod,
+                                                        color = Color.White,
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.SemiBold,
+                                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                                                     )
                                                 }
                                             }
 
-                                            Surface(
-                                                color = Color.White.copy(alpha = 0.12f),
-                                                shape = RoundedCornerShape(12.dp),
-                                                modifier = Modifier.weight(1f)
-                                            ) {
-                                                Column(modifier = Modifier.padding(10.dp)) {
-                                                    Text("Panier moyen", color = Color.White.copy(alpha = 0.75f), fontSize = 10.sp)
-                                                    Spacer(modifier = Modifier.height(2.dp))
-                                                    Text(
-                                                        CurrencyFormatter.formatFCFA(averageBasket),
-                                                        color = Color.White,
-                                                        fontWeight = FontWeight.Bold,
-                                                        fontFamily = OutfitFontFamily,
-                                                        fontSize = 14.sp
-                                                    )
-                                                }
-                                            }
+                                            Spacer(modifier = Modifier.height(6.dp))
 
-                                            Surface(
-                                                color = Color.White.copy(alpha = 0.12f),
-                                                shape = RoundedCornerShape(12.dp),
-                                                modifier = Modifier.weight(0.8f)
+                                            Text(
+                                                text = CurrencyFormatter.formatFCFA(totalRevenue),
+                                                fontFamily = OutfitFontFamily,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                fontSize = 32.sp,
+                                                color = Color.White
+                                            )
+
+                                            Spacer(modifier = Modifier.height(18.dp))
+
+                                            // Financial breakdown pills inside hero
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.spacedBy(10.dp)
                                             ) {
-                                                Column(modifier = Modifier.padding(10.dp)) {
-                                                    Text("Nb. Ventes", color = Color.White.copy(alpha = 0.75f), fontSize = 10.sp)
-                                                    Spacer(modifier = Modifier.height(2.dp))
-                                                    Text(
-                                                        "${filteredSales.size}",
-                                                        color = Color.White,
-                                                        fontWeight = FontWeight.Bold,
-                                                        fontFamily = OutfitFontFamily,
-                                                        fontSize = 15.sp
-                                                    )
+                                                Surface(
+                                                    color = Color.White.copy(alpha = 0.12f),
+                                                    shape = RoundedCornerShape(12.dp),
+                                                    modifier = Modifier.weight(1f)
+                                                ) {
+                                                    Column(modifier = Modifier.padding(10.dp)) {
+                                                        Text("Bénéfices estimés", color = Color.White.copy(alpha = 0.75f), fontSize = 10.sp)
+                                                        Spacer(modifier = Modifier.height(2.dp))
+                                                        Text(
+                                                            CurrencyFormatter.formatFCFA(estimatedProfit),
+                                                            color = Color(0xFF6EE7B7),
+                                                            fontWeight = FontWeight.Bold,
+                                                            fontFamily = OutfitFontFamily,
+                                                            fontSize = 14.sp
+                                                        )
+                                                    }
+                                                }
+
+                                                Surface(
+                                                    color = Color.White.copy(alpha = 0.12f),
+                                                    shape = RoundedCornerShape(12.dp),
+                                                    modifier = Modifier.weight(1f)
+                                                ) {
+                                                    Column(modifier = Modifier.padding(10.dp)) {
+                                                        Text("Panier moyen", color = Color.White.copy(alpha = 0.75f), fontSize = 10.sp)
+                                                        Spacer(modifier = Modifier.height(2.dp))
+                                                        Text(
+                                                            CurrencyFormatter.formatFCFA(averageBasket),
+                                                            color = Color.White,
+                                                            fontWeight = FontWeight.Bold,
+                                                            fontFamily = OutfitFontFamily,
+                                                            fontSize = 14.sp
+                                                        )
+                                                    }
+                                                }
+
+                                                Surface(
+                                                    color = Color.White.copy(alpha = 0.12f),
+                                                    shape = RoundedCornerShape(12.dp),
+                                                    modifier = Modifier.weight(0.8f)
+                                                ) {
+                                                    Column(modifier = Modifier.padding(10.dp)) {
+                                                        Text("Nb. Ventes", color = Color.White.copy(alpha = 0.75f), fontSize = 10.sp)
+                                                        Spacer(modifier = Modifier.height(2.dp))
+                                                        Text(
+                                                            "${filteredSales.size}",
+                                                            color = Color.White,
+                                                            fontWeight = FontWeight.Bold,
+                                                            fontFamily = OutfitFontFamily,
+                                                            fontSize = 15.sp
+                                                        )
+                                                    }
                                                 }
                                             }
                                         }
@@ -428,70 +468,78 @@ fun ReportsScreen(
 
                         // Bar Chart Visual for Weekly Performance
                         item {
-                            Card(
-                                shape = RoundedCornerShape(18.dp),
-                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, KonabBorder),
-                                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Column(modifier = Modifier.padding(18.dp)) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text("Évolution hebdomadaire", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                        Text("7 derniers jours", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
-                                    Spacer(modifier = Modifier.height(16.dp))
+                            KonabStaggeredReveal(index = 1) {
+                                val chartGrow = remember { Animatable(0f) }
+                                LaunchedEffect(selectedTab, selectedPeriod) {
+                                    chartGrow.snapTo(0f)
+                                    chartGrow.animateTo(
+                                        1f,
+                                        animationSpec = tween(durationMillis = 520, easing = FastOutSlowInEasing)
+                                    )
+                                }
 
-                                    // Bar chart canvas with gradient fills
-                                    val days = listOf("Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim")
-                                    val sampleHeights = listOf(0.4f, 0.65f, 0.5f, 0.85f, 0.7f, 1.0f, 0.82f)
-
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .height(140.dp)
-                                    ) {
-                                        Canvas(modifier = Modifier.fillMaxSize()) {
-                                            val barWidth = 24.dp.toPx()
-                                            val totalWidth = size.width
-                                            val space = (totalWidth - (barWidth * days.size)) / (days.size + 1)
-                                            val maxHeight = size.height - 24.dp.toPx()
-
-                                            sampleHeights.forEachIndexed { i, ratio ->
-                                                val x = space + i * (barWidth + space)
-                                                val barHeight = (maxHeight * ratio).coerceAtLeast(8.dp.toPx())
-                                                val y = maxHeight - barHeight
-
-                                                // Top peak bar is highlighted in bright KonabBlue
-                                                val barColor = if (i == 5) Color(0xFF0B4BD9) else Color(0xFF93C5FD)
-
-                                                drawRoundRect(
-                                                    color = barColor,
-                                                    topLeft = Offset(x, y),
-                                                    size = Size(barWidth, barHeight),
-                                                    cornerRadius = CornerRadius(6.dp.toPx(), 6.dp.toPx())
-                                                )
-                                            }
-                                        }
-
-                                        // Day Labels
+                                Card(
+                                    shape = RoundedCornerShape(18.dp),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                    border = BorderStroke(1.dp, cardOutlineColor),
+                                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(modifier = Modifier.padding(18.dp)) {
                                         Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text("Évolution hebdomadaire", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                            Text("7 derniers jours", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                        Spacer(modifier = Modifier.height(16.dp))
+
+                                        val days = listOf("Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim")
+                                        val sampleHeights = listOf(0.4f, 0.65f, 0.5f, 0.85f, 0.7f, 1.0f, 0.82f)
+
+                                        Box(
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .align(Alignment.BottomCenter),
-                                            horizontalArrangement = Arrangement.SpaceAround
+                                                .height(140.dp)
                                         ) {
-                                            days.forEachIndexed { index, day ->
-                                                Text(
-                                                    text = day,
-                                                    fontSize = 11.sp,
-                                                    color = if (index == 5) KonabBlue else MaterialTheme.colorScheme.onSurfaceVariant,
-                                                    fontWeight = if (index == 5) FontWeight.Bold else FontWeight.Medium
-                                                )
+                                            Canvas(modifier = Modifier.fillMaxSize()) {
+                                                val barWidth = 24.dp.toPx()
+                                                val totalWidth = size.width
+                                                val space = (totalWidth - (barWidth * days.size)) / (days.size + 1)
+                                                val maxHeight = size.height - 24.dp.toPx()
+
+                                                sampleHeights.forEachIndexed { i, ratio ->
+                                                    val x = space + i * (barWidth + space)
+                                                    val barHeight = (maxHeight * ratio * chartGrow.value).coerceAtLeast(6.dp.toPx())
+                                                    val y = maxHeight - barHeight
+
+                                                    val barColor = if (i == 5) Color(0xFF0B4BD9) else Color(0xFF93C5FD)
+
+                                                    drawRoundRect(
+                                                        color = barColor,
+                                                        topLeft = Offset(x, y),
+                                                        size = Size(barWidth, barHeight),
+                                                        cornerRadius = CornerRadius(6.dp.toPx(), 6.dp.toPx())
+                                                    )
+                                                }
+                                            }
+
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .align(Alignment.BottomCenter),
+                                                horizontalArrangement = Arrangement.SpaceAround
+                                            ) {
+                                                days.forEachIndexed { index, day ->
+                                                    Text(
+                                                        text = day,
+                                                        fontSize = 11.sp,
+                                                        color = if (index == 5) KonabBlue else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                        fontWeight = if (index == 5) FontWeight.Bold else FontWeight.Medium
+                                                    )
+                                                }
                                             }
                                         }
                                     }
@@ -501,51 +549,58 @@ fun ReportsScreen(
 
                         // Payment Methods Distribution
                         item {
-                            Card(
-                                shape = RoundedCornerShape(18.dp),
-                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, KonabBorder),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Column(modifier = Modifier.padding(18.dp)) {
-                                    Text("Répartition par mode de règlement", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                    Spacer(modifier = Modifier.height(14.dp))
+                            KonabStaggeredReveal(index = 2) {
+                                Card(
+                                    shape = RoundedCornerShape(18.dp),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                    border = BorderStroke(1.dp, cardOutlineColor),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(modifier = Modifier.padding(18.dp)) {
+                                        Text("Répartition par mode de règlement", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                        Spacer(modifier = Modifier.height(14.dp))
 
-                                    if (paymentBreakdown.isEmpty()) {
-                                        Text(
-                                            "Aucune transaction enregistrée pour cette période.",
-                                            fontSize = 12.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    } else {
-                                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                            paymentBreakdown.forEach { (method, count, amount) ->
-                                                val percentage = if (totalRevenue > 0) ((amount.toDouble() / totalRevenue.toDouble()) * 100).toInt() else 0
-                                                Column {
-                                                    Row(
-                                                        modifier = Modifier.fillMaxWidth(),
-                                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                                        verticalAlignment = Alignment.CenterVertically
-                                                    ) {
-                                                        Text(method, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                                                        Text(
-                                                            "${CurrencyFormatter.formatFCFA(amount)} ($percentage%)",
-                                                            fontFamily = OutfitFontFamily,
-                                                            fontWeight = FontWeight.Bold,
-                                                            fontSize = 13.sp,
-                                                            color = KonabBlue
+                                        if (paymentBreakdown.isEmpty()) {
+                                            Text(
+                                                "Aucune transaction enregistrée pour cette période.",
+                                                fontSize = 12.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        } else {
+                                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                                paymentBreakdown.forEach { (method, _, amount) ->
+                                                    val percentage = if (totalRevenue > 0) ((amount.toDouble() / totalRevenue.toDouble()) * 100).toInt() else 0
+                                                    val animProgress by animateFloatAsState(
+                                                        targetValue = (percentage / 100f).coerceIn(0f, 1f),
+                                                        animationSpec = tween(durationMillis = 520, easing = FastOutSlowInEasing),
+                                                        label = "pay_bar_$method"
+                                                    )
+                                                    Column {
+                                                        Row(
+                                                            modifier = Modifier.fillMaxWidth(),
+                                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                                            verticalAlignment = Alignment.CenterVertically
+                                                        ) {
+                                                            Text(method, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                                                            Text(
+                                                                "${CurrencyFormatter.formatFCFA(amount)} ($percentage%)",
+                                                                fontFamily = OutfitFontFamily,
+                                                                fontWeight = FontWeight.Bold,
+                                                                fontSize = 13.sp,
+                                                                color = KonabBlue
+                                                            )
+                                                        }
+                                                        Spacer(modifier = Modifier.height(4.dp))
+                                                        LinearProgressIndicator(
+                                                            progress = { animProgress },
+                                                            modifier = Modifier
+                                                                .fillMaxWidth()
+                                                                .height(7.dp)
+                                                                .clip(CircleShape),
+                                                            color = KonabBlue,
+                                                            trackColor = cardOutlineColor
                                                         )
                                                     }
-                                                    Spacer(modifier = Modifier.height(4.dp))
-                                                    LinearProgressIndicator(
-                                                        progress = { (percentage / 100f).coerceIn(0f, 1f) },
-                                                        modifier = Modifier
-                                                            .fillMaxWidth()
-                                                            .height(6.dp)
-                                                            .clip(CircleShape),
-                                                        color = KonabBlue,
-                                                        trackColor = KonabBorder
-                                                    )
                                                 }
                                             }
                                         }
@@ -568,75 +623,67 @@ fun ReportsScreen(
 
                         if (topProducts.isEmpty()) {
                             item {
-                                Surface(
-                                    color = MaterialTheme.colorScheme.surface,
-                                    shape = RoundedCornerShape(14.dp),
-                                    border = androidx.compose.foundation.BorderStroke(1.dp, KonabBorder),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Column(
-                                        modifier = Modifier.padding(24.dp),
-                                        horizontalAlignment = Alignment.CenterHorizontally
-                                    ) {
-                                        Icon(Icons.Default.Sell, contentDescription = null, tint = KonabTextMuted, modifier = Modifier.size(36.dp))
-                                        Spacer(modifier = Modifier.height(8.dp))
-                                        Text("Aucune vente enregistrée", fontWeight = FontWeight.Bold)
-                                        Text("Les produits vendus apparaîtront ici avec leur classement.", fontSize = 12.sp, color = KonabTextMuted)
-                                    }
-                                }
+                                KonabEmptyState(
+                                    icon = Icons.Default.Sell,
+                                    title = "Aucune vente enregistrée",
+                                    subtitle = "Les produits vendus apparaîtront ici avec leur classement.",
+                                    accentColor = KonabBlue
+                                )
                             }
                         } else {
-                            items(topProducts.take(5)) { (name, qty, total) ->
-                                Card(
-                                    shape = RoundedCornerShape(14.dp),
-                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                                    border = androidx.compose.foundation.BorderStroke(1.dp, KonabBorder),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(14.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
+                            itemsIndexed(topProducts.take(5)) { idx, (name, qty, total) ->
+                                KonabStaggeredReveal(index = idx) {
+                                    Card(
+                                        shape = RoundedCornerShape(14.dp),
+                                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                        border = BorderStroke(1.dp, cardOutlineColor),
+                                        modifier = Modifier.fillMaxWidth()
                                     ) {
                                         Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            modifier = Modifier.weight(1f)
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(14.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(38.dp)
-                                                    .clip(CircleShape)
-                                                    .background(Color(0xFFFEF3C7)),
-                                                contentAlignment = Alignment.Center
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                modifier = Modifier.weight(1f)
                                             ) {
-                                                Icon(Icons.Default.Star, contentDescription = null, tint = Color(0xFFD97706), modifier = Modifier.size(20.dp))
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(38.dp)
+                                                        .clip(CircleShape)
+                                                        .background(Color(0xFFFEF3C7)),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Icon(Icons.Default.Star, contentDescription = null, tint = Color(0xFFD97706), modifier = Modifier.size(20.dp))
+                                                }
+                                                Spacer(modifier = Modifier.width(12.dp))
+                                                Column {
+                                                    Text(name, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)
+                                                    Text(
+                                                        CurrencyFormatter.formatFCFA(total),
+                                                        fontFamily = OutfitFontFamily,
+                                                        fontSize = 12.sp,
+                                                        fontWeight = FontWeight.SemiBold,
+                                                        color = KonabBlue
+                                                    )
+                                                }
                                             }
-                                            Spacer(modifier = Modifier.width(12.dp))
-                                            Column {
-                                                Text(name, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+
+                                            Surface(
+                                                color = KonabBlueContainer,
+                                                shape = RoundedCornerShape(8.dp)
+                                            ) {
                                                 Text(
-                                                    CurrencyFormatter.formatFCFA(total),
-                                                    fontFamily = OutfitFontFamily,
+                                                    text = "$qty vendus",
+                                                    fontWeight = FontWeight.Bold,
                                                     fontSize = 12.sp,
-                                                    fontWeight = FontWeight.SemiBold,
-                                                    color = KonabBlue
+                                                    color = KonabBlue,
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                                                 )
                                             }
-                                        }
-
-                                        Surface(
-                                            color = KonabBlueContainer,
-                                            shape = RoundedCornerShape(8.dp)
-                                        ) {
-                                            Text(
-                                                text = "$qty vendus",
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 12.sp,
-                                                color = KonabBlue,
-                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                            )
                                         }
                                     }
                                 }
@@ -650,18 +697,19 @@ fun ReportsScreen(
                     LazyColumn(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(horizontal = 16.dp),
-                        contentPadding = PaddingValues(top = 16.dp, bottom = 90.dp),
+                            .padding(horizontal = horizontalPad),
+                        contentPadding = PaddingValues(top = 16.dp, bottom = 96.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
                         // Stock Valuation Card
                         item {
-                            Card(
-                                shape = RoundedCornerShape(20.dp),
-                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, KonabBorder),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
+                            KonabStaggeredReveal(index = 0) {
+                                Card(
+                                    shape = RoundedCornerShape(20.dp),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                    border = BorderStroke(1.dp, cardOutlineColor),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
                                 Column(modifier = Modifier.padding(20.dp)) {
                                     Text("Valorisation globale du stock", fontWeight = FontWeight.Bold, fontSize = 15.sp)
                                     Spacer(modifier = Modifier.height(14.dp))
@@ -693,7 +741,7 @@ fun ReportsScreen(
                                     }
 
                                     Spacer(modifier = Modifier.height(14.dp))
-                                    HorizontalDivider(color = KonabBorder)
+                                    HorizontalDivider(color = cardOutlineColor)
                                     Spacer(modifier = Modifier.height(14.dp))
 
                                     Row(
@@ -712,16 +760,18 @@ fun ReportsScreen(
                                     }
                                 }
                             }
+                            }
                         }
 
                         // Stock Health Indicators
                         item {
-                            Card(
-                                shape = RoundedCornerShape(18.dp),
-                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, KonabBorder),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
+                            KonabStaggeredReveal(index = 1) {
+                                Card(
+                                    shape = RoundedCornerShape(18.dp),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                    border = BorderStroke(1.dp, cardOutlineColor),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
                                 Column(modifier = Modifier.padding(18.dp)) {
                                     Text("Santé globale de l'inventaire", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                                     Spacer(modifier = Modifier.height(14.dp))
@@ -771,6 +821,7 @@ fun ReportsScreen(
                                     }
                                 }
                             }
+                            }
                         }
 
                         // Urgent Restock Items
@@ -780,57 +831,47 @@ fun ReportsScreen(
 
                         if (urgentRestockProducts.isEmpty()) {
                             item {
-                                Surface(
-                                    color = MaterialTheme.colorScheme.surface,
-                                    shape = RoundedCornerShape(14.dp),
-                                    border = androidx.compose.foundation.BorderStroke(1.dp, KonabBorder),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(16.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = KonabSuccess, modifier = Modifier.size(28.dp))
-                                        Spacer(modifier = Modifier.width(12.dp))
-                                        Column {
-                                            Text("Tous vos stocks sont au-dessus du seuil", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                                            Text("Aucune rupture ou alerte critique détectée.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        }
-                                    }
-                                }
+                                KonabEmptyState(
+                                    icon = Icons.Default.CheckCircle,
+                                    title = "Tous vos stocks sont au-dessus du seuil",
+                                    subtitle = "Aucune rupture ou alerte critique détectée.",
+                                    accentColor = KonabSuccess
+                                )
                             }
                         } else {
-                            items(urgentRestockProducts) { product ->
+                            itemsIndexed(urgentRestockProducts, key = { index, p -> "${p.id}_$index" }) { idx, product ->
                                 val isOut = product.stockQuantity <= 0
-                                Card(
-                                    shape = RoundedCornerShape(14.dp),
-                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                                    border = androidx.compose.foundation.BorderStroke(1.dp, if (isOut) KonabRed.copy(alpha = 0.5f) else KonabBorder),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(14.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
+                                KonabStaggeredReveal(index = idx) {
+                                    Card(
+                                        shape = RoundedCornerShape(14.dp),
+                                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                        border = BorderStroke(1.dp, if (isOut) KonabRed.copy(alpha = 0.5f) else cardOutlineColor),
+                                        modifier = Modifier.fillMaxWidth()
                                     ) {
-                                        Column {
-                                            Text(product.name, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                            Text("Seuil d'alerte configuré : ${product.minStockAlert} ${product.unit}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        }
-
-                                        Surface(
-                                            color = if (isOut) KonabRedContainer else Color(0xFFFEF3C7),
-                                            shape = RoundedCornerShape(8.dp)
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(14.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            Text(
-                                                text = if (isOut) "Épuisé (0)" else "${product.stockQuantity} restants",
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 11.sp,
-                                                color = if (isOut) KonabRed else Color(0xFFD97706),
-                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                            )
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(product.name, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface)
+                                                Text("Seuil d'alerte configuré : ${product.minStockAlert} ${product.unit}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            }
+
+                                            Surface(
+                                                color = if (isOut) KonabRedContainer else Color(0xFFFEF3C7),
+                                                shape = RoundedCornerShape(8.dp)
+                                            ) {
+                                                Text(
+                                                    text = if (isOut) "Épuisé (0)" else "${product.stockQuantity} restants",
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 11.sp,
+                                                    color = if (isOut) KonabRed else Color(0xFFD97706),
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -844,18 +885,19 @@ fun ReportsScreen(
                     LazyColumn(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(horizontal = 16.dp),
-                        contentPadding = PaddingValues(top = 16.dp, bottom = 90.dp),
+                            .padding(horizontal = horizontalPad),
+                        contentPadding = PaddingValues(top = 16.dp, bottom = 96.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
                         // Cash Movement Summary Card
                         item {
-                            Card(
-                                shape = RoundedCornerShape(20.dp),
-                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, KonabBorder),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
+                            KonabStaggeredReveal(index = 0) {
+                                Card(
+                                    shape = RoundedCornerShape(20.dp),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                    border = BorderStroke(1.dp, cardOutlineColor),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
                                 Column(modifier = Modifier.padding(20.dp)) {
                                     Text("Bilan des flux de trésorerie", fontWeight = FontWeight.Bold, fontSize = 15.sp)
                                     Spacer(modifier = Modifier.height(14.dp))
@@ -888,7 +930,7 @@ fun ReportsScreen(
                                     }
 
                                     Spacer(modifier = Modifier.height(12.dp))
-                                    HorizontalDivider(color = KonabBorder)
+                                    HorizontalDivider(color = cardOutlineColor)
                                     Spacer(modifier = Modifier.height(12.dp))
 
                                     Row(
@@ -907,6 +949,7 @@ fun ReportsScreen(
                                     }
                                 }
                             }
+                            }
                         }
 
                         // Recent Cash Movements List
@@ -923,80 +966,83 @@ fun ReportsScreen(
 
                         if (cashMovements.isEmpty()) {
                             item {
-                                Surface(
-                                    color = MaterialTheme.colorScheme.surface,
-                                    shape = RoundedCornerShape(14.dp),
-                                    border = androidx.compose.foundation.BorderStroke(1.dp, KonabBorder),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Column(
-                                        modifier = Modifier.padding(24.dp),
-                                        horizontalAlignment = Alignment.CenterHorizontally
-                                    ) {
-                                        Icon(Icons.Default.AccountBalanceWallet, contentDescription = null, tint = KonabTextMuted, modifier = Modifier.size(36.dp))
-                                        Spacer(modifier = Modifier.height(8.dp))
-                                        Text("Aucun mouvement enregistré", fontWeight = FontWeight.Bold)
-                                        Text("Vos apports et dépenses de caisse apparaîtront ici.", fontSize = 12.sp, color = KonabTextMuted)
-                                    }
-                                }
+                                KonabEmptyState(
+                                    icon = Icons.Default.AccountBalanceWallet,
+                                    title = "Aucun mouvement enregistré",
+                                    subtitle = "Vos apports et dépenses de caisse apparaîtront ici.",
+                                    accentColor = KonabBlue
+                                )
                             }
                         } else {
-                            items(cashMovements.take(15)) { movement ->
-                                val isEntry = movement.type == "IN"
-                                Card(
-                                    shape = RoundedCornerShape(14.dp),
-                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                                    border = androidx.compose.foundation.BorderStroke(1.dp, KonabBorder),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(14.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
+                            itemsIndexed(cashMovements.take(30), key = { index, m -> "${m.id}_$index" }) { idx, movement ->
+                                val isEntry = movement.type in listOf("SALE", "CASH_IN", "DEBT_PAYMENT", "IN")
+                                val typeLabel = when (movement.type) {
+                                    "SALE" -> "Vente espèces"
+                                    "CASH_IN", "IN" -> "Entrée de caisse"
+                                    "DEBT_PAYMENT" -> "Remboursement dette"
+                                    "SUPPLIER_PAYMENT" -> "Paiement fournisseur"
+                                    "EXPENSE" -> "Dépense"
+                                    "CASH_OUT", "OUT" -> "Sortie de caisse"
+                                    else -> "Mouvement"
+                                }
+                                KonabStaggeredReveal(index = idx) {
+                                    Card(
+                                        shape = RoundedCornerShape(14.dp),
+                                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                        border = BorderStroke(1.dp, cardOutlineColor),
+                                        modifier = Modifier.fillMaxWidth()
                                     ) {
                                         Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            modifier = Modifier.weight(1f)
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(14.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(36.dp)
-                                                    .clip(CircleShape)
-                                                    .background(if (isEntry) KonabSuccessContainer else KonabRedContainer),
-                                                contentAlignment = Alignment.Center
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                modifier = Modifier.weight(1f)
                                             ) {
-                                                Icon(
-                                                    if (isEntry) Icons.Default.ArrowDownward else Icons.Default.ArrowUpward,
-                                                    contentDescription = null,
-                                                    tint = if (isEntry) KonabSuccess else KonabRed,
-                                                    modifier = Modifier.size(18.dp)
-                                                )
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(36.dp)
+                                                        .clip(CircleShape)
+                                                        .background(if (isEntry) KonabSuccessContainer else KonabRedContainer),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Icon(
+                                                        if (isEntry) Icons.Default.ArrowDownward else Icons.Default.ArrowUpward,
+                                                        contentDescription = null,
+                                                        tint = if (isEntry) KonabSuccess else KonabRed,
+                                                        modifier = Modifier.size(18.dp)
+                                                    )
+                                                }
+                                                Spacer(modifier = Modifier.width(12.dp))
+                                                Column {
+                                                    Text(movement.reason, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)
+                                                    Text(
+                                                        "$typeLabel • ${CurrencyFormatter.formatDateTime(movement.timestamp)}",
+                                                        fontSize = 11.sp,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
                                             }
-                                            Spacer(modifier = Modifier.width(12.dp))
-                                            Column {
-                                                Text(movement.reason, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                                                Text(
-                                                    if (isEntry) "Entrée en caisse" else "Sortie / Dépense",
-                                                    fontSize = 11.sp,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                )
-                                            }
-                                        }
 
-                                        Text(
-                                            text = "${if (isEntry) "+" else "-"}${CurrencyFormatter.formatFCFA(movement.amount)}",
-                                            fontFamily = OutfitFontFamily,
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 14.sp,
-                                            color = if (isEntry) KonabSuccess else KonabRed
-                                        )
+                                            Text(
+                                                text = "${if (isEntry) "+" else "-"}${CurrencyFormatter.formatFCFA(movement.amount)}",
+                                                fontFamily = OutfitFontFamily,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 14.sp,
+                                                color = if (isEntry) KonabSuccess else KonabRed
+                                            )
+                                        }
                                     }
                                 }
                             }
                         }
                     }
+                }
+            }
                 }
             }
         }

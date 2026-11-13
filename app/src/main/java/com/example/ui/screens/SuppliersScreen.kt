@@ -1,10 +1,16 @@
 package com.example.ui.screens
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -27,6 +33,12 @@ import androidx.compose.ui.unit.sp
 import com.example.data.local.entity.ProductEntity
 import com.example.data.local.entity.PurchaseEntity
 import com.example.data.local.entity.SupplierEntity
+import com.example.ui.components.KonabEmptyState
+import com.example.ui.components.KonabStaggeredReveal
+import com.example.ui.components.KonabWidthClass
+import com.example.ui.components.LocalKonabWidthClass
+import com.example.ui.components.ResponsiveMaxWidthBox
+import com.example.ui.components.konabPressScale
 import com.example.ui.theme.*
 import com.example.util.CurrencyFormatter
 import com.example.util.ProductThumbnail
@@ -66,7 +78,9 @@ fun SuppliersScreen(
                 containerColor = KonabGreen,
                 contentColor = Color.White,
                 shape = CircleShape,
-                modifier = Modifier.testTag("fab_add_supplier_or_purchase")
+                modifier = Modifier
+                    .konabPressScale()
+                    .testTag("fab_add_supplier_or_purchase")
             ) {
                 Icon(
                     imageVector = if (selectedTab == 0) Icons.Default.PersonAdd else Icons.Default.AddShoppingCart,
@@ -75,122 +89,188 @@ fun SuppliersScreen(
             }
         }
     ) { paddingValues ->
-        Column(
+        val widthClass = LocalKonabWidthClass.current
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
                 .background(MaterialTheme.colorScheme.background)
         ) {
-            TabRow(
-                selectedTabIndex = selectedTab,
-                containerColor = MaterialTheme.colorScheme.surface
+            ResponsiveMaxWidthBox(
+                maxWidth = 1120.dp,
+                modifier = Modifier.fillMaxSize()
             ) {
-                Tab(
-                    selected = selectedTab == 0,
-                    onClick = { selectedTab = 0 },
-                    text = { Text("Fournisseurs (${suppliers.size})", fontWeight = FontWeight.Bold) }
-                )
-                Tab(
-                    selected = selectedTab == 1,
-                    onClick = { selectedTab = 1 },
-                    text = { Text("Achats & Réappro (${purchases.size})", fontWeight = FontWeight.Bold) }
-                )
-            }
+                Column(modifier = Modifier.fillMaxSize()) {
+                    TabRow(
+                        selectedTabIndex = selectedTab,
+                        containerColor = MaterialTheme.colorScheme.surface
+                    ) {
+                        Tab(
+                            selected = selectedTab == 0,
+                            onClick = { selectedTab = 0 },
+                            text = { Text("Fournisseurs (${suppliers.size})", fontWeight = FontWeight.Bold) }
+                        )
+                        Tab(
+                            selected = selectedTab == 1,
+                            onClick = { selectedTab = 1 },
+                            text = { Text("Achats & Réappro (${purchases.size})", fontWeight = FontWeight.Bold) }
+                        )
+                    }
 
-            if (selectedTab == 0) {
-                // Suppliers Tab
-                LazyColumn(
-                    contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    items(suppliers) { supplier ->
-                        Card(
-                            shape = RoundedCornerShape(14.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(14.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(42.dp)
-                                            .clip(CircleShape)
-                                            .background(KonabGreenLight),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(Icons.Default.LocalShipping, contentDescription = null, tint = KonabGreenDark)
-                                    }
-                                    Spacer(modifier = Modifier.width(12.dp))
-                                    Column {
-                                        Text(supplier.name, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                        Text(supplier.phone, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        if (supplier.address.isNotBlank()) {
-                                            Text(supplier.address, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    AnimatedContent(
+                        targetState = selectedTab,
+                        transitionSpec = { fadeIn(tween(200)) togetherWith fadeOut(tween(140)) },
+                        label = "suppliers_tab_transition"
+                    ) { tab ->
+                        val gridCols = if (widthClass == KonabWidthClass.COMPACT) {
+                            GridCells.Fixed(1)
+                        } else {
+                            GridCells.Adaptive(minSize = 310.dp)
+                        }
+
+                        if (tab == 0) {
+                            if (suppliers.isEmpty()) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(24.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    KonabEmptyState(
+                                        icon = Icons.Default.LocalShipping,
+                                        title = "Aucun fournisseur enregistré",
+                                        subtitle = "Ajoutez vos grossistes pour suivre vos réapprovisionnements et dettes fournisseurs.",
+                                        accentColor = KonabGreen,
+                                        actionLabel = "Ajouter un fournisseur",
+                                        onAction = { showAddSupplierDialog = true }
+                                    )
+                                }
+                            } else {
+                                LazyVerticalGrid(
+                                    columns = gridCols,
+                                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 90.dp),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    modifier = Modifier.fillMaxSize()
+                                ) {
+                                    itemsIndexed(suppliers, key = { _, s -> s.id }) { idx, supplier ->
+                                        KonabStaggeredReveal(index = idx) {
+                                            Card(
+                                                shape = RoundedCornerShape(14.dp),
+                                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .konabPressScale(pressedScale = 0.985f)
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .padding(14.dp),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .size(42.dp)
+                                                                .clip(CircleShape)
+                                                                .background(KonabGreenLight),
+                                                            contentAlignment = Alignment.Center
+                                                        ) {
+                                                            Icon(Icons.Default.LocalShipping, contentDescription = null, tint = KonabGreenDark)
+                                                        }
+                                                        Spacer(modifier = Modifier.width(12.dp))
+                                                        Column {
+                                                            Text(supplier.name, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                                            Text(supplier.phone, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                            if (supplier.address.isNotBlank()) {
+                                                                Text(supplier.address, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                            }
+                                                        }
+                                                    }
+
+                                                    if (supplier.debtAmount > 0) {
+                                                        Surface(
+                                                            color = KonabRedContainer,
+                                                            shape = RoundedCornerShape(6.dp)
+                                                        ) {
+                                                            Text(
+                                                                "Dette : ${CurrencyFormatter.formatFCFA(supplier.debtAmount)}",
+                                                                fontSize = 11.sp,
+                                                                fontWeight = FontWeight.Bold,
+                                                                color = KonabRed,
+                                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
                                 }
-
-                                if (supplier.debtAmount > 0) {
-                                    Surface(
-                                        color = KonabRedContainer,
-                                        shape = RoundedCornerShape(6.dp)
-                                    ) {
-                                        Text(
-                                            "Dette : ${CurrencyFormatter.formatFCFA(supplier.debtAmount)}",
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = KonabRed,
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                        )
-                                    }
-                                }
                             }
-                        }
-                    }
-                }
-            } else {
-                // Purchases Tab
-                LazyColumn(
-                    contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    items(purchases) { p ->
-                        Card(
-                            shape = RoundedCornerShape(14.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(modifier = Modifier.padding(14.dp)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
+                        } else {
+                            if (purchases.isEmpty()) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(24.dp),
+                                    contentAlignment = Alignment.Center
                                 ) {
-                                    Text(p.productName, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                    Text(
-                                        CurrencyFormatter.formatFCFA(p.totalCost),
-                                        fontWeight = FontWeight.ExtraBold,
-                                        color = KonabRed
+                                    KonabEmptyState(
+                                        icon = Icons.Default.AddShoppingCart,
+                                        title = "Aucun achat enregistré",
+                                        subtitle = "Enregistrez vos entrées de marchandises pour mettre à jour votre stock automatiquement.",
+                                        accentColor = KonabGreen,
+                                        actionLabel = if (suppliers.isNotEmpty() && products.isNotEmpty()) "Nouvel achat" else null,
+                                        onAction = { showRecordPurchaseDialog = true }
                                     )
                                 }
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    "Qté reçue : +${p.quantity} • P.U Achat : ${CurrencyFormatter.formatFCFA(p.unitCost)}",
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Text(
-                                    "Fournisseur : ${p.supplierName} • ${CurrencyFormatter.formatDateTime(p.timestamp)}",
-                                    fontSize = 11.sp,
-                                    color = KonabTextMuted
-                                )
+                            } else {
+                                LazyVerticalGrid(
+                                    columns = gridCols,
+                                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 90.dp),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    modifier = Modifier.fillMaxSize()
+                                ) {
+                                    itemsIndexed(purchases, key = { _, p -> p.id }) { idx, p ->
+                                        KonabStaggeredReveal(index = idx) {
+                                            Card(
+                                                shape = RoundedCornerShape(14.dp),
+                                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .konabPressScale(pressedScale = 0.985f)
+                                            ) {
+                                                Column(modifier = Modifier.padding(14.dp)) {
+                                                    Row(
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        horizontalArrangement = Arrangement.SpaceBetween
+                                                    ) {
+                                                        Text(p.productName, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                                        Text(
+                                                            CurrencyFormatter.formatFCFA(p.totalCost),
+                                                            fontWeight = FontWeight.ExtraBold,
+                                                            color = KonabRed
+                                                        )
+                                                    }
+                                                    Spacer(modifier = Modifier.height(4.dp))
+                                                    Text(
+                                                        "Qté reçue : +${p.quantity} • P.U Achat : ${CurrencyFormatter.formatFCFA(p.unitCost)}",
+                                                        fontSize = 12.sp,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                    Text(
+                                                        "Fournisseur : ${p.supplierName} • ${CurrencyFormatter.formatDateTime(p.timestamp)}",
+                                                        fontSize = 11.sp,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }

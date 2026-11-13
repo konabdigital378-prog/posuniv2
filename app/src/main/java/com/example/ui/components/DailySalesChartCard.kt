@@ -1,7 +1,13 @@
 package com.example.ui.components
 
-import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -84,7 +90,7 @@ fun DailySalesChartCard(
             val startMs = c.timeInMillis
             val endMs = startMs + (24 * 60 * 60 * 1000) - 1
 
-            val daySales = sales.filter { it.timestamp in startMs..endMs }
+            val daySales = sales.filter { !it.isCancelled && it.timestamp in startMs..endMs }
             val amount = daySales.sumOf { it.totalAmount }
             val count = daySales.size
 
@@ -130,7 +136,7 @@ fun DailySalesChartCard(
         buckets.map { (startH, endH) ->
             val bStart = startOfToday + (startH * 3600 * 1000L)
             val bEnd = startOfToday + (endH * 3600 * 1000L) - 1
-            val bucketSales = sales.filter { it.timestamp in bStart..bEnd }
+            val bucketSales = sales.filter { !it.isCancelled && it.timestamp in bStart..bEnd }
             val amount = bucketSales.sumOf { it.totalAmount }
             val count = bucketSales.size
             val isCurrent = currentHour in startH until endH
@@ -161,10 +167,14 @@ fun DailySalesChartCard(
     // Best day / peak point
     val peakPoint = currentData.maxByOrNull { it.amount }
 
+    val outlineColor = MaterialTheme.colorScheme.outline
+    val surfaceVariantColor = MaterialTheme.colorScheme.surfaceVariant
+    val onSurfaceVariantColor = MaterialTheme.colorScheme.onSurfaceVariant
+
     Card(
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = BorderStroke(1.dp, KonabBorder),
+        border = BorderStroke(1.dp, outlineColor.copy(alpha = 0.7f)),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         modifier = modifier
             .fillMaxWidth()
@@ -190,7 +200,7 @@ fun DailySalesChartCard(
                         modifier = Modifier
                             .size(34.dp)
                             .clip(CircleShape)
-                            .background(KonabGreenLight),
+                            .background(KonabGreen.copy(alpha = 0.14f)),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
@@ -212,7 +222,7 @@ fun DailySalesChartCard(
                         Text(
                             text = "Chiffre d'affaires en FCFA",
                             style = MaterialTheme.typography.bodySmall,
-                            color = KonabTextSecondary
+                            color = onSurfaceVariantColor
                         )
                     }
                 }
@@ -220,8 +230,8 @@ fun DailySalesChartCard(
                 // Period Switch Tabs
                 Surface(
                     shape = RoundedCornerShape(10.dp),
-                    color = KonabBackground,
-                    border = BorderStroke(1.dp, KonabBorder)
+                    color = MaterialTheme.colorScheme.background,
+                    border = BorderStroke(1.dp, outlineColor.copy(alpha = 0.7f))
                 ) {
                     Row(modifier = Modifier.padding(2.dp)) {
                         PeriodTabButton(
@@ -239,74 +249,82 @@ fun DailySalesChartCard(
             }
 
             // Highlight Tooltip / Banner for the active/selected bar
-            selectedPoint?.let { pt ->
-                Card(
-                    shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(containerColor = KonabGreenLight.copy(alpha = 0.6f)),
-                    border = BorderStroke(1.dp, KonabGreen.copy(alpha = 0.2f)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+            AnimatedContent(
+                targetState = selectedPoint,
+                transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(120)) },
+                label = "chart_point_tooltip"
+            ) { pt ->
+                pt?.let {
+                    Card(
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = KonabGreen.copy(alpha = 0.10f)),
+                        border = BorderStroke(1.dp, KonabGreen.copy(alpha = 0.25f)),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Column {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    text = pt.fullDateLabel,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = KonabGreenDark
-                                )
-                                if (pt.isCurrentPeriod) {
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Surface(
-                                        color = KonabGreen,
-                                        shape = RoundedCornerShape(4.dp)
-                                    ) {
-                                        Text(
-                                            text = "En cours",
-                                            fontSize = 9.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color.White,
-                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = it.fullDateLabel,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = KonabGreen
+                                    )
+                                    if (it.isCurrentPeriod) {
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Surface(
+                                            color = KonabGreen,
+                                            shape = RoundedCornerShape(4.dp)
+                                        ) {
+                                            Text(
+                                                text = "En cours",
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color.White,
+                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                            )
+                                        }
                                     }
                                 }
+                                Text(
+                                    text = "${it.count} vente(s) enregistrée(s)",
+                                    fontSize = 11.sp,
+                                    color = onSurfaceVariantColor
+                                )
                             }
+
                             Text(
-                                text = "${pt.count} vente(s) enregistrée(s)",
-                                fontSize = 11.sp,
-                                color = KonabTextSecondary
+                                text = CurrencyFormatter.formatFCFA(it.amount),
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = KonabGreen
                             )
                         }
-
-                        Text(
-                            text = CurrencyFormatter.formatFCFA(pt.amount),
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = KonabGreen
-                        )
                     }
                 }
             }
 
             // Native Jetpack Compose Canvas Bar Chart
+            val animProgress = remember { Animatable(0f) }
+            LaunchedEffect(selectedPeriod, sales) {
+                animProgress.snapTo(0f)
+                animProgress.animateTo(
+                    targetValue = 1f,
+                    animationSpec = tween(durationMillis = 600, easing = FastOutSlowInEasing)
+                )
+            }
+
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(160.dp)
             ) {
-                // Animated progress for bar heights
-                val animProgress by animateFloatAsState(
-                    targetValue = 1f,
-                    animationSpec = tween(durationMillis = 650),
-                    label = "bar_anim"
-                )
-
                 Canvas(
                     modifier = Modifier
                         .fillMaxSize()
@@ -331,7 +349,7 @@ fun DailySalesChartCard(
                     for (i in 0..lineCount) {
                         val y = height - bottomPadding - (usableHeight * (i.toFloat() / lineCount))
                         drawLine(
-                            color = KonabBorder.copy(alpha = 0.7f),
+                            color = outlineColor.copy(alpha = 0.6f),
                             start = Offset(0f, y),
                             end = Offset(width, y),
                             strokeWidth = 1.dp.toPx(),
@@ -344,6 +362,7 @@ fun DailySalesChartCard(
 
                     val slotWidth = width / count
                     val barWidth = (slotWidth * 0.52f).coerceAtMost(32.dp.toPx())
+                    val progressVal = animProgress.value
 
                     // Draw Bars
                     currentData.forEachIndexed { index, point ->
@@ -351,7 +370,7 @@ fun DailySalesChartCard(
                         val barLeft = centerX - (barWidth / 2f)
 
                         val ratio = (point.amount.toFloat() / maxAmount.toFloat()).coerceIn(0f, 1f)
-                        val barHeight = ((usableHeight * ratio) * animProgress).coerceAtLeast(6.dp.toPx())
+                        val barHeight = ((usableHeight * ratio) * progressVal).coerceAtLeast(6.dp.toPx())
                         val barTop = height - bottomPadding - barHeight
 
                         val isSelected = (index == selectedIndex)
@@ -374,7 +393,7 @@ fun DailySalesChartCard(
                                 endY = height - bottomPadding
                             )
                             else -> Brush.verticalGradient(
-                                colors = listOf(KonabSurfaceVariant, KonabBorder),
+                                colors = listOf(surfaceVariantColor, outlineColor.copy(alpha = 0.7f)),
                                 startY = barTop,
                                 endY = height - bottomPadding
                             )
@@ -415,7 +434,7 @@ fun DailySalesChartCard(
                         currentData.forEachIndexed { index, point ->
                             val centerX = (index * slotWidth) + (slotWidth / 2f)
                             val ratio = (point.amount.toFloat() / maxAmount.toFloat()).coerceIn(0f, 1f)
-                            val barHeight = ((usableHeight * ratio) * animProgress).coerceAtLeast(6.dp.toPx())
+                            val barHeight = ((usableHeight * ratio) * progressVal).coerceAtLeast(6.dp.toPx())
                             val barTop = height - bottomPadding - barHeight
 
                             if (first) {
@@ -456,20 +475,20 @@ fun DailySalesChartCard(
                             text = point.label,
                             fontSize = 11.sp,
                             fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium,
-                            color = if (isSelected) KonabGreenDark else KonabTextSecondary
+                            color = if (isSelected) KonabGreen else onSurfaceVariantColor
                         )
                         Text(
                             text = point.subLabel,
                             fontSize = 10.sp,
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                            color = if (isSelected) KonabGreenDark else KonabTextMuted
+                            color = if (isSelected) KonabGreen else onSurfaceVariantColor.copy(alpha = 0.7f)
                         )
                     }
                 }
             }
 
             // Bottom Summary & Quick Metrics Footer
-            HorizontalDivider(color = KonabBorder.copy(alpha = 0.6f), thickness = 0.5.dp)
+            HorizontalDivider(color = outlineColor.copy(alpha = 0.5f), thickness = 0.5.dp)
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -518,14 +537,26 @@ private fun PeriodTabButton(
     isSelected: Boolean,
     onClick: () -> Unit
 ) {
+    val bgColor by animateColorAsState(
+        targetValue = if (isSelected) KonabGreen else Color.Transparent,
+        animationSpec = tween(180),
+        label = "period_tab_bg"
+    )
+    val textColor by animateColorAsState(
+        targetValue = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+        animationSpec = tween(180),
+        label = "period_tab_text"
+    )
+
     Surface(
         onClick = onClick,
         shape = RoundedCornerShape(8.dp),
-        color = if (isSelected) KonabGreen else Color.Transparent
+        color = bgColor,
+        modifier = Modifier.konabPressScale(pressedScale = 0.96f)
     ) {
         Text(
             text = text,
-            color = if (isSelected) Color.White else KonabTextSecondary,
+            color = textColor,
             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
             fontSize = 11.sp,
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)

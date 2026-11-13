@@ -43,11 +43,18 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
         repository = KonabRepository(database.konabDao(), dataStore)
         com.example.util.NotificationHelper.createNotificationChannels(application)
 
-        // Vérification non-bloquante du premier lancement
+        // Vérification non-bloquante au lancement (toujours démarrer sur le menu principal)
         viewModelScope.launch {
             val profile = repository.getShopProfileOnce()
             if (profile == null || !profile.isConfigured) {
+                com.example.util.BiometricSecurityHelper.setShopConfiguredCache(application, false)
+                _isLocked.value = false
                 _screenStack.value = listOf(KonabScreen.ONBOARDING)
+            } else {
+                com.example.util.BiometricSecurityHelper.setShopConfiguredCache(application, true)
+                if (com.example.util.BiometricSecurityHelper.isLaunchLockEnabled(application)) {
+                    _isLocked.value = true
+                }
             }
         }
 
@@ -110,10 +117,10 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
     val unreadNotificationsCount: StateFlow<Int> = repository.unreadNotificationsCount
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
-    // Navigation State
-    private val _screenStack = MutableStateFlow<List<KonabScreen>>(listOf(KonabScreen.DASHBOARD))
-    val currentScreen: StateFlow<KonabScreen> = _screenStack.map { it.lastOrNull() ?: KonabScreen.DASHBOARD }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), KonabScreen.DASHBOARD)
+    // Navigation State (démarre sur le menu principal: Entrer dans ma boutique / Espace Agent)
+    private val _screenStack = MutableStateFlow<List<KonabScreen>>(listOf(KonabScreen.ONBOARDING))
+    val currentScreen: StateFlow<KonabScreen> = _screenStack.map { it.lastOrNull() ?: KonabScreen.ONBOARDING }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), KonabScreen.ONBOARDING)
 
     // Cart State
     private val _cart = MutableStateFlow<List<CartItem>>(emptyList())
@@ -129,11 +136,13 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
     private val _lastCompletedSale = MutableStateFlow<Pair<SaleEntity, List<SaleItemEntity>>?>(null)
     val lastCompletedSale: StateFlow<Pair<SaleEntity, List<SaleItemEntity>>?> = _lastCompletedSale.asStateFlow()
 
-    // Role & PIN lock State
+    // Role & PIN / Biometric Launch Lock State
     private val _currentRole = MutableStateFlow("ADMIN") // ADMIN or CASHIER
     val currentRole: StateFlow<String> = _currentRole.asStateFlow()
 
-    private val _isLocked = MutableStateFlow(false)
+    private val _isLocked = MutableStateFlow(
+        com.example.util.BiometricSecurityHelper.shouldLockOnLaunch(application)
+    )
     val isLocked: StateFlow<Boolean> = _isLocked.asStateFlow()
 
     val subtotal: Long get() = _cart.value.sumOf { it.totalPrice }
@@ -183,6 +192,32 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
             current.add(CartItem(product = product, quantity = 1, variantNote = variantNote, itemDiscount = discount))
         }
         _cart.value = current
+    }
+
+    fun addCustomAmountToCart(
+        title: String,
+        unitPrice: Long,
+        quantity: Int = 1,
+        unit: String = "forfait",
+        variantNote: String = ""
+    ) {
+        if (unitPrice <= 0L || quantity <= 0) return
+        val syntheticId = -System.currentTimeMillis()
+        val syntheticProduct = ProductEntity(
+            id = syntheticId,
+            name = title.ifBlank { "Prestation / Vente libre" },
+            category = "Vente Libre",
+            buyPrice = 0L,
+            sellPrice = unitPrice,
+            stockQuantity = 999,
+            minStockAlert = 0,
+            unit = unit.ifBlank { "forfait" }
+        )
+        _cart.value = _cart.value + CartItem(
+            product = syntheticProduct,
+            quantity = quantity,
+            variantNote = variantNote
+        )
     }
 
     fun updateCartItemNote(productId: Long, note: String) {
@@ -304,16 +339,18 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
             val curr = shopProfile.value?.currency ?: "FCFA"
             com.example.util.NotificationHelper.sendSaleSuccess(app, sale.transactionNumber, totalAmount, curr)
 
-            // Trigger stock alerts if any item reached minimum threshold
+            // Trigger stock alerts if any real catalog item reached minimum threshold
             currentCart.forEach { item ->
-                val remainingStock = item.product.stockQuantity - item.quantity
-                if (remainingStock <= item.product.minStockAlert) {
-                    com.example.util.NotificationHelper.sendStockAlert(
-                        app,
-                        item.product.name,
-                        remainingStock,
-                        item.product.minStockAlert
-                    )
+                if (item.product.id > 0L) {
+                    val remainingStock = item.product.stockQuantity - item.quantity
+                    if (remainingStock <= item.product.minStockAlert) {
+                        com.example.util.NotificationHelper.sendStockAlert(
+                            app,
+                            item.product.name,
+                            remainingStock,
+                            item.product.minStockAlert
+                        )
+                    }
                 }
             }
 
@@ -364,12 +401,26 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
             } else {
                 repository.updateProduct(product)
             }
+            if (supabaseSyncManager.isAutoSyncEnabled() && com.example.data.remote.supabase.SupabaseConfig.isConfigured) {
+                withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    try {
+                        supabaseSyncManager.syncProductsOnly(repository)
+                    } catch (_: Exception) {}
+                }
+            }
         }
     }
 
     fun deleteProduct(productId: Long) {
         viewModelScope.launch {
             repository.deleteProduct(productId)
+            if (supabaseSyncManager.isAutoSyncEnabled() && com.example.data.remote.supabase.SupabaseConfig.isConfigured) {
+                withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    try {
+                        supabaseSyncManager.deleteProductFromCloud(productId)
+                    } catch (_: Exception) {}
+                }
+            }
         }
     }
 
@@ -438,7 +489,14 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val app = getApplication<android.app.Application>()
             val currentAgent = com.example.data.remote.supabase.AgentDeploymentStorage.getSavedAgentSession(app)
-            val currentDeployerId = currentAgent?.id
+                ?: return@launch
+            val currentDeployerId = currentAgent.id.trim().uppercase()
+
+            val existing = repository.getShopProfileOnce()
+            if (existing != null && existing.isConfigured && existing.name.isNotBlank()) {
+                resetTo(KonabScreen.DASHBOARD)
+                return@launch
+            }
 
             val profile = com.example.data.local.entity.ShopProfileEntity(
                 id = 1,
@@ -457,23 +515,25 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
                 deployerId = currentDeployerId
             )
             repository.initializeStore(
-                name = shopName,
-                slogan = slogan,
-                phone = phone,
-                address = address,
-                city = city,
+                name = shopName.trim(),
+                slogan = slogan.trim(),
+                phone = phone.trim(),
+                address = address.trim(),
+                city = city.trim(),
                 businessType = businessType,
-                adminName = adminName,
-                adminPhone = adminPhone,
+                adminName = adminName.trim(),
+                adminPhone = adminPhone.trim(),
                 adminPin = adminPin,
                 preloadDemoData = preloadDemoData,
                 subscriptionTier = subscriptionTier,
                 deployerId = currentDeployerId
             )
+            com.example.util.BiometricSecurityHelper.setShopConfiguredCache(app, true)
             withContext(kotlinx.coroutines.Dispatchers.IO) {
                 try {
                     supabaseSyncManager.pushShopProfileDirectly(profile, isNewShop = true)
-                    supabaseSyncManager.syncFullStore(repository)
+                    supabaseSyncManager.syncProductsOnly(repository)
+                    supabaseSyncManager.syncAgentDeployments()
                 } catch (e: Exception) {
                     android.util.Log.e("KonabPOS", "Erreur envoi initial boutique vers Cloud: ${e.message}", e)
                 }
@@ -496,6 +556,10 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
             _discountAmount.value = 0L
             _lastCompletedSale.value = null
             if (!keepShopProfile) {
+                val app = getApplication<Application>()
+                com.example.util.BiometricSecurityHelper.setShopConfiguredCache(app, false)
+                _isLocked.value = false
+                com.example.data.remote.supabase.AgentDeploymentStorage.clearCreatedShopLock(app)
                 supabaseSyncManager.resetCloudShopId()
                 resetTo(KonabScreen.ONBOARDING)
             }
@@ -505,11 +569,15 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
 
     fun updateShopProfile(updated: ShopProfileEntity) {
         viewModelScope.launch {
-            repository.saveShopProfile(updated)
+            val app = getApplication<Application>()
+            val currentAgent = com.example.data.remote.supabase.AgentDeploymentStorage.getSavedAgentSession(app)
+            val resolvedDeployer = updated.deployerId?.trim()?.uppercase()?.takeIf { it.isNotBlank() }
+                ?: currentAgent?.id?.trim()?.uppercase()
+            val finalUpdated = updated.copy(deployerId = resolvedDeployer)
+            repository.saveShopProfile(finalUpdated)
             withContext(kotlinx.coroutines.Dispatchers.IO) {
                 try {
-                    supabaseSyncManager.pushShopProfileDirectly(updated, isNewShop = false)
-                    supabaseSyncManager.syncFullStore(repository)
+                    supabaseSyncManager.pushShopProfileDirectly(finalUpdated, isNewShop = false)
                 } catch (e: Exception) {
                     android.util.Log.e("KonabPOS", "Erreur pushShopProfileDirectly: ${e.message}", e)
                 }
@@ -522,17 +590,21 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun unlockWithPin(enteredPin: String): Boolean {
-        val profile = shopProfile.value ?: return enteredPin == "1234"
-        if (enteredPin == profile.adminPin) {
+        val cleanPin = enteredPin.trim()
+        val profile = shopProfile.value ?: kotlinx.coroutines.runBlocking {
+            repository.getShopProfileOnce()
+        } ?: return cleanPin == "1234"
+        if (cleanPin == profile.adminPin.trim()) {
             _currentRole.value = "ADMIN"
-            _isLocked.value = false
-            return true
-        } else if (enteredPin == profile.cashierPin) {
-            _currentRole.value = "CASHIER"
             _isLocked.value = false
             return true
         }
         return false
+    }
+
+    fun unlockWithBiometric() {
+        _currentRole.value = "ADMIN"
+        _isLocked.value = false
     }
 
     fun lockApp() {
@@ -563,17 +635,24 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
         agentPhone: String,
         notes: String
     ): Boolean {
+        val app = getApplication<Application>()
+        val currentAgent = com.example.data.remote.supabase.AgentDeploymentStorage.getSavedAgentSession(app)
+            ?: return false
         val profile = shopProfile.value ?: return false
+        val canonicalAgentId = currentAgent.id.trim().uppercase()
+        val effectiveAgentName = currentAgent.name.ifBlank { agentName }
+        val effectiveAgentPhone = currentAgent.phone.ifBlank { agentPhone }
+
         val expiry = System.currentTimeMillis() + (durationDays.toLong() * 24 * 60 * 60 * 1000)
         val updated = profile.copy(
             subscriptionTier = tier,
-            subscriptionExpiresAt = expiry
+            subscriptionExpiresAt = expiry,
+            deployerId = profile.deployerId?.trim()?.uppercase()?.takeIf { it.isNotBlank() } ?: canonicalAgentId
         )
         updateShopProfile(updated)
 
-        // Save generated license key to agent history
+        // Save generated license key & single deployment record tied strictly to currentAgent.id
         try {
-            val app = getApplication<Application>()
             val durationCode = when (durationDays) {
                 30 -> "1M"
                 90 -> "3M"
@@ -585,17 +664,16 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
                 tier = tier,
                 durationCode = durationCode,
                 beneficiary = profile.name,
-                note = "Activé par agent $agentName ($agentPhone) • $notes"
+                note = "Activé par agent $effectiveAgentName ($canonicalAgentId)"
             )
             com.example.util.LicenseHelper.saveGeneratedLicense(app, keyData)
 
-            // Record deployment audit record
             val deploymentId = "DEP-${System.currentTimeMillis()}"
             val record = com.example.data.remote.supabase.AgentDeploymentRecord(
                 id = deploymentId,
-                agentId = agentName.take(12),
-                agentName = agentName,
-                agentPhone = agentPhone,
+                agentId = canonicalAgentId,
+                agentName = effectiveAgentName,
+                agentPhone = effectiveAgentPhone,
                 shopName = profile.name,
                 shopPhone = profile.phone,
                 shopCity = profile.city,
@@ -655,6 +733,13 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
                 val preset = com.example.util.BusinessTypePresets.getPreset(businessType)
                 for (prod in preset.defaultProducts) {
                     repository.insertProduct(prod.copy(id = 0L))
+                }
+                if (supabaseSyncManager.isAutoSyncEnabled() && com.example.data.remote.supabase.SupabaseConfig.isConfigured) {
+                    withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        try {
+                            supabaseSyncManager.syncProductsOnly(repository)
+                        } catch (_: Exception) {}
+                    }
                 }
             } catch (_: Exception) {}
             onComplete()

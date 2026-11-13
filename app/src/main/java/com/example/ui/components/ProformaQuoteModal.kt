@@ -46,6 +46,8 @@ fun ProformaQuoteModal(
     customer: CustomerEntity?,
     totalAmount: Long,
     discountAmount: Long,
+    documentTitle: String = "Devis & Facture Proforma",
+    contextBadge: String = "",
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
@@ -64,23 +66,26 @@ fun ProformaQuoteModal(
     val generateQuoteText = {
         val shopName = shopProfile?.name ?: "Boutique Kaba"
         val phone = shopProfile?.phone ?: "65413799"
-        val currency = shopProfile?.currency ?: "FCFA"
 
         val sb = StringBuilder()
         sb.append("====================================\n")
-        sb.append("      FACTURE PROFORMA / DEVIS      \n")
+        sb.append("  ${documentTitle.uppercase()}\n")
         sb.append("====================================\n")
         sb.append("Émetteur : $shopName\n")
         sb.append("Téléphone : $phone\n")
-        sb.append("N° Devis : $quoteNumber\n")
+        sb.append("N° Document : $quoteNumber\n")
         sb.append("Date : $quoteDate (Valable $validityDays jours)\n")
+        if (contextBadge.isNotBlank()) sb.append("Modalité : $contextBadge\n")
         sb.append("Client : ${customerNameInput.ifBlank { "Client à préciser" }}\n")
         if (customerPhoneInput.isNotBlank()) sb.append("Contact : $customerPhoneInput\n")
         sb.append("------------------------------------\n")
-        sb.append("ARTICLES :\n")
+        sb.append("DÉTAILS / PRESTATIONS :\n")
         cart.forEachIndexed { i, item ->
             sb.append("${i + 1}. ${item.product.name}\n")
-            sb.append("   ${item.quantity} x ${CurrencyFormatter.formatFCFA(item.product.sellPrice)} = ${CurrencyFormatter.formatFCFA(item.totalPrice)}\n")
+            if (item.variantNote.isNotBlank()) {
+                sb.append("   [Spéc. : ${item.variantNote}]\n")
+            }
+            sb.append("   ${item.quantity} ${item.product.unit} x ${CurrencyFormatter.formatFCFA(item.unitFinalPrice)} = ${CurrencyFormatter.formatFCFA(item.totalPrice)}\n")
         }
         sb.append("------------------------------------\n")
         if (discountAmount > 0) {
@@ -88,7 +93,7 @@ fun ProformaQuoteModal(
         }
         sb.append("TOTAL NET À PAYER : ${CurrencyFormatter.formatFCFA(totalAmount)}\n")
         sb.append("------------------------------------\n")
-        sb.append("Conditions : Paiement comptant à la livraison ou Mobile Money.\n")
+        sb.append("Conditions : Paiement comptant ou Mobile Money.\n")
         sb.append("Merci de votre confiance !\n")
         sb.toString()
     }
@@ -138,7 +143,7 @@ fun ProformaQuoteModal(
                             }
                             Column {
                                 Text(
-                                    text = "Devis & Facture Proforma",
+                                    text = documentTitle,
                                     style = MaterialTheme.typography.titleMedium.copy(
                                         fontWeight = FontWeight.Bold,
                                         color = Color.White
@@ -224,6 +229,14 @@ fun ProformaQuoteModal(
                                 fontSize = 12.sp,
                                 color = Color(0xFF475569)
                             )
+                            if (contextBadge.isNotBlank()) {
+                                Text(
+                                    text = "Modalité : $contextBadge",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = Color(0xFF0284C7)
+                                )
+                            }
                             HorizontalDivider(color = Color(0xFFE2E8F0))
 
                             // Items Table
@@ -234,7 +247,10 @@ fun ProformaQuoteModal(
                                 ) {
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(item.product.name, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF1E293B))
-                                        Text("${item.quantity} x ${CurrencyFormatter.formatFCFA(item.product.sellPrice)}", fontSize = 11.sp, color = Color(0xFF64748B))
+                                        if (item.variantNote.isNotBlank()) {
+                                            Text(item.variantNote, fontSize = 10.sp, color = Color(0xFF0284C7), fontWeight = FontWeight.Medium)
+                                        }
+                                        Text("${item.quantity} ${item.product.unit} x ${CurrencyFormatter.formatFCFA(item.unitFinalPrice)}", fontSize = 11.sp, color = Color(0xFF64748B))
                                     }
                                     Text(CurrencyFormatter.formatFCFA(item.totalPrice), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1E293B))
                                 }

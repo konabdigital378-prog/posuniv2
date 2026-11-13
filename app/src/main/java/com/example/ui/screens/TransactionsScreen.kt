@@ -2,6 +2,9 @@ package com.example.ui.screens
 
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -11,8 +14,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -36,6 +40,12 @@ import androidx.compose.ui.unit.sp
 import com.example.data.local.entity.SaleEntity
 import com.example.data.local.entity.SaleItemEntity
 import com.example.data.local.entity.ShopProfileEntity
+import com.example.ui.components.KonabEmptyState
+import com.example.ui.components.KonabStaggeredReveal
+import com.example.ui.components.KonabWidthClass
+import com.example.ui.components.LocalKonabWidthClass
+import com.example.ui.components.ResponsiveMaxWidthBox
+import com.example.ui.components.konabPressScale
 import com.example.ui.theme.*
 import com.example.util.BluetoothPrinterHelper
 import com.example.util.CurrencyFormatter
@@ -188,12 +198,18 @@ fun TransactionsScreen(
             )
         }
     ) { innerPadding ->
-        Column(
+        val widthClass = LocalKonabWidthClass.current
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .background(KonabBackground)
+                .background(MaterialTheme.colorScheme.background)
         ) {
+            ResponsiveMaxWidthBox(
+                maxWidth = 1120.dp,
+                modifier = Modifier.fillMaxSize()
+            ) {
+                Column(modifier = Modifier.fillMaxSize()) {
             // Search Input
             OutlinedTextField(
                 value = searchQuery,
@@ -341,80 +357,80 @@ fun TransactionsScreen(
                 }
             }
 
-            // Transactions List
+            // Transactions List / Adaptive Grid
             if (filteredSales.isEmpty()) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(32.dp),
+                        .padding(24.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.ReceiptLong,
-                            contentDescription = null,
-                            tint = KonabTextMuted,
-                            modifier = Modifier.size(54.dp)
-                        )
-                        Text(
-                            "Aucune transaction trouvée",
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            fontSize = 16.sp
-                        )
-                        Text(
-                            "Modifiez vos critères de filtres ou la période sélectionnée.",
-                            fontSize = 13.sp,
-                            color = KonabTextSecondary,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                        )
-                    }
+                    KonabEmptyState(
+                        icon = Icons.AutoMirrored.Filled.ReceiptLong,
+                        title = "Aucune transaction trouvée",
+                        subtitle = "Modifiez vos critères de filtres ou la période sélectionnée.",
+                        accentColor = KonabGreen,
+                        actionLabel = if (searchQuery.isNotBlank() || selectedPeriod != DateFilterPeriod.ALL || selectedStatus != "Tous" || selectedPaymentMethod != "Tous") "Réinitialiser les filtres" else null,
+                        onAction = {
+                            searchQuery = ""
+                            selectedPeriod = DateFilterPeriod.ALL
+                            selectedStatus = "Tous"
+                            selectedPaymentMethod = "Tous"
+                        }
+                    )
                 }
             } else {
-                LazyColumn(
+                LazyVerticalGrid(
+                    columns = if (widthClass == KonabWidthClass.COMPACT) {
+                        GridCells.Fixed(1)
+                    } else {
+                        GridCells.Adaptive(minSize = 320.dp)
+                    },
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 80.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    items(filteredSales, key = { it.id }) { sale ->
+                    itemsIndexed(filteredSales, key = { _, s -> s.id }) { idx, sale ->
                         val items = itemsBySaleId[sale.id] ?: emptyList()
-                        TransactionCard(
-                            sale = sale,
-                            items = items,
-                            shopProfile = shopProfile,
-                            onViewReceipt = { onViewSaleReceipt(sale) },
-                            onRequestCancel = {
-                                saleToCancel = sale
-                                cancellationReasonText = ""
-                            },
-                            onPrintBluetooth = {
-                                if (shopProfile != null) {
-                                    coroutineScope.launch {
-                                        val printer = BluetoothPrinterHelper.getSavedPrinter(context)
-                                        if (printer == null) {
-                                            Toast.makeText(context, "Aucune imprimante connectée (Paramètres -> Imprimante)", Toast.LENGTH_SHORT).show()
-                                            return@launch
-                                        }
-                                        val bytes = BluetoothPrinterHelper.buildSaleReceiptBytes(
-                                            shop = shopProfile,
-                                            sale = sale,
-                                            items = items,
-                                            paperWidth = BluetoothPrinterHelper.getSavedPaperWidth(context)
-                                        )
-                                        val res = BluetoothPrinterHelper.printBytes(context, printer.address, bytes)
-                                        if (res.isSuccess) {
-                                            Toast.makeText(context, "Ticket imprimé !", Toast.LENGTH_SHORT).show()
-                                        } else {
-                                            Toast.makeText(context, "Erreur impression : ${res.exceptionOrNull()?.message}", Toast.LENGTH_SHORT).show()
+                        KonabStaggeredReveal(index = idx) {
+                            TransactionCard(
+                                sale = sale,
+                                items = items,
+                                shopProfile = shopProfile,
+                                onViewReceipt = { onViewSaleReceipt(sale) },
+                                onRequestCancel = {
+                                    saleToCancel = sale
+                                    cancellationReasonText = ""
+                                },
+                                onPrintBluetooth = {
+                                    if (shopProfile != null) {
+                                        coroutineScope.launch {
+                                            val printer = BluetoothPrinterHelper.getSavedPrinter(context)
+                                            if (printer == null) {
+                                                Toast.makeText(context, "Aucune imprimante connectée (Paramètres -> Imprimante)", Toast.LENGTH_SHORT).show()
+                                                return@launch
+                                            }
+                                            val bytes = BluetoothPrinterHelper.buildSaleReceiptBytes(
+                                                shop = shopProfile,
+                                                sale = sale,
+                                                items = items,
+                                                paperWidth = BluetoothPrinterHelper.getSavedPaperWidth(context)
+                                            )
+                                            val res = BluetoothPrinterHelper.printBytes(context, printer.address, bytes)
+                                            if (res.isSuccess) {
+                                                Toast.makeText(context, "Ticket imprimé !", Toast.LENGTH_SHORT).show()
+                                            } else {
+                                                Toast.makeText(context, "Erreur impression : ${res.exceptionOrNull()?.message}", Toast.LENGTH_SHORT).show()
+                                            }
                                         }
                                     }
                                 }
-                            }
-                        )
+                            )
+                        }
                     }
+                }
+            }
                 }
             }
         }
@@ -605,10 +621,12 @@ fun TransactionCard(
     Card(
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = BorderStroke(1.dp, if (sale.isCancelled) KonabRed.copy(alpha = 0.4f) else KonabBorder),
+        border = BorderStroke(1.dp, if (sale.isCancelled) KonabRed.copy(alpha = 0.4f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.65f)),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         modifier = Modifier
             .fillMaxWidth()
+            .animateContentSize(animationSpec = spring(stiffness = Spring.StiffnessMediumLow))
+            .konabPressScale(pressedScale = 0.99f)
             .testTag("transaction_card_${sale.transactionNumber}")
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
@@ -766,7 +784,7 @@ fun TransactionCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = 8.dp)
-                        .background(KonabBackground, RoundedCornerShape(8.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
                         .padding(10.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {

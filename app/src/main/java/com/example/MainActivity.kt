@@ -1,26 +1,42 @@
 package com.example
 
 import android.os.Bundle
-import androidx.activity.ComponentActivity
+import androidx.fragment.app.FragmentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.ui.components.KonabBottomBar
+import com.example.ui.components.KonabNavigationRail
+import com.example.ui.components.KonabWidthClass
+import com.example.ui.components.LocalKonabWidthClass
 import com.example.ui.components.PinLockDialog
+import com.example.ui.components.widthClassFromDp
 import com.example.ui.navigation.KonabScreen
 import com.example.ui.screens.*
 import com.example.ui.theme.KonabPOSTheme
 import com.example.ui.viewmodel.KonabViewModel
 
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -74,28 +90,62 @@ class MainActivity : ComponentActivity() {
                     viewModel.navigateBack()
                 }
 
-                val showBottomBar = currentScreen !in listOf(
+                val showChromeNav = currentScreen !in listOf(
                     KonabScreen.ONBOARDING,
                     KonabScreen.PAYMENT,
                     KonabScreen.RECEIPT,
                     KonabScreen.AGENT_PORTAL
                 )
 
-                Box(modifier = Modifier.fillMaxSize()) {
-                    Scaffold(
-                        modifier = Modifier.fillMaxSize(),
-                        bottomBar = {
-                            if (showBottomBar) {
-                                KonabBottomBar(
-                                    currentScreen = currentScreen,
-                                    onNavigate = { viewModel.navigateTo(it) },
-                                    cartItemCount = cart.sumOf { it.quantity }
-                                )
-                            }
-                        }
-                    ) { innerPadding ->
-                        Box(modifier = Modifier.padding(innerPadding)) {
-                            when (currentScreen) {
+                BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                    val widthClass = widthClassFromDp(maxWidth)
+                    val useNavigationRail = showChromeNav && widthClass != KonabWidthClass.COMPACT
+                    val showBottomBar = showChromeNav && widthClass == KonabWidthClass.COMPACT
+
+                    CompositionLocalProvider(LocalKonabWidthClass provides widthClass) {
+                        Box(modifier = Modifier.fillMaxSize()) {
+                            Scaffold(
+                                modifier = Modifier.fillMaxSize(),
+                                contentWindowInsets = WindowInsets.safeDrawing,
+                                bottomBar = {
+                                    if (showBottomBar) {
+                                        KonabBottomBar(
+                                            currentScreen = currentScreen,
+                                            onNavigate = { viewModel.navigateTo(it) },
+                                            cartItemCount = cart.sumOf { it.quantity }
+                                        )
+                                    }
+                                }
+                            ) { innerPadding ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(innerPadding)
+                                ) {
+                                    if (useNavigationRail) {
+                                        KonabNavigationRail(
+                                            currentScreen = currentScreen,
+                                            onNavigate = { viewModel.navigateTo(it) },
+                                            cartItemCount = cart.sumOf { it.quantity }
+                                        )
+                                    }
+
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .fillMaxHeight()
+                                    ) {
+                                        AnimatedContent(
+                                            targetState = currentScreen,
+                                            transitionSpec = {
+                                                (fadeIn(animationSpec = tween(220)) +
+                                                    scaleIn(initialScale = 0.985f, animationSpec = tween(220)) +
+                                                    slideInHorizontally(animationSpec = tween(220)) { width -> (width * 0.04f).toInt() })
+                                                    .togetherWith(fadeOut(animationSpec = tween(150)))
+                                            },
+                                            label = "konab_screen_transition"
+                                        ) { screen ->
+                                            when (screen) {
                                 KonabScreen.ONBOARDING -> {
                                     SetupWizard(
                                         shopProfile = shopProfile,
@@ -130,6 +180,9 @@ class MainActivity : ComponentActivity() {
                                         onViewSaleReceipt = { viewModel.viewSaleReceipt(it) },
                                         onLockApp = { viewModel.lockApp() },
                                         onAddToCart = { viewModel.addToCart(it) },
+                                        activeCashSession = activeCashSession,
+                                        customers = customers,
+                                        onReturnToWelcome = { viewModel.resetTo(KonabScreen.ONBOARDING) },
                                         notifications = notifications,
                                         unreadNotificationsCount = unreadNotificationsCount,
                                         onMarkNotificationAsRead = { viewModel.markNotificationAsRead(it) },
@@ -151,6 +204,9 @@ class MainActivity : ComponentActivity() {
                                         totalAmount = totalAmount,
                                         onAddToCart = { viewModel.addToCart(it) },
                                         onAddToCartWithVariant = { prod, note -> viewModel.addToCartWithVariant(prod, note) },
+                                        onAddCustomAmount = { title, price, qty, unit, note ->
+                                            viewModel.addCustomAmountToCart(title, price, qty, unit, note)
+                                        },
                                         onUpdateQuantity = { id, delta -> viewModel.updateCartQuantity(id, delta) },
                                         onUpdateItemNote = { id, note -> viewModel.updateCartItemNote(id, note) },
                                         onUpdateItemDiscount = { id, disc -> viewModel.updateCartItemDiscount(id, disc) },
@@ -316,14 +372,23 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     }
+                }
+            }
 
-                    // Security PIN Lock Overlay
-                    if (isLocked) {
-                        PinLockDialog(
-                            onUnlock = { enteredPin ->
-                                viewModel.unlockWithPin(enteredPin)
-                            }
-                        )
+            // Security Manager PIN & Biometric Lock Overlay
+            if (isLocked) {
+                PinLockDialog(
+                    shopName = shopProfile?.name.orEmpty(),
+                    expectedPinLength = (shopProfile?.adminPin?.trim()?.length ?: 4).coerceIn(4, 8),
+                    onUnlock = { enteredPin ->
+                        viewModel.unlockWithPin(enteredPin)
+                    },
+                    onBiometricUnlock = {
+                        viewModel.unlockWithBiometric()
+                    }
+                )
+            }
+                        }
                     }
                 }
             }

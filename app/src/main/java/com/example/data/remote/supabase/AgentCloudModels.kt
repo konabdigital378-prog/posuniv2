@@ -63,6 +63,7 @@ object AgentDeploymentStorage {
     private const val SESSION_PREFS_NAME = "konab_agent_session_prefs"
     private const val KEY_DEPLOYMENTS = "saved_deployments_json"
     private const val KEY_CLOUD_AGENTS = "saved_cloud_agents_json"
+    private const val KEY_AGENT_PHOTOS = "saved_agent_photos_json"
 
     private fun getPrefs(context: Context): SharedPreferences {
         return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -72,10 +73,46 @@ object AgentDeploymentStorage {
         return context.getSharedPreferences(SESSION_PREFS_NAME, Context.MODE_PRIVATE)
     }
 
+    // --- AGENT PHOTO PERSISTENCE (Keyed by Agent ID) ---
+
+    @Synchronized
+    fun saveAgentPhotoUri(context: Context, agentId: String, photoUri: String) {
+        if (agentId.isBlank() || photoUri.isBlank()) return
+        val cleanId = agentId.trim().uppercase()
+        val currentMap = try {
+            JSONObject(getPrefs(context).getString(KEY_AGENT_PHOTOS, "{}") ?: "{}")
+        } catch (_: Exception) {
+            JSONObject()
+        }
+        currentMap.put(cleanId, photoUri)
+        getPrefs(context).edit().putString(KEY_AGENT_PHOTOS, currentMap.toString()).apply()
+    }
+
+    @Synchronized
+    fun getAgentPhotoUri(context: Context, agentId: String): String? {
+        if (agentId.isBlank()) return null
+        val cleanId = agentId.trim().uppercase()
+        return try {
+            val map = JSONObject(getPrefs(context).getString(KEY_AGENT_PHOTOS, "{}") ?: "{}")
+            val found = map.optString(cleanId, "")
+            found.ifBlank { null }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    fun getEffectivePhotoUri(context: Context, agent: AgentUser): String? {
+        return agent.photoUri.ifBlank { getAgentPhotoUri(context, agent.id) }
+    }
+
     // --- AGENT SESSION PERSISTENCE ---
 
     @Synchronized
     fun saveAgentSession(context: Context, agent: AgentUser) {
+        val effectivePhoto = agent.photoUri.ifBlank { getAgentPhotoUri(context, agent.id) ?: "" }
+        if (effectivePhoto.isNotBlank()) {
+            saveAgentPhotoUri(context, agent.id, effectivePhoto)
+        }
         getSessionPrefs(context).edit()
             .putString("agent_id", agent.id)
             .putString("agent_name", agent.name)
@@ -83,10 +120,11 @@ object AgentDeploymentStorage {
             .putString("agent_zone", agent.zone)
             .putString("agent_pin", agent.pin)
             .putString("agent_role", agent.role)
+            .putString("agent_photo_uri", effectivePhoto)
             .putLong("login_time", System.currentTimeMillis())
             .apply()
         // Also register in known local agents
-        registerLocalAgent(context, agent)
+        registerLocalAgent(context, agent.copy(photoUri = effectivePhoto))
     }
 
     @Synchronized
@@ -98,7 +136,8 @@ object AgentDeploymentStorage {
         val zone = sp.getString("agent_zone", "") ?: ""
         val pin = sp.getString("agent_pin", "") ?: ""
         val role = sp.getString("agent_role", "Agent Déployeur") ?: "Agent Déployeur"
-        return AgentUser(id = id, name = name, phone = phone, zone = zone, pin = pin, role = role)
+        val photoUri = (sp.getString("agent_photo_uri", "") ?: "").ifBlank { getAgentPhotoUri(context, id) ?: "" }
+        return AgentUser(id = id, name = name, phone = phone, zone = zone, pin = pin, role = role, photoUri = photoUri)
     }
 
     @Synchronized
@@ -139,11 +178,49 @@ object AgentDeploymentStorage {
         getPrefs(context).edit().putString(KEY_DEPLOYMENTS, array.toString()).apply()
     }
 
+    fun normalizeShopName(name: String): String {
+        return name.trim().replace(Regex("\\s+"), " ").lowercase(java.util.Locale.ROOT)
+    }
+
+    @Synchronized
+    fun hasLocalDeploymentForShopName(context: Context, shopName: String): Boolean {
+        val target = normalizeShopName(shopName)
+        if (target.isBlank()) return false
+        return getAllDeployments(context).any { normalizeShopName(it.shopName) == target }
+    }
+
+    @Synchronized
+    fun markCreatedShopOnDevice(context: Context, shopName: String, agentId: String) {
+        val cleanName = shopName.trim()
+        val cleanAgent = agentId.trim().uppercase()
+        if (cleanName.isBlank()) return
+        getPrefs(context).edit()
+            .putString("locked_created_shop_name", cleanName)
+            .putString("locked_created_shop_agent_id", cleanAgent)
+            .putLong("locked_created_shop_at", System.currentTimeMillis())
+            .apply()
+    }
+
+    @Synchronized
+    fun getLockedCreatedShopName(context: Context): String? {
+        return getPrefs(context).getString("locked_created_shop_name", null)?.takeIf { it.isNotBlank() }
+    }
+
+    @Synchronized
+    fun clearCreatedShopLock(context: Context) {
+        getPrefs(context).edit()
+            .remove("locked_created_shop_name")
+            .remove("locked_created_shop_agent_id")
+            .remove("locked_created_shop_at")
+            .apply()
+    }
+
     @Synchronized
     fun getDeploymentsForAgent(context: Context, agentId: String): List<AgentDeploymentRecord> {
         val clean = agentId.trim().uppercase()
+        if (clean.isBlank()) return emptyList()
         return getAllDeployments(context).filter {
-            it.agentId.equals(clean, ignoreCase = true) || it.agentId.contains(clean, ignoreCase = true)
+            it.agentId.trim().equals(clean, ignoreCase = true)
         }
     }
 
@@ -177,13 +254,47 @@ object AgentDeploymentStorage {
     // --- AGENTS DIRECTORY ---
 
     @Synchronized
+    fun generateUniqueAgentMatricule(
+        context: Context,
+        additionalAgents: List<AgentUser> = emptyList()
+    ): String {
+        val takenIds = mutableSetOf<String>()
+        com.example.ui.screens.AgentDirectory.PRESET_AGENTS.forEach { takenIds.add(it.id.trim().uppercase()) }
+        getCloudAgents(context).forEach { if (it.id.isNotBlank()) takenIds.add(it.id.trim().uppercase()) }
+        additionalAgents.forEach { if (it.id.isNotBlank()) takenIds.add(it.id.trim().uppercase()) }
+        getSavedAgentSession(context)?.let { if (it.id.isNotBlank()) takenIds.add(it.id.trim().uppercase()) }
+
+        val yearSuffix = java.text.SimpleDateFormat("yy", java.util.Locale.US)
+            .format(java.util.Date())
+
+        var candidate: String
+        var attempts = 0
+        do {
+            val numberPart = (1000..9999).random()
+            candidate = "AGT-$yearSuffix-$numberPart"
+            attempts++
+        } while (takenIds.contains(candidate.uppercase()) && attempts < 200)
+
+        if (takenIds.contains(candidate.uppercase())) {
+            val fallbackTail = (System.currentTimeMillis() % 100000L).toString().padStart(5, '0')
+            candidate = "AGT-$yearSuffix-$fallbackTail"
+        }
+        return candidate
+    }
+
+    @Synchronized
     fun registerLocalAgent(context: Context, agent: AgentUser) {
+        val effectivePhoto = agent.photoUri.ifBlank { getAgentPhotoUri(context, agent.id) ?: "" }
+        if (effectivePhoto.isNotBlank()) {
+            saveAgentPhotoUri(context, agent.id, effectivePhoto)
+        }
+        val agentWithPhoto = agent.copy(photoUri = effectivePhoto)
         val current = getCloudAgents(context).toMutableList()
-        val index = current.indexOfFirst { it.id.equals(agent.id, ignoreCase = true) }
+        val index = current.indexOfFirst { it.id.equals(agentWithPhoto.id, ignoreCase = true) }
         if (index >= 0) {
-            current[index] = agent
+            current[index] = agentWithPhoto
         } else {
-            current.add(agent)
+            current.add(agentWithPhoto)
         }
         saveCloudAgents(context, current)
     }
@@ -192,6 +303,7 @@ object AgentDeploymentStorage {
     fun saveCloudAgents(context: Context, agents: List<AgentUser>) {
         val array = JSONArray()
         agents.forEach { a ->
+            val effectivePhoto = a.photoUri.ifBlank { getAgentPhotoUri(context, a.id) ?: "" }
             val obj = JSONObject().apply {
                 put("id", a.id)
                 put("name", a.name)
@@ -199,6 +311,7 @@ object AgentDeploymentStorage {
                 put("zone", a.zone)
                 put("pin", a.pin)
                 put("role", a.role)
+                put("photo_uri", effectivePhoto)
             }
             array.put(obj)
         }
@@ -213,14 +326,17 @@ object AgentDeploymentStorage {
             val list = mutableListOf<AgentUser>()
             for (i in 0 until array.length()) {
                 val o = array.getJSONObject(i)
+                val id = o.optString("id", "")
+                val photoUri = o.optString("photo_uri", "").ifBlank { getAgentPhotoUri(context, id) ?: "" }
                 list.add(
                     AgentUser(
-                        id = o.optString("id", ""),
+                        id = id,
                         name = o.optString("name", ""),
                         phone = o.optString("phone", ""),
                         zone = o.optString("zone", ""),
                         pin = o.optString("pin", "1234"),
-                        role = o.optString("role", "Agent Déployeur")
+                        role = o.optString("role", "Agent Déployeur"),
+                        photoUri = photoUri
                     )
                 )
             }

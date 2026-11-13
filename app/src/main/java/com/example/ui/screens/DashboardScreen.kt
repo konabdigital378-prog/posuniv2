@@ -5,9 +5,10 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
@@ -36,8 +37,16 @@ import com.example.data.local.entity.ProductEntity
 import com.example.data.local.entity.SaleEntity
 import com.example.data.local.entity.ShopProfileEntity
 import com.example.ui.components.DailySalesChartCard
+import com.example.ui.components.KonabEmptyState
+import com.example.ui.components.KonabLivePulseDot
+import com.example.ui.components.KonabStaggeredReveal
+import com.example.ui.components.KonabWidthClass
+import com.example.ui.components.LocalKonabWidthClass
 import com.example.ui.components.RealBarcodeScannerModal
+import com.example.ui.components.ResponsiveMaxWidthBox
 import com.example.ui.components.StatCard
+import com.example.ui.components.konabHeroShimmer
+import com.example.ui.components.konabPressScale
 import com.example.ui.navigation.KonabScreen
 import com.example.ui.theme.*
 import com.example.util.CurrencyFormatter
@@ -53,6 +62,9 @@ fun DashboardScreen(
     onViewSaleReceipt: (SaleEntity) -> Unit,
     onLockApp: () -> Unit,
     onAddToCart: ((ProductEntity) -> Unit)? = null,
+    activeCashSession: com.example.data.local.entity.CashSessionEntity? = null,
+    customers: List<com.example.data.local.entity.CustomerEntity> = emptyList(),
+    onReturnToWelcome: (() -> Unit)? = null,
     notifications: List<com.example.data.local.entity.NotificationEntity> = emptyList(),
     unreadNotificationsCount: Int = 0,
     onMarkNotificationAsRead: (Long) -> Unit = {},
@@ -78,7 +90,7 @@ fun DashboardScreen(
     }
 
     val todaySales = remember(sales, startOfToday) {
-        sales.filter { it.timestamp >= startOfToday }
+        sales.filter { !it.isCancelled && it.timestamp >= startOfToday }
     }
 
     val todayRevenue = remember(todaySales) {
@@ -92,6 +104,17 @@ fun DashboardScreen(
     val todayExpenses = remember(cashMovements, startOfToday) {
         cashMovements.filter { it.timestamp >= startOfToday && it.type in listOf("EXPENSE", "SUPPLIER_PAYMENT") }
             .sumOf { it.amount }
+    }
+
+    val todayNetResult = todayProfit - todayExpenses
+
+    val totalCustomerReceivables = remember(customers) {
+        customers.filter { it.debtAmount > 0L }.sumOf { it.debtAmount }
+    }
+
+    val subscriptionDaysLeft = remember(shopProfile?.subscriptionExpiresAt) {
+        val exp = shopProfile?.subscriptionExpiresAt ?: 0L
+        if (exp <= 0L) null else ((exp - System.currentTimeMillis()) / (24L * 60 * 60 * 1000)).toInt()
     }
 
     // Cash drawer theoretical balance
@@ -109,50 +132,65 @@ fun DashboardScreen(
         products.filter { it.stockQuantity <= it.minStockAlert }
     }
 
+    val businessType = shopProfile?.businessType ?: "Boutique"
+    val sectorPreset = remember(businessType) {
+        com.example.util.BusinessTypePresets.getPreset(businessType)
+    }
+    val sectorAccent = remember(businessType) {
+        com.example.util.SectorUiHelper.getAccentColor(businessType)
+    }
+    val sectorBadges = remember(sectorPreset) {
+        com.example.util.SectorUiHelper.getFeatureBadges(sectorPreset.sectorFeatures)
+    }
+
+    val widthClass = LocalKonabWidthClass.current
+    val isDark = isSystemInDarkTheme()
+    val dashboardBgColors = if (isDark) {
+        listOf(
+            Color(0xFF0A1628),
+            MaterialTheme.colorScheme.background,
+            MaterialTheme.colorScheme.background
+        )
+    } else {
+        listOf(
+            Color(0xFFD6E4FA),
+            Color(0xFFC2DCF9),
+            Color(0xFFB2D4F7)
+        )
+    }
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .background(
-                brush = Brush.verticalGradient(
-                    colors = listOf(
-                        Color(0xFFD6E4FA), // Bleu Konab Container bien visible
-                        Color(0xFFC2DCF9), // Bleu ciel doux
-                        Color(0xFFB2D4F7)  // Bleu pastel franc
-                    )
-                )
-            )
+            .background(brush = Brush.verticalGradient(colors = dashboardBgColors))
             .testTag("dashboard_screen"),
         contentPadding = PaddingValues(bottom = 96.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         // Top Header with Blue Brand Gradient and Floating Store Card
         item {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-            ) {
-                // Background Blue Banner
+            Box(modifier = Modifier.fillMaxWidth()) {
+                // Full-width Background Blue Banner
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(180.dp)
+                        .clip(RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp))
                         .background(
                             brush = Brush.verticalGradient(
-                                colors = listOf(
-                                    KonabBlue,
-                                    KonabBlueDark
-                                )
-                            ),
-                            shape = RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp)
+                                colors = listOf(KonabBlue, KonabBlueDark)
+                            )
                         )
+                        .konabHeroShimmer()
                 )
 
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp)
-                        .padding(top = 16.dp)
-                ) {
+                ResponsiveMaxWidthBox(maxWidth = 1120.dp) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp)
+                            .padding(top = 16.dp)
+                    ) {
                     // Top Bar: Greeting & Top Action Buttons
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -266,72 +304,136 @@ fun DashboardScreen(
                                     modifier = Modifier.size(20.dp)
                                 )
                             }
+
+                            if (onReturnToWelcome != null) {
+                                FilledIconButton(
+                                    onClick = onReturnToWelcome,
+                                    colors = IconButtonDefaults.filledIconButtonColors(
+                                        containerColor = Color.White.copy(alpha = 0.2f),
+                                        contentColor = Color.White
+                                    ),
+                                    modifier = Modifier
+                                        .size(44.dp)
+                                        .testTag("btn_return_welcome_menu")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Home,
+                                        contentDescription = "Menu d'accueil & Agent",
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
                         }
                     }
 
                     Spacer(modifier = Modifier.height(18.dp))
 
-                    // Floating Merchant Identity Card (Screen 3 Board Style)
-                    Card(
-                        shape = RoundedCornerShape(20.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
-                        border = BorderStroke(1.dp, KonabBorder),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onNavigate(KonabScreen.SETTINGS) }
-                            .testTag("card_merchant_profile")
-                    ) {
-                        Row(
+                    // Floating Merchant Identity Card
+                    KonabStaggeredReveal(index = 0) {
+                        Card(
+                            shape = RoundedCornerShape(20.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.7f)),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(14.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                                .konabPressScale(pressedScale = 0.985f)
+                                .clickable { onNavigate(KonabScreen.SETTINGS) }
+                                .testTag("card_merchant_profile")
                         ) {
                             Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(14.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.weight(1f)
+                                horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                // Store Avatar
-                                com.example.util.ShopLogoAvatar(
-                                    logoUri = shopProfile?.logoUri,
-                                    size = 46.dp,
-                                    shape = CircleShape,
-                                    contentDescription = "Logo de la boutique",
-                                    onClick = { onNavigate(com.example.ui.navigation.KonabScreen.SETTINGS) }
-                                )
-
-                                Spacer(modifier = Modifier.width(12.dp))
-
-                                Column {
-                                    Text(
-                                        text = shopProfile?.name?.ifBlank { "Boutique Kaba" } ?: "Boutique Kaba",
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 16.sp,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    com.example.util.ShopLogoAvatar(
+                                        logoUri = shopProfile?.logoUri,
+                                        size = 46.dp,
+                                        shape = CircleShape,
+                                        contentDescription = "Logo de la boutique",
+                                        onClick = { onNavigate(com.example.ui.navigation.KonabScreen.SETTINGS) }
                                     )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    val isCloudAuth = com.example.data.remote.supabase.SupabaseAuthManager.isAuthenticated
-                                    val isConfigured = com.example.data.remote.supabase.SupabaseConfig.isConfigured
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.clickable { onNavigate(KonabScreen.SETTINGS) }
-                                    ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(8.dp)
-                                                .clip(CircleShape)
-                                                .background(if (isCloudAuth) Color(0xFF10B981) else if (isConfigured) Color(0xFF0284C7) else KonabBlue)
-                                        )
-                                        Spacer(modifier = Modifier.width(6.dp))
+
+                                    Spacer(modifier = Modifier.width(12.dp))
+
+                                    Column {
                                         Text(
-                                            text = if (isCloudAuth) "Ouvert • Cloud Connecté" else if (isConfigured) "Ouvert • Sauvegarde Active" else "Ouvert • Local",
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.Medium,
-                                            color = if (isCloudAuth) Color(0xFF047857) else KonabTextSecondary
+                                            text = shopProfile?.name?.ifBlank { "Ma Boutique" } ?: "Ma Boutique",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 16.sp,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Spacer(modifier = Modifier.height(3.dp))
+                                        Surface(
+                                            color = sectorAccent.copy(alpha = 0.14f),
+                                            shape = RoundedCornerShape(6.dp)
+                                        ) {
+                                            Text(
+                                                text = "${sectorPreset.emoji} ${sectorPreset.label}",
+                                                fontSize = 10.5.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = sectorAccent,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.height(3.dp))
+                                        val isCloudAuth = com.example.data.remote.supabase.SupabaseAuthManager.isAuthenticated
+                                        val isConfigured = com.example.data.remote.supabase.SupabaseConfig.isConfigured
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.clickable { onNavigate(KonabScreen.SETTINGS) }
+                                        ) {
+                                            KonabLivePulseDot(
+                                                color = if (isCloudAuth) Color(0xFF10B981) else if (isConfigured) Color(0xFF0284C7) else KonabBlue,
+                                                size = 6.dp
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text(
+                                                text = if (isCloudAuth) "Ouvert • Cloud Connecté" else if (isConfigured) "Ouvert • Sauvegarde Active" else "Ouvert • Local",
+                                                fontSize = 11.5.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                color = if (isCloudAuth) Color(0xFF10B981) else MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+                                }
+
+                                // Subscription Tier Badge (Clickable)
+                                Surface(
+                                    color = KonabGoldContainer,
+                                    shape = RoundedCornerShape(10.dp),
+                                    border = BorderStroke(1.dp, KonabGoldDark.copy(alpha = 0.3f)),
+                                    modifier = Modifier
+                                        .konabPressScale(pressedScale = 0.95f)
+                                        .clickable { onNavigate(KonabScreen.SUBSCRIPTION) }
+                                        .testTag("badge_subscription")
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.WorkspacePremium,
+                                            contentDescription = null,
+                                            tint = KonabGoldDark,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                        Text(
+                                            text = shopProfile?.subscriptionTier?.uppercase() ?: "PREMIUM",
+                                            color = KonabGoldDark,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            fontSize = 11.sp
                                         )
                                     }
                                     val sectorPreset = com.example.util.BusinessTypePresets.getPreset(shopProfile?.businessType ?: "Boutique")
@@ -352,36 +454,8 @@ fun DashboardScreen(
                                     }
                                 }
                             }
-
-                            // Subscription Tier Badge (Clickable)
-                            Surface(
-                                color = KonabGoldContainer,
-                                shape = RoundedCornerShape(10.dp),
-                                border = BorderStroke(1.dp, KonabGoldDark.copy(alpha = 0.3f)),
-                                modifier = Modifier
-                                    .clickable { onNavigate(KonabScreen.SUBSCRIPTION) }
-                                    .testTag("badge_subscription")
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.WorkspacePremium,
-                                        contentDescription = null,
-                                        tint = KonabGoldDark,
-                                        modifier = Modifier.size(14.dp)
-                                    )
-                                    Text(
-                                        text = shopProfile?.subscriptionTier?.uppercase() ?: "PREMIUM",
-                                        color = KonabGoldDark,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        fontSize = 11.sp
-                                    )
-                                }
-                            }
                         }
+                    }
                     }
                 }
             }
@@ -389,35 +463,37 @@ fun DashboardScreen(
 
         // Quick POS Launcher Hero Banner
         item {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
+            ResponsiveMaxWidthBox(
+                maxWidth = 1120.dp,
+                modifier = Modifier.padding(horizontal = 16.dp)
             ) {
-                Card(
-                    shape = RoundedCornerShape(18.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    border = BorderStroke(1.dp, KonabBorder),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                KonabStaggeredReveal(index = 1) {
+                    Card(
+                        shape = RoundedCornerShape(18.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.7f)),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        // Main POS Action Button
-                        Button(
-                            onClick = { onNavigate(KonabScreen.POS) },
-                            colors = ButtonDefaults.buttonColors(containerColor = KonabOrange),
-                            shape = RoundedCornerShape(14.dp),
-                            elevation = ButtonDefaults.buttonElevation(defaultElevation = 3.dp),
+                        Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(52.dp)
-                                .testTag("btn_quick_sale")
+                                .padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
+                            // Main POS Action Button (Personalized by Sector)
+                            Button(
+                                onClick = { onNavigate(KonabScreen.POS) },
+                                colors = ButtonDefaults.buttonColors(containerColor = KonabOrange),
+                                shape = RoundedCornerShape(14.dp),
+                                elevation = ButtonDefaults.buttonElevation(defaultElevation = 3.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(56.dp)
+                                    .konabPressScale()
+                                    .konabHeroShimmer()
+                                    .testTag("btn_quick_sale")
+                            ) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -425,32 +501,37 @@ fun DashboardScreen(
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    modifier = Modifier.weight(1f)
                                 ) {
                                     Box(
                                         modifier = Modifier
-                                            .size(32.dp)
-                                            .background(Color.White.copy(alpha = 0.2f), CircleShape),
+                                            .size(34.dp)
+                                            .background(Color.White.copy(alpha = 0.22f), CircleShape),
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Icon(
-                                            Icons.Default.AddShoppingCart,
+                                            com.example.util.SectorUiHelper.getIcon(businessType),
                                             contentDescription = null,
                                             tint = Color.White,
-                                            modifier = Modifier.size(18.dp)
+                                            modifier = Modifier.size(19.dp)
                                         )
                                     }
                                     Column {
                                         Text(
-                                            text = "Nouvelle Vente (POS)",
+                                            text = sectorPreset.quickActionLabel,
                                             fontWeight = FontWeight.ExtraBold,
                                             fontSize = 15.sp,
-                                            color = Color.White
+                                            color = Color.White,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
                                         )
                                         Text(
-                                            text = "Encaisser en espèces ou mobile money",
+                                            text = sectorPreset.quickActionHint,
                                             fontSize = 11.sp,
-                                            color = Color.White.copy(alpha = 0.85f)
+                                            color = Color.White.copy(alpha = 0.88f),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
                                         )
                                     }
                                 }
@@ -461,6 +542,46 @@ fun DashboardScreen(
                                     tint = Color.White,
                                     modifier = Modifier.size(20.dp)
                                 )
+                            }
+                        }
+
+                        // Sector Capabilities Strip
+                        if (sectorBadges.isNotEmpty()) {
+                            Surface(
+                                color = sectorAccent.copy(alpha = 0.08f),
+                                shape = RoundedCornerShape(10.dp),
+                                border = BorderStroke(1.dp, sectorAccent.copy(alpha = 0.2f)),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onNavigate(KonabScreen.POS) }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Text(sectorPreset.emoji, fontSize = 14.sp)
+                                        Text(
+                                            text = "Outils actifs : ${sectorBadges.take(3).joinToString(" • ")}",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = sectorAccent,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                    Icon(
+                                        Icons.Default.ChevronRight,
+                                        contentDescription = null,
+                                        tint = sectorAccent,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
                             }
                         }
 
@@ -480,7 +601,7 @@ fun DashboardScreen(
                             Spacer(modifier = Modifier.width(8.dp))
                             DashboardShortcutPill(
                                 icon = Icons.Default.Inventory2,
-                                label = "Stock",
+                                label = if (sectorPreset.isServiceSector) "Catalogue" else "Stock",
                                 badgeColor = KonabGreen,
                                 containerColor = KonabGreenLight,
                                 onClick = { onNavigate(KonabScreen.STOCK) },
@@ -505,198 +626,434 @@ fun DashboardScreen(
                                 modifier = Modifier.weight(1f)
                             )
                         }
+                        }
                     }
                 }
             }
         }
 
-        // 4 KPI Stat Cards (2x2 Grid) - Faithful Reproduction of Screen 3 on UX Board
+        // 4 KPI Stat Cards (2x2 on Compact, 4x1 Row on Medium/Expanded)
         item {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ResponsiveMaxWidthBox(
+                maxWidth = 1120.dp,
+                modifier = Modifier.padding(horizontal = 16.dp)
             ) {
-                // Row 1: Chiffre d'affaires & Ventes
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    StatCard(
-                        title = "Chiffre d'affaires",
-                        value = CurrencyFormatter.formatFCFA(todayRevenue),
-                        subtitle = "Aujourd'hui",
-                        icon = Icons.AutoMirrored.Filled.TrendingUp,
-                        iconColor = KonabGreen,
-                        containerColor = KonabGreenLight,
-                        modifier = Modifier
-                            .weight(1f)
-                            .testTag("kpi_revenue"),
-                        onClick = { onNavigate(KonabScreen.REPORTS) }
-                    )
-
-                    StatCard(
-                        title = "Ventes",
-                        value = "${todaySales.size}",
-                        subtitle = "Aujourd'hui",
-                        icon = Icons.AutoMirrored.Filled.ReceiptLong,
-                        iconColor = Color(0xFF1E88E5),
-                        containerColor = Color(0xFFE3F2FD),
-                        modifier = Modifier
-                            .weight(1f)
-                            .testTag("kpi_sales"),
-                        onClick = { onNavigate(KonabScreen.REPORTS) }
-                    )
-                }
-
-                // Row 2: Caisse & Dépenses
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    StatCard(
-                        title = "Caisse",
-                        value = CurrencyFormatter.formatFCFA(maxOf(0L, totalCashBalance)),
-                        subtitle = "En caisse",
-                        icon = Icons.Default.AccountBalanceWallet,
-                        iconColor = KonabGoldDark,
-                        containerColor = KonabGoldContainer,
-                        modifier = Modifier
-                            .weight(1f)
-                            .testTag("kpi_cash"),
-                        onClick = { onNavigate(KonabScreen.CASH) }
-                    )
-
-                    StatCard(
-                        title = "Dépenses",
-                        value = CurrencyFormatter.formatFCFA(todayExpenses),
-                        subtitle = "Aujourd'hui",
-                        icon = Icons.Default.Payment,
-                        iconColor = KonabRed,
-                        containerColor = KonabRedContainer,
-                        modifier = Modifier
-                            .weight(1f)
-                            .testTag("kpi_expenses"),
-                        onClick = { onNavigate(KonabScreen.CASH) }
-                    )
-                }
-            }
-        }
-
-        // Daily Sales Native Canvas Chart
-        item {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
-            ) {
-                DailySalesChartCard(
-                    sales = sales,
-                    onViewReports = { onNavigate(KonabScreen.REPORTS) }
-                )
-            }
-        }
-
-        // Section "Produits en alerte" with "Voir tout" link (UX Board Screen 3)
-        item {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Produits en alerte",
-                        style = MaterialTheme.typography.titleMedium.copy(
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 16.sp
-                        )
-                    )
-                    TextButton(
-                        onClick = { onNavigate(KonabScreen.STOCK) },
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                KonabStaggeredReveal(index = 2) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Text(
-                            text = "Voir tout",
-                            color = KonabGreen,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp
-                        )
-                    }
-                }
+                        if (widthClass == KonabWidthClass.COMPACT) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                StatCard(
+                                    title = "Chiffre d'affaires",
+                                    value = CurrencyFormatter.formatFCFA(todayRevenue),
+                                    subtitle = "Aujourd'hui",
+                                    icon = Icons.AutoMirrored.Filled.TrendingUp,
+                                    iconColor = KonabGreen,
+                                    containerColor = KonabGreenLight,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .testTag("kpi_revenue"),
+                                    onClick = { onNavigate(KonabScreen.REPORTS) }
+                                )
 
-                if (lowStockProducts.isNotEmpty()) {
-                    Card(
-                        shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(containerColor = KonabRedLight),
-                        border = BorderStroke(1.dp, KonabRed.copy(alpha = 0.25f)),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onNavigate(KonabScreen.STOCK) }
-                            .testTag("card_low_stock_alert")
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(14.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                                StatCard(
+                                    title = "Ventes",
+                                    value = "${todaySales.size}",
+                                    subtitle = "Aujourd'hui",
+                                    icon = Icons.AutoMirrored.Filled.ReceiptLong,
+                                    iconColor = Color(0xFF1E88E5),
+                                    containerColor = Color(0xFFE3F2FD),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .testTag("kpi_sales"),
+                                    onClick = { onNavigate(KonabScreen.REPORTS) }
+                                )
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                StatCard(
+                                    title = "Caisse",
+                                    value = CurrencyFormatter.formatFCFA(maxOf(0L, totalCashBalance)),
+                                    subtitle = if (activeCashSession != null) "Session ouverte" else "Caisse fermée",
+                                    icon = Icons.Default.AccountBalanceWallet,
+                                    iconColor = KonabGoldDark,
+                                    containerColor = KonabGoldContainer,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .testTag("kpi_cash"),
+                                    onClick = { onNavigate(KonabScreen.CASH) }
+                                )
+
+                                StatCard(
+                                    title = "Dépenses",
+                                    value = CurrencyFormatter.formatFCFA(todayExpenses),
+                                    subtitle = "Aujourd'hui",
+                                    icon = Icons.Default.Payment,
+                                    iconColor = KonabRed,
+                                    containerColor = KonabRedContainer,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .testTag("kpi_expenses"),
+                                    onClick = { onNavigate(KonabScreen.CASH) }
+                                )
+                            }
+                        } else {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                StatCard(
+                                    title = "Chiffre d'affaires",
+                                    value = CurrencyFormatter.formatFCFA(todayRevenue),
+                                    subtitle = "Aujourd'hui",
+                                    icon = Icons.AutoMirrored.Filled.TrendingUp,
+                                    iconColor = KonabGreen,
+                                    containerColor = KonabGreenLight,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .testTag("kpi_revenue"),
+                                    onClick = { onNavigate(KonabScreen.REPORTS) }
+                                )
+
+                                StatCard(
+                                    title = "Ventes",
+                                    value = "${todaySales.size}",
+                                    subtitle = "Aujourd'hui",
+                                    icon = Icons.AutoMirrored.Filled.ReceiptLong,
+                                    iconColor = Color(0xFF1E88E5),
+                                    containerColor = Color(0xFFE3F2FD),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .testTag("kpi_sales"),
+                                    onClick = { onNavigate(KonabScreen.REPORTS) }
+                                )
+
+                                StatCard(
+                                    title = "Caisse",
+                                    value = CurrencyFormatter.formatFCFA(maxOf(0L, totalCashBalance)),
+                                    subtitle = if (activeCashSession != null) "Session ouverte" else "Caisse fermée",
+                                    icon = Icons.Default.AccountBalanceWallet,
+                                    iconColor = KonabGoldDark,
+                                    containerColor = KonabGoldContainer,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .testTag("kpi_cash"),
+                                    onClick = { onNavigate(KonabScreen.CASH) }
+                                )
+
+                                StatCard(
+                                    title = "Dépenses",
+                                    value = CurrencyFormatter.formatFCFA(todayExpenses),
+                                    subtitle = "Aujourd'hui",
+                                    icon = Icons.Default.Payment,
+                                    iconColor = KonabRed,
+                                    containerColor = KonabRedContainer,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .testTag("kpi_expenses"),
+                                    onClick = { onNavigate(KonabScreen.CASH) }
+                                )
+                            }
+                        }
+
+                        // Row 3: Live Financial Pulse
+                        Card(
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.7f)),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
                             Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.weight(1f)
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Box(
+                                Column(
                                     modifier = Modifier
-                                        .size(38.dp)
-                                        .clip(CircleShape)
-                                        .background(KonabRed),
-                                    contentAlignment = Alignment.Center
+                                        .weight(1f)
+                                        .clickable { onNavigate(KonabScreen.REPORTS) }
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Warning,
-                                        contentDescription = null,
-                                        tint = Color.White,
-                                        modifier = Modifier.size(20.dp)
+                                    Text("Bénéfice net du jour", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(
+                                        text = CurrencyFormatter.formatFCFA(todayNetResult),
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = if (todayNetResult >= 0L) KonabGreen else KonabRed
                                     )
                                 }
 
-                                Spacer(modifier = Modifier.width(12.dp))
+                                VerticalDivider(modifier = Modifier.height(30.dp))
 
-                                Column {
+                                Column(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .padding(horizontal = 10.dp)
+                                        .clickable { onNavigate(KonabScreen.CUSTOMERS) }
+                                ) {
+                                    Text("Crédits à recouvrer", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     Text(
-                                        text = "${lowStockProducts.size} produit(s) en stock faible",
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF991B1B),
-                                        fontSize = 14.sp
+                                        text = CurrencyFormatter.formatFCFA(totalCustomerReceivables),
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = if (totalCustomerReceivables > 0L) KonabOrange else MaterialTheme.colorScheme.onSurface
                                     )
-                                    Text(
-                                        text = "Risque d'indisponibilité pour vos ventes",
-                                        fontSize = 12.sp,
-                                        color = Color(0xFF991B1B).copy(alpha = 0.8f)
+                                }
+
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = if (activeCashSession != null) KonabGreenLight else KonabRedContainer,
+                                    modifier = Modifier
+                                        .konabPressScale(pressedScale = 0.96f)
+                                        .clickable { onNavigate(KonabScreen.CASH) }
+                                        .testTag("badge_cash_session_status")
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        if (activeCashSession != null) {
+                                            KonabLivePulseDot(color = KonabGreen, size = 6.dp)
+                                        } else {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(7.dp)
+                                                    .clip(CircleShape)
+                                                    .background(KonabRed)
+                                            )
+                                        }
+                                        Text(
+                                            text = if (activeCashSession != null) "Ouverte" else "Fermée",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (activeCashSession != null) KonabGreenDark else KonabRed
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        // Subscription Expiration Warning if <= 7 days
+                        if (subscriptionDaysLeft != null && subscriptionDaysLeft <= 7) {
+                            val isExpired = subscriptionDaysLeft <= 0
+                            Card(
+                                shape = RoundedCornerShape(14.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (isExpired) KonabRedContainer else Color(0xFFFEF3C7)
+                                ),
+                                border = BorderStroke(1.dp, if (isExpired) KonabRed else Color(0xFFD97706)),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .konabPressScale(pressedScale = 0.985f)
+                                    .clickable { onNavigate(KonabScreen.SUBSCRIPTION) }
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.WorkspacePremium,
+                                            contentDescription = null,
+                                            tint = if (isExpired) KonabRed else Color(0xFFD97706)
+                                        )
+                                        Column {
+                                            Text(
+                                                text = if (isExpired) "Licence expirée" else "Licence expire dans $subscriptionDaysLeft jour(s)",
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 13.sp,
+                                                color = if (isExpired) KonabRed else Color(0xFF92400E)
+                                            )
+                                            Text(
+                                                text = "Touchez pour contacter un agent ou renouveler votre forfait.",
+                                                fontSize = 11.sp,
+                                                color = if (isExpired) KonabRed.copy(alpha = 0.85f) else Color(0xFF92400E).copy(alpha = 0.85f)
+                                            )
+                                        }
+                                    }
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                                        contentDescription = null,
+                                        tint = if (isExpired) KonabRed else Color(0xFFD97706),
+                                        modifier = Modifier.size(18.dp)
                                     )
                                 }
                             }
-
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                                contentDescription = null,
-                                tint = KonabRed,
-                                modifier = Modifier.size(18.dp)
-                            )
                         }
                     }
-                } else {
+                }
+            }
+        }
+
+        // Analytics Chart + Stock Alert + Sector Tip (Side-by-side on Expanded, Stacked on Compact/Medium)
+        item {
+            ResponsiveMaxWidthBox(
+                maxWidth = 1120.dp,
+                modifier = Modifier.padding(horizontal = 16.dp)
+            ) {
+                val stockAlertBlock: @Composable () -> Unit = {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Produits en alerte",
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 16.sp
+                                )
+                            )
+                            TextButton(
+                                onClick = { onNavigate(KonabScreen.STOCK) },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = "Voir tout",
+                                    color = KonabGreen,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp
+                                )
+                            }
+                        }
+
+                        if (lowStockProducts.isNotEmpty()) {
+                            Card(
+                                shape = RoundedCornerShape(16.dp),
+                                colors = CardDefaults.cardColors(containerColor = KonabRedLight),
+                                border = BorderStroke(1.dp, KonabRed.copy(alpha = 0.25f)),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .konabPressScale(pressedScale = 0.985f)
+                                    .clickable { onNavigate(KonabScreen.STOCK) }
+                                    .testTag("card_low_stock_alert")
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(14.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(38.dp)
+                                                .clip(CircleShape)
+                                                .background(KonabRed),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Warning,
+                                                contentDescription = null,
+                                                tint = Color.White,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
+
+                                        Spacer(modifier = Modifier.width(12.dp))
+
+                                        Column {
+                                            Text(
+                                                text = "${lowStockProducts.size} produit(s) en stock faible",
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFF991B1B),
+                                                fontSize = 14.sp
+                                            )
+                                            Text(
+                                                text = "Risque d'indisponibilité pour vos ventes",
+                                                fontSize = 12.sp,
+                                                color = Color(0xFF991B1B).copy(alpha = 0.8f)
+                                            )
+                                        }
+                                    }
+
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                                        contentDescription = null,
+                                        tint = KonabRed,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        } else {
+                            Card(
+                                shape = RoundedCornerShape(16.dp),
+                                colors = CardDefaults.cardColors(containerColor = KonabGreenLight),
+                                border = BorderStroke(1.dp, KonabGreen.copy(alpha = 0.2f)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(14.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(36.dp)
+                                            .clip(CircleShape)
+                                            .background(KonabGreen),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.CheckCircle,
+                                            contentDescription = null,
+                                            tint = Color.White,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.width(12.dp))
+
+                                    Column {
+                                        Text(
+                                            text = "Stock optimal • Aucune alerte",
+                                            fontWeight = FontWeight.Bold,
+                                            color = KonabGreenDark,
+                                            fontSize = 14.sp
+                                        )
+                                        Text(
+                                            text = "Tous vos articles sont bien approvisionnés",
+                                            fontSize = 12.sp,
+                                            color = KonabGreenDark.copy(alpha = 0.8f)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                val businessTipBlock: @Composable () -> Unit = {
                     Card(
                         shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(containerColor = KonabGreenLight),
-                        border = BorderStroke(1.dp, KonabGreen.copy(alpha = 0.2f)),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.7f)),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Row(
@@ -707,15 +1064,15 @@ fun DashboardScreen(
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(36.dp)
+                                    .size(38.dp)
                                     .clip(CircleShape)
-                                    .background(KonabGreen),
+                                    .background(KonabGoldContainer),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.CheckCircle,
+                                    imageVector = Icons.Default.Lightbulb,
                                     contentDescription = null,
-                                    tint = Color.White,
+                                    tint = KonabGoldDark,
                                     modifier = Modifier.size(20.dp)
                                 )
                             }
@@ -724,110 +1081,93 @@ fun DashboardScreen(
 
                             Column {
                                 Text(
-                                    text = "Stock optimal • Aucune alerte",
+                                    text = "Astuce Métier • ${sectorPreset.label}",
                                     fontWeight = FontWeight.Bold,
-                                    color = KonabGreenDark,
-                                    fontSize = 14.sp
+                                    fontSize = 13.sp,
+                                    color = sectorAccent
                                 )
+                                val tipText = when {
+                                    lowStockProducts.isNotEmpty() -> "Réapprovisionnez vos ${lowStockProducts.size} articles en alerte pour ne rater aucune vente aujourd'hui."
+                                    todayProfit > 0 -> "Bénéfice estimé aujourd'hui : ${CurrencyFormatter.formatFCFA(todayProfit)}. ${sectorPreset.dailyTip}"
+                                    else -> sectorPreset.dailyTip
+                                }
                                 Text(
-                                    text = "Tous vos articles sont bien approvisionnés",
+                                    text = tipText,
                                     fontSize = 12.sp,
-                                    color = KonabGreenDark.copy(alpha = 0.8f)
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    lineHeight = 16.sp
                                 )
                             }
                         }
                     }
                 }
-            }
-        }
 
-        // Smart Business Tip Card
-        item {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
-            ) {
-                Card(
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    border = BorderStroke(1.dp, KonabBorder),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(14.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(38.dp)
-                                .clip(CircleShape)
-                                .background(KonabGoldContainer),
-                            contentAlignment = Alignment.Center
+                KonabStaggeredReveal(index = 3) {
+                    if (widthClass == KonabWidthClass.EXPANDED) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                            verticalAlignment = Alignment.Top
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Lightbulb,
-                                contentDescription = null,
-                                tint = KonabGoldDark,
-                                modifier = Modifier.size(20.dp)
+                            DailySalesChartCard(
+                                sales = sales,
+                                onViewReports = { onNavigate(KonabScreen.REPORTS) },
+                                modifier = Modifier.weight(1.45f)
                             )
-                        }
-
-                        Spacer(modifier = Modifier.width(12.dp))
-
-                        Column {
-                            Text(
-                                text = "Conseil Konab POS",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            val tipText = when {
-                                lowStockProducts.isNotEmpty() -> "Réapprovisionnez vos ${lowStockProducts.size} articles en alerte pour ne rater aucune vente aujourd'hui."
-                                todaySales.isEmpty() -> "Commencez votre journée en ouvrant votre caisse et en enregistrant vos premières ventes."
-                                todayProfit > 0 -> "Bénéfice estimé aujourd'hui : ${CurrencyFormatter.formatFCFA(todayProfit)}. Excellente gestion !"
-                                else -> "Pensez à vérifier le solde de caisse avant la fin de journée."
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                stockAlertBlock()
+                                businessTipBlock()
                             }
-                            Text(
-                                text = tipText,
-                                fontSize = 12.sp,
-                                color = KonabTextSecondary,
-                                lineHeight = 16.sp
+                        }
+                    } else {
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(14.dp)
+                        ) {
+                            DailySalesChartCard(
+                                sales = sales,
+                                onViewReports = { onNavigate(KonabScreen.REPORTS) }
                             )
+                            stockAlertBlock()
+                            businessTipBlock()
                         }
                     }
                 }
             }
         }
 
-        // Section "Dernières ventes" Header (UX Board Screen 3)
+        // Section "Dernières ventes" Header
         item {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+            ResponsiveMaxWidthBox(
+                maxWidth = 1120.dp,
+                modifier = Modifier.padding(horizontal = 16.dp)
             ) {
-                Text(
-                    text = "Dernières ventes",
-                    style = MaterialTheme.typography.titleMedium.copy(
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp
-                    )
-                )
-                TextButton(
-                    onClick = { onNavigate(KonabScreen.TRANSACTIONS) },
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Historique",
-                        color = KonabGreen,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 13.sp
+                        text = "Dernières ventes",
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp
+                        )
                     )
+                    TextButton(
+                        onClick = { onNavigate(KonabScreen.TRANSACTIONS) },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = "Historique",
+                            color = KonabGreen,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 13.sp
+                        )
+                    }
                 }
             }
         }
@@ -835,168 +1175,144 @@ fun DashboardScreen(
         // Recent Sales List
         if (sales.isEmpty()) {
             item {
-                Card(
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    border = BorderStroke(1.dp, KonabBorder),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp)
+                ResponsiveMaxWidthBox(
+                    maxWidth = 1120.dp,
+                    modifier = Modifier.padding(horizontal = 16.dp)
                 ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(28.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(50.dp)
-                                .clip(CircleShape)
-                                .background(KonabBackground),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                Icons.AutoMirrored.Filled.ReceiptLong,
-                                contentDescription = null,
-                                tint = KonabTextMuted,
-                                modifier = Modifier.size(28.dp)
-                            )
-                        }
-                        Text(
-                            text = "Aucune vente enregistrée",
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            fontSize = 14.sp
-                        )
-                        Text(
-                            text = "Appuyez sur 'Nouvelle Vente' pour enregistrer votre première transaction",
-                            fontSize = 12.sp,
-                            color = KonabTextSecondary,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                        )
-                    }
+                    KonabEmptyState(
+                        icon = Icons.AutoMirrored.Filled.ReceiptLong,
+                        title = "Aucune vente enregistrée",
+                        subtitle = "Appuyez sur '${sectorPreset.quickActionLabel}' pour enregistrer votre première transaction.",
+                        accentColor = KonabBlue,
+                        actionLabel = "Ouvrir la caisse",
+                        onAction = { onNavigate(KonabScreen.POS) }
+                    )
                 }
             }
         } else {
-            items(sales.take(8)) { sale ->
-                Card(
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    border = BorderStroke(1.dp, KonabBorder),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp)
-                        .clickable { onViewSaleReceipt(sale) }
-                        .testTag("sale_item_${sale.transactionNumber}")
+            itemsIndexed(sales.take(8)) { idx, sale ->
+                ResponsiveMaxWidthBox(
+                    maxWidth = 1120.dp,
+                    modifier = Modifier.padding(horizontal = 16.dp)
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.weight(1f)
+                    KonabStaggeredReveal(index = idx) {
+                        Card(
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.7f)),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .konabPressScale(pressedScale = 0.985f)
+                                .clickable { onViewSaleReceipt(sale) }
+                                .testTag("sale_item_${sale.transactionNumber}")
                         ) {
-                            // Payment Method Thumbnail / Icon
-                            val iconColor = when (sale.paymentMethod) {
-                                "Espèces" -> KonabGreen
-                                "Carte bancaire" -> Color(0xFF1E88E5)
-                                "Crédit client" -> KonabRed
-                                else -> KonabGoldDark // Orange Money, Wave, Moov
-                            }
-                            val containerColor = when (sale.paymentMethod) {
-                                "Espèces" -> KonabGreenLight
-                                "Carte bancaire" -> Color(0xFFE3F2FD)
-                                "Crédit client" -> KonabRedLight
-                                else -> KonabGoldContainer
-                            }
-                            val iconVector = when (sale.paymentMethod) {
-                                "Espèces" -> Icons.Default.Payments
-                                "Carte bancaire" -> Icons.Default.CreditCard
-                                "Crédit client" -> Icons.Default.Receipt
-                                else -> Icons.Default.PhoneAndroid
-                            }
-
-                            Box(
+                            Row(
                                 modifier = Modifier
-                                    .size(42.dp)
-                                    .clip(CircleShape)
-                                    .background(containerColor),
-                                contentAlignment = Alignment.Center
+                                    .fillMaxWidth()
+                                    .padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Icon(
-                                    imageVector = iconVector,
-                                    contentDescription = null,
-                                    tint = iconColor,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.width(12.dp))
-
-                            Column {
-                                Text(
-                                    text = sale.customerName.ifBlank { "Client comptoir" },
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 14.sp,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Spacer(modifier = Modifier.height(2.dp))
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    modifier = Modifier.weight(1f)
                                 ) {
-                                    Text(
-                                        text = CurrencyFormatter.formatTimeOnly(sale.timestamp),
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        color = KonabTextSecondary
-                                    )
-                                    Text(
-                                        text = "•",
-                                        fontSize = 12.sp,
-                                        color = KonabTextMuted
-                                    )
-                                    Text(
-                                        text = sale.paymentMethod,
-                                        fontSize = 12.sp,
-                                        color = KonabTextSecondary
-                                    )
-                                }
-                            }
-                        }
+                                    val iconColor = when (sale.paymentMethod) {
+                                        "Espèces" -> KonabGreen
+                                        "Carte bancaire" -> Color(0xFF1E88E5)
+                                        "Crédit client" -> KonabRed
+                                        else -> KonabGoldDark
+                                    }
+                                    val containerColor = when (sale.paymentMethod) {
+                                        "Espèces" -> KonabGreenLight
+                                        "Carte bancaire" -> Color(0xFFE3F2FD)
+                                        "Crédit client" -> KonabRedLight
+                                        else -> KonabGoldContainer
+                                    }
+                                    val iconVector = when (sale.paymentMethod) {
+                                        "Espèces" -> Icons.Default.Payments
+                                        "Carte bancaire" -> Icons.Default.CreditCard
+                                        "Crédit client" -> Icons.Default.Receipt
+                                        else -> Icons.Default.PhoneAndroid
+                                    }
 
-                        Column(horizontalAlignment = Alignment.End) {
-                            Text(
-                                text = CurrencyFormatter.formatFCFA(sale.totalAmount),
-                                fontWeight = FontWeight.ExtraBold,
-                                color = if (sale.paymentStatus == "PAYÉ") KonabGreen else KonabRed,
-                                fontSize = 15.sp
-                            )
-                            Spacer(modifier = Modifier.height(3.dp))
-                            Surface(
-                                color = if (sale.paymentStatus == "PAYÉ") KonabGreenLight else KonabRedLight,
-                                shape = RoundedCornerShape(6.dp),
-                                border = BorderStroke(
-                                    0.5.dp,
-                                    if (sale.paymentStatus == "PAYÉ") KonabGreen.copy(0.3f) else KonabRed.copy(0.3f)
-                                )
-                            ) {
-                                Text(
-                                    text = sale.paymentStatus,
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (sale.paymentStatus == "PAYÉ") KonabGreenDark else KonabRed,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                )
+                                    Box(
+                                        modifier = Modifier
+                                            .size(42.dp)
+                                            .clip(CircleShape)
+                                            .background(containerColor),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = iconVector,
+                                            contentDescription = null,
+                                            tint = iconColor,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.width(12.dp))
+
+                                    Column {
+                                        Text(
+                                            text = sale.customerName.ifBlank { "Client comptoir" },
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 14.sp,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Text(
+                                                text = CurrencyFormatter.formatTimeOnly(sale.timestamp),
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                            Text(
+                                                text = "•",
+                                                fontSize = 12.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                            )
+                                            Text(
+                                                text = sale.paymentMethod,
+                                                fontSize = 12.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+                                }
+
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text(
+                                        text = CurrencyFormatter.formatFCFA(sale.totalAmount),
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = if (sale.paymentStatus == "PAYÉ") KonabGreen else KonabRed,
+                                        fontSize = 15.sp
+                                    )
+                                    Spacer(modifier = Modifier.height(3.dp))
+                                    Surface(
+                                        color = if (sale.paymentStatus == "PAYÉ") KonabGreenLight else KonabRedLight,
+                                        shape = RoundedCornerShape(6.dp),
+                                        border = BorderStroke(
+                                            0.5.dp,
+                                            if (sale.paymentStatus == "PAYÉ") KonabGreen.copy(0.3f) else KonabRed.copy(0.3f)
+                                        )
+                                    ) {
+                                        Text(
+                                            text = sale.paymentStatus,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (sale.paymentStatus == "PAYÉ") KonabGreenDark else KonabRed,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -1212,9 +1528,11 @@ private fun DashboardShortcutPill(
         onClick = onClick,
         shape = RoundedCornerShape(16.dp),
         color = MaterialTheme.colorScheme.surface,
-        border = BorderStroke(1.dp, KonabBorder),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.7f)),
         shadowElevation = 1.dp,
-        modifier = modifier.height(72.dp)
+        modifier = modifier
+            .height(72.dp)
+            .konabPressScale(pressedScale = 0.95f)
     ) {
         Column(
             modifier = Modifier

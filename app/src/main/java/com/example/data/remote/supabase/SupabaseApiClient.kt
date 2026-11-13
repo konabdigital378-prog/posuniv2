@@ -10,6 +10,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
+import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 
 class SupabaseApiClient(
@@ -139,7 +140,7 @@ class SupabaseApiClient(
             }
 
             val request = buildRequest(
-                endpoint = "products",
+                endpoint = "products?on_conflict=id",
                 method = "POST",
                 bodyString = array.toString(),
                 extraHeaders = mapOf(
@@ -152,6 +153,25 @@ class SupabaseApiClient(
                     Result.success(products.size)
                 } else {
                     Result.failure(IOException("Échec envoi produits (${response.code}): ${response.body?.string()}"))
+                }
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun deleteProduct(productId: Long): Result<Unit> = withContext(Dispatchers.IO) {
+        if (!SupabaseConfig.isConfigured || productId <= 0L) return@withContext Result.success(Unit)
+        try {
+            val request = buildRequest(
+                endpoint = "products?id=eq.$productId",
+                method = "DELETE"
+            )
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    Result.success(Unit)
+                } else {
+                    Result.failure(IOException("Échec suppression produit (${response.code})"))
                 }
             }
         } catch (e: Exception) {
@@ -336,22 +356,136 @@ class SupabaseApiClient(
         }
     }
 
-    // --- SHOP PROFILE ---
+    // --- SHOP PROFILE & UNIQUENESS ---
 
-    suspend fun pushShopProfile(profile: ShopProfileEntity, cloudShopId: Long = 0L): Result<Unit> = withContext(Dispatchers.IO) {
-        if (!SupabaseConfig.isConfigured) return@withContext Result.success(Unit)
+    suspend fun checkShopNameExists(
+        shopName: String,
+        excludeShopId: Long? = null
+    ): Result<Boolean> = withContext(Dispatchers.IO) {
+        if (!SupabaseConfig.isConfigured) return@withContext Result.success(false)
+        val normalizedTarget = AgentDeploymentStorage.normalizeShopName(shopName)
+        if (normalizedTarget.isBlank()) return@withContext Result.success(false)
+
         try {
+            // 1. Check shop_profile table
+            val reqProfile = buildRequest("shop_profile?select=id,name&limit=1000")
+            client.newCall(reqProfile).execute().use { resp ->
+                if (!resp.isSuccessful) {
+                    val err = resp.body?.string() ?: ""
+                    return@withContext Result.failure(IOException("Erreur vérification unicité boutique (${resp.code}): $err"))
+                }
+                val arr = JSONArray(resp.body?.string() ?: "[]")
+                for (i in 0 until arr.length()) {
+                    val o = arr.getJSONObject(i)
+                    val rowId = o.optLong("id", 0L)
+                    val rowName = AgentDeploymentStorage.normalizeShopName(o.optString("name", ""))
+                    if (rowName == normalizedTarget && (excludeShopId == null || rowId != excludeShopId)) {
+                        return@withContext Result.success(true)
+                    }
+                }
+            }
+
+            // 2. Also check agent_deployments when creating a new shop
+            if (excludeShopId == null) {
+                val reqDeploy = buildRequest("agent_deployments?select=id,shop_name&limit=1000")
+                client.newCall(reqDeploy).execute().use { resp ->
+                    if (resp.isSuccessful) {
+                        val arr = JSONArray(resp.body?.string() ?: "[]")
+                        for (i in 0 until arr.length()) {
+                            val o = arr.getJSONObject(i)
+                            val deployedName = AgentDeploymentStorage.normalizeShopName(o.optString("shop_name", ""))
+                            if (deployedName == normalizedTarget) {
+                                return@withContext Result.success(true)
+                            }
+                        }
+                    }
+                }
+            }
+
+            Result.success(false)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun fetchShopsForAgent(agentId: String): Result<List<ShopProfileEntity>> = withContext(Dispatchers.IO) {
+        val cleanId = agentId.trim().uppercase()
+        if (!SupabaseConfig.isConfigured || cleanId.isBlank()) return@withContext Result.success(emptyList())
+        try {
+            val encoded = URLEncoder.encode(cleanId, "UTF-8")
+            val request = buildRequest("shop_profile?deployer_id=eq.$encoded&order=updated_at.desc")
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    val err = response.body?.string() ?: ""
+                    return@withContext Result.failure(IOException("Échec chargement boutiques agent (${response.code}): $err"))
+                }
+                val body = response.body?.string() ?: "[]"
+                val jsonArr = JSONArray(body)
+                val list = mutableListOf<ShopProfileEntity>()
+                for (i in 0 until jsonArr.length()) {
+                    val o = jsonArr.getJSONObject(i)
+                    list.add(
+                        ShopProfileEntity(
+                            id = o.optInt("id", 1),
+                            name = o.optString("name", ""),
+                            businessType = o.optString("business_type", "Boutique"),
+                            phone = o.optString("phone", ""),
+                            address = o.optString("address", ""),
+                            city = o.optString("city", ""),
+                            currency = o.optString("currency", "FCFA"),
+                            slogan = o.optString("slogan", ""),
+                            receiptFooter = o.optString("receipt_footer", ""),
+                            subscriptionTier = o.optString("subscription_tier", "Premium"),
+                            deployerId = if (o.has("deployer_id") && !o.isNull("deployer_id")) o.getString("deployer_id") else null,
+                            isConfigured = true
+                        )
+                    )
+                }
+                Result.success(list)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun pushShopProfile(
+        profile: ShopProfileEntity,
+        cloudShopId: Long = 0L,
+        isNewShop: Boolean = false
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        if (!SupabaseConfig.isConfigured) return@withContext Result.success(Unit)
+        val cleanName = profile.name.trim()
+        if (cleanName.isBlank()) {
+            return@withContext Result.failure(IllegalArgumentException("Le nom de la boutique est obligatoire."))
+        }
+        val cleanDeployerId = profile.deployerId?.trim()?.uppercase()
+        if (cleanDeployerId.isNullOrBlank()) {
+            return@withContext Result.failure(
+                IllegalStateException("Un compte Agent Déployeur est obligatoire pour créer ou synchroniser une boutique.")
+            )
+        }
+
+        try {
+            val targetId = if (cloudShopId > 1L) cloudShopId else if (profile.id > 1L) profile.id.toLong() else System.currentTimeMillis()
+
+            // Enforce strict global unique shop name before upsert
+            val duplicateCheck = checkShopNameExists(
+                shopName = cleanName,
+                excludeShopId = if (isNewShop) null else targetId
+            )
+            if (duplicateCheck.isSuccess && duplicateCheck.getOrDefault(false)) {
+                return@withContext Result.failure(
+                    IllegalStateException("Une boutique portant le nom « $cleanName » existe déjà. Chaque boutique doit avoir un nom unique.")
+                )
+            }
+
             val nowIso = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", java.util.Locale.US).apply {
                 timeZone = java.util.TimeZone.getTimeZone("UTC")
             }.format(java.util.Date())
 
-            val targetId = if (cloudShopId > 1L) cloudShopId else if (profile.id > 1L) profile.id else System.currentTimeMillis()
-
-            val array = JSONArray()
-            // 1. Primary profile row (id = 1) - used by app Room database, queries, web admin, and direct database inspection
-            val primaryObj = JSONObject().apply {
-                put("id", 1L)
-                put("name", profile.name.trim())
+            val storeObj = JSONObject().apply {
+                put("id", targetId)
+                put("name", cleanName)
                 put("business_type", profile.businessType)
                 put("phone", profile.phone)
                 put("address", profile.address)
@@ -360,33 +494,10 @@ class SupabaseApiClient(
                 put("slogan", profile.slogan)
                 put("receipt_footer", profile.receiptFooter)
                 put("subscription_tier", profile.subscriptionTier)
-                if (!profile.deployerId.isNullOrBlank()) {
-                    put("deployer_id", profile.deployerId)
-                }
+                put("deployer_id", cleanDeployerId)
                 put("updated_at", nowIso)
             }
-            array.put(primaryObj)
-
-            // 2. Also save targetId if distinct from 1 for multi-tenant and multi-device persistence
-            if (targetId != 1L) {
-                val storeObj = JSONObject().apply {
-                    put("id", targetId)
-                    put("name", profile.name.trim())
-                    put("business_type", profile.businessType)
-                    put("phone", profile.phone)
-                    put("address", profile.address)
-                    put("city", profile.city)
-                    put("currency", profile.currency)
-                    put("slogan", profile.slogan)
-                    put("receipt_footer", profile.receiptFooter)
-                    put("subscription_tier", profile.subscriptionTier)
-                    if (!profile.deployerId.isNullOrBlank()) {
-                        put("deployer_id", profile.deployerId)
-                    }
-                    put("updated_at", nowIso)
-                }
-                array.put(storeObj)
-            }
+            val array = JSONArray().apply { put(storeObj) }
 
             val request = buildRequest(
                 endpoint = "shop_profile?on_conflict=id",
@@ -399,12 +510,17 @@ class SupabaseApiClient(
 
             client.newCall(request).execute().use { response ->
                 if (response.isSuccessful) {
-                    android.util.Log.i("KonabSupabase", "Boutique \"${profile.name}\" (ID 1 & $targetId) synchronisée sur Supabase (code: ${response.code})")
+                    android.util.Log.i("KonabSupabase", "Boutique \"$cleanName\" (ID $targetId, Agent $cleanDeployerId) synchronisée sur Supabase")
                     Result.success(Unit)
                 } else {
                     val errBody = response.body?.string() ?: ""
                     android.util.Log.e("KonabSupabase", "Échec push boutique (${response.code}): $errBody")
-                    Result.failure(IOException("Échec mise à jour boutique: ${response.code} $errBody"))
+                    val friendlyErr = if (response.code == 409 || errBody.contains("unique", ignoreCase = true) || errBody.contains("23505")) {
+                        "Une boutique portant le nom « $cleanName » existe déjà dans la base de données."
+                    } else {
+                        "Échec mise à jour boutique: ${response.code} $errBody"
+                    }
+                    Result.failure(IOException(friendlyErr))
                 }
             }
         } catch (e: Exception) {
@@ -599,16 +715,17 @@ class SupabaseApiClient(
     // --- AGENTS & DEPLOYMENTS ---
 
     suspend fun pushAgentDeployments(deployments: List<AgentDeploymentRecord>): Result<Int> = withContext(Dispatchers.IO) {
-        if (!SupabaseConfig.isConfigured || deployments.isEmpty()) return@withContext Result.success(0)
+        val valid = deployments.filter { it.agentId.isNotBlank() && it.shopName.isNotBlank() }
+        if (!SupabaseConfig.isConfigured || valid.isEmpty()) return@withContext Result.success(0)
         try {
             val array = JSONArray()
-            deployments.forEach { d ->
+            valid.forEach { d ->
                 val obj = JSONObject().apply {
                     put("id", d.id)
-                    put("agent_id", d.agentId)
+                    put("agent_id", d.agentId.trim().uppercase())
                     put("agent_name", d.agentName)
                     put("agent_phone", d.agentPhone)
-                    put("shop_name", d.shopName)
+                    put("shop_name", d.shopName.trim())
                     put("shop_phone", d.shopPhone)
                     put("shop_city", d.shopCity)
                     put("tier", d.tier)
@@ -620,14 +737,14 @@ class SupabaseApiClient(
                 array.put(obj)
             }
             val request = buildRequest(
-                endpoint = "agent_deployments",
+                endpoint = "agent_deployments?on_conflict=id",
                 method = "POST",
                 bodyString = array.toString(),
                 extraHeaders = mapOf("Prefer" to "resolution=merge-duplicates")
             )
             client.newCall(request).execute().use { resp ->
                 if (resp.isSuccessful) {
-                    Result.success(deployments.size)
+                    Result.success(valid.size)
                 } else {
                     val err = resp.body?.string() ?: ""
                     Result.failure(IOException("Échec synchronisation déploiements (${resp.code}): $err"))
@@ -642,7 +759,8 @@ class SupabaseApiClient(
         if (!SupabaseConfig.isConfigured) return@withContext Result.success(emptyList())
         try {
             val endpoint = if (!agentId.isNullOrBlank()) {
-                "agent_deployments?agent_id=eq.${agentId.trim().uppercase()}&order=timestamp.desc"
+                val encodedId = URLEncoder.encode(agentId.trim().uppercase(), "UTF-8")
+                "agent_deployments?agent_id=eq.$encodedId&order=timestamp.desc"
             } else {
                 "agent_deployments?select=*&order=timestamp.desc"
             }

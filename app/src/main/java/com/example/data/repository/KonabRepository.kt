@@ -182,19 +182,21 @@ class KonabRepository(
         dao.insertSaleItems(itemsWithSaleId)
 
         for (item in items) {
-            dao.decreaseStock(item.productId, item.quantity)
-            val updatedProduct = dao.getProductById(item.productId)
-            if (updatedProduct != null && updatedProduct.stockQuantity <= updatedProduct.minStockAlert) {
-                dao.insertNotification(
-                    NotificationEntity(
-                        title = "Alerte Stock Faible",
-                        message = "${updatedProduct.name} : plus que ${updatedProduct.stockQuantity} ${updatedProduct.unit} en réserve (seuil : ${updatedProduct.minStockAlert}).",
-                        type = "STOCK_ALERT",
-                        priority = if (updatedProduct.stockQuantity <= 0) "URGENT" else "HIGH",
-                        actionRoute = "stock",
-                        referenceId = updatedProduct.id
+            if (item.productId > 0L) {
+                dao.decreaseStock(item.productId, item.quantity)
+                val updatedProduct = dao.getProductById(item.productId)
+                if (updatedProduct != null && updatedProduct.stockQuantity <= updatedProduct.minStockAlert) {
+                    dao.insertNotification(
+                        NotificationEntity(
+                            title = "Alerte Stock Faible",
+                            message = "${updatedProduct.name} : plus que ${updatedProduct.stockQuantity} ${updatedProduct.unit} en réserve (seuil : ${updatedProduct.minStockAlert}).",
+                            type = "STOCK_ALERT",
+                            priority = if (updatedProduct.stockQuantity <= 0) "URGENT" else "HIGH",
+                            actionRoute = "stock",
+                            referenceId = updatedProduct.id
+                        )
                     )
-                )
+                }
             }
         }
 
@@ -264,7 +266,9 @@ class KonabRepository(
 
         // 1. Restore product stock
         for (item in items) {
-            dao.increaseStock(item.productId, item.quantity)
+            if (item.productId > 0L) {
+                dao.increaseStock(item.productId, item.quantity)
+            }
         }
 
         // 2. Adjust customer debt and total spent if linked

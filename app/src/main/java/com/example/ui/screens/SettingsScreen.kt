@@ -53,10 +53,21 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.local.entity.ShopProfileEntity
+import com.example.data.remote.supabase.AgentDeploymentStorage
+import com.example.ui.components.AgentPhotoAvatar
+import com.example.ui.components.KonabLivePulseDot
+import com.example.ui.components.KonabStaggeredReveal
+import com.example.ui.components.KonabWidthClass
+import com.example.ui.components.LocalKonabWidthClass
+import com.example.ui.components.ResponsiveMaxWidthBox
+import com.example.ui.components.konabHeroShimmer
+import com.example.ui.components.konabPressScale
 import com.example.ui.navigation.KonabScreen
 import com.example.ui.theme.*
 import com.example.util.ApkShareHelper
 import com.example.util.BackupRestoreHelper
+import com.example.util.BiometricAvailability
+import com.example.util.BiometricSecurityHelper
 import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -201,47 +212,60 @@ fun SettingsScreen(
             )
         }
     ) { paddingValues ->
-        Column(
+        val widthClass = LocalKonabWidthClass.current
+        val horizontalPad = if (widthClass == KonabWidthClass.COMPACT) 16.dp else 24.dp
+
+        ResponsiveMaxWidthBox(
+            maxWidth = 880.dp,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
                 .background(MaterialTheme.colorScheme.background)
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp)
-                .padding(bottom = 80.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .imePadding()
         ) {
-            // ==========================================
-            // VITRINE & FIL D'IMAGES DU BURKINA FASO
-            // ==========================================
-            BurkinaFasoImageFilBanner()
-
-            // Hero Brand & Merchant Profile Card
-            Card(
-                shape = RoundedCornerShape(22.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+            Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("card_merchant_profile")
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = horizontalPad, vertical = 16.dp)
+                    .padding(bottom = 80.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    // Top Gradient Banner
-                    Box(
+                // ==========================================
+                // VITRINE & FIL D'IMAGES DU BURKINA FASO
+                // ==========================================
+                KonabStaggeredReveal(index = 0) {
+                    BurkinaFasoImageFilBanner()
+                }
+
+                // Hero Brand & Merchant Profile Card
+                KonabStaggeredReveal(index = 1) {
+                    Card(
+                        shape = RoundedCornerShape(22.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(95.dp)
-                            .background(
-                                brush = Brush.horizontalGradient(
-                                    colors = listOf(
-                                        KonabGreen,
-                                        Color(0xFF047857),
-                                        Color(0xFF065F46)
-                                    )
-                                )
-                            )
-                            .padding(16.dp)
+                            .testTag("card_merchant_profile")
                     ) {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            // Top Gradient Banner
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(95.dp)
+                                    .background(
+                                        brush = Brush.horizontalGradient(
+                                            colors = listOf(
+                                                KonabGreen,
+                                                Color(0xFF047857),
+                                                Color(0xFF065F46)
+                                            )
+                                        )
+                                    )
+                                    .konabHeroShimmer(maxAlpha = 0.1f)
+                                    .padding(16.dp)
+                            ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -359,6 +383,7 @@ fun SettingsScreen(
                         Surface(
                             modifier = Modifier
                                 .weight(1f)
+                                .konabPressScale(pressedScale = 0.97f)
                                 .clickable { showSupabaseAuthModal = true },
                             shape = RoundedCornerShape(10.dp),
                             color = if (supabaseSyncState?.isConfigured == true) {
@@ -366,7 +391,7 @@ fun SettingsScreen(
                             } else {
                                 Color(0xFFFFFBEB)
                             },
-                            border = androidx.compose.foundation.BorderStroke(
+                            border = BorderStroke(
                                 1.dp,
                                 if (supabaseSyncState?.isConfigured == true) Color(0xFF10B981).copy(alpha = 0.3f)
                                 else Color(0xFFF59E0B).copy(alpha = 0.3f)
@@ -377,16 +402,18 @@ fun SettingsScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(8.dp)
-                                        .background(
-                                            if (supabaseSyncState?.isConfigured == true) {
-                                                if (supabaseSyncState.isAutoSyncEnabled) Color(0xFF10B981) else Color(0xFF0284C7)
-                                            } else Color(0xFFF59E0B),
-                                            CircleShape
-                                        )
-                                )
+                                if (supabaseSyncState?.isConfigured == true) {
+                                    KonabLivePulseDot(
+                                        color = if (supabaseSyncState.isAutoSyncEnabled) Color(0xFF10B981) else Color(0xFF0284C7),
+                                        size = 7.dp
+                                    )
+                                } else {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(8.dp)
+                                            .background(Color(0xFFF59E0B), CircleShape)
+                                    )
+                                }
                                 Text(
                                     text = if (supabaseSyncState?.isConfigured == true) {
                                         if (supabaseSyncState.isAutoSyncEnabled) "Config Auto Cloud" else "Cloud Connecté"
@@ -422,6 +449,7 @@ fun SettingsScreen(
                     }
                     Spacer(modifier = Modifier.height(6.dp))
                 }
+            }
             }
 
             // ==========================================
@@ -554,11 +582,7 @@ fun SettingsScreen(
                                 )
                                 if (supabaseSyncState?.isAutoSyncEnabled == true) {
                                     Spacer(modifier = Modifier.width(6.dp))
-                                    Box(
-                                        modifier = Modifier
-                                            .size(7.dp)
-                                            .background(Color(0xFF10B981), CircleShape)
-                                    )
+                                    KonabLivePulseDot(color = Color(0xFF10B981), size = 6.dp)
                                 }
                             }
                             Text(
@@ -685,6 +709,126 @@ fun SettingsScreen(
             // SECTION 4 : SÉCURITÉ & CODES D'ACCÈS
             // ==========================================
             SettingsSectionCard(title = "Sécurité & Contrôle", icon = Icons.Default.Security) {
+                var launchLockEnabled by remember { mutableStateOf(BiometricSecurityHelper.isLaunchLockEnabled(context)) }
+                var biometricUnlockEnabled by remember { mutableStateOf(BiometricSecurityHelper.isBiometricEnabled(context)) }
+                val biometricStatus = remember { BiometricSecurityHelper.checkBiometricAvailability(context) }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .background(
+                                    if (launchLockEnabled) Color(0xFFDCFCE7) else MaterialTheme.colorScheme.surfaceVariant,
+                                    CircleShape
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.VerifiedUser,
+                                contentDescription = null,
+                                tint = if (launchLockEnabled) Color(0xFF16A34A) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                text = "Sécurité à chaque lancement",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.5.sp
+                            )
+                            Text(
+                                text = "Exige le Code Gérant ou l'empreinte à l'ouverture",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    Switch(
+                        checked = launchLockEnabled,
+                        onCheckedChange = { checked ->
+                            launchLockEnabled = checked
+                            BiometricSecurityHelper.setLaunchLockEnabled(context, checked)
+                            Toast.makeText(
+                                context,
+                                if (checked) "Verrouillage au lancement activé." else "Verrouillage au lancement désactivé.",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        },
+                        modifier = Modifier.testTag("switch_launch_lock")
+                    )
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .background(
+                                    if (biometricUnlockEnabled && biometricStatus == BiometricAvailability.AVAILABLE) Color(0xFFDBEAFE) else MaterialTheme.colorScheme.surfaceVariant,
+                                    CircleShape
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Fingerprint,
+                                contentDescription = null,
+                                tint = if (biometricUnlockEnabled && biometricStatus == BiometricAvailability.AVAILABLE) KonabBlue else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                text = "Déverrouillage par empreinte digitale",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.5.sp
+                            )
+                            Text(
+                                text = when (biometricStatus) {
+                                    BiometricAvailability.AVAILABLE -> "Capteur biométrique prêt"
+                                    BiometricAvailability.NONE_ENROLLED -> "Aucune empreinte enregistrée sur ce téléphone"
+                                    else -> "Capteur biométrique indisponible"
+                                },
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    Switch(
+                        checked = biometricUnlockEnabled,
+                        enabled = biometricStatus != BiometricAvailability.NO_HARDWARE,
+                        onCheckedChange = { checked ->
+                            biometricUnlockEnabled = checked
+                            BiometricSecurityHelper.setBiometricEnabled(context, checked)
+                        },
+                        modifier = Modifier.testTag("switch_biometric_unlock")
+                    )
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
                 SettingsModernRow(
                     icon = Icons.Default.Pin,
                     iconTint = Color(0xFFDC2626),
@@ -703,7 +847,7 @@ fun SettingsScreen(
                     iconTint = Color(0xFFEA580C),
                     iconBg = Color(0xFFFFEDD5),
                     title = "Verrouillage immédiat",
-                    subtitle = "Verrouille l'écran jusqu'au prochain code PIN",
+                    subtitle = "Verrouille l'écran jusqu'au Code Gérant ou empreinte",
                     trailingValue = "Verrouiller",
                     onClick = onLockApp,
                     testTag = "row_lock_now"
@@ -729,18 +873,75 @@ fun SettingsScreen(
 
                 HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
 
-                SettingsModernRow(
-                    icon = Icons.Default.Badge,
-                    iconTint = Color(0xFF0F766E),
-                    iconBg = Color(0xFFCCFBF1),
-                    title = "Portail Agent & Déploiement",
-                    subtitle = "Connexion agent agréé, configuration boutique & activation",
-                    trailingValue = "Accéder",
-                    badgeText = "AGENTS",
-                    badgeColor = KonabOrange,
-                    onClick = { onNavigate(KonabScreen.AGENT_PORTAL) },
-                    testTag = "row_agent_portal"
-                )
+                val savedSessionAgent = remember { AgentDeploymentStorage.getSavedAgentSession(context) }
+                if (savedSessionAgent != null) {
+                    val savedAgentPhoto = remember(savedSessionAgent) {
+                        AgentDeploymentStorage.getEffectivePhotoUri(context, savedSessionAgent)
+                    }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onNavigate(KonabScreen.AGENT_PORTAL) }
+                            .padding(horizontal = 16.dp, vertical = 12.dp)
+                            .testTag("row_agent_portal"),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        AgentPhotoAvatar(
+                            name = savedSessionAgent.name,
+                            photoUri = savedAgentPhoto,
+                            size = 44.dp,
+                            borderColor = KonabOrange
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = "Portail Agent • ${savedSessionAgent.name}",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            Text(
+                                text = "KONAB-${savedSessionAgent.id} • ${savedSessionAgent.zone} • Carte & QR disponibles",
+                                fontSize = 11.5.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = KonabOrange.copy(alpha = 0.14f)
+                        ) {
+                            Text(
+                                text = "PROFIL",
+                                color = KonabOrange,
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 10.sp,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+                } else {
+                    SettingsModernRow(
+                        icon = Icons.Default.Badge,
+                        iconTint = Color(0xFF0F766E),
+                        iconBg = Color(0xFFCCFBF1),
+                        title = "Portail Agent & Déploiement",
+                        subtitle = "Connexion agent agréé, configuration boutique & activation",
+                        trailingValue = "Accéder",
+                        badgeText = "AGENTS",
+                        badgeColor = KonabOrange,
+                        onClick = { onNavigate(KonabScreen.AGENT_PORTAL) },
+                        testTag = "row_agent_portal"
+                    )
+                }
 
                 HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
 
@@ -805,6 +1006,7 @@ fun SettingsScreen(
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .konabHeroShimmer(maxAlpha = 0.08f)
                     .testTag("card_share_app_promo"),
                 shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(
@@ -874,7 +1076,8 @@ fun SettingsScreen(
                         onClick = onShareApkWhatsApp,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(50.dp)
+                            .heightIn(min = 50.dp)
+                            .konabPressScale()
                             .testTag("btn_share_apk_whatsapp_action"),
                         shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.buttonColors(
@@ -917,7 +1120,8 @@ fun SettingsScreen(
                         onClick = onShareApp,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(42.dp)
+                            .heightIn(min = 48.dp)
+                            .konabPressScale()
                             .testTag("btn_share_app_action"),
                         shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.outlinedButtonColors(
@@ -945,13 +1149,14 @@ fun SettingsScreen(
                 onClick = onLockApp,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(52.dp)
+                    .heightIn(min = 52.dp)
+                    .konabPressScale()
                     .testTag("btn_lock_settings_footer"),
                 shape = RoundedCornerShape(14.dp),
                 colors = ButtonDefaults.outlinedButtonColors(
                     contentColor = MaterialTheme.colorScheme.error
                 ),
-                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.4f))
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.4f))
             ) {
                 Icon(Icons.Default.Lock, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(8.dp))
@@ -969,6 +1174,7 @@ fun SettingsScreen(
                     .padding(vertical = 4.dp),
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
             )
+            }
         }
     }
 
@@ -1935,6 +2141,7 @@ private fun SettingsModernRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .konabPressScale(pressedScale = 0.985f)
             .clickable { onClick() }
             .padding(horizontal = 16.dp, vertical = 14.dp)
             .testTag(testTag),

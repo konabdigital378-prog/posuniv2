@@ -1,0 +1,41 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="120dp"
+    android:height="120dp"
+    android:viewportWidth="120"
+    android:viewportHeight="120">
+
+    <!-- Outer institutional shield / seal -->
+    <path
+        android:fillColor="#06245E"
+        android:pathData="M60,6 L104,22 L104,60 C104,88 84,106 60,115 C36,106 16,88 16,60 L16,22 Z" />
+
+    <!-- Gold inner trim shield -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#F59E0B"
+        android:strokeWidth="3.5"
+        android:pathData="M60,12 L98,26 L98,60 C98,84 80,100 60,108 C40,100 22,84 22,60 L22,26 Z" />
+
+    <!-- Upper emerald / gold horizontal accent arc -->
+    <path
+        android:fillColor="#10B981"
+        android:pathData="M34,36 L86,36 C82,29 72,24 60,24 C48,24 38,29 34,36 Z" />
+
+    <!-- Stylized 'C' emblem ring (CONAPES) -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="8"
+        android:strokeLineCap="round"
+        android:pathData="M78,49 A21,21 0 1,0 78,79" />
+
+    <!-- Center gold star / validation dot -->
+    <path
+        android:fillColor="#F59E0B"
+        android:pathData="M60,52 L63.2,58.6 L70.5,59.6 L65.2,64.8 L66.5,72 L60,68.6 L53.5,72 L54.8,64.8 L49.5,59.6 L56.8,58.6 Z" />
+
+    <!-- Bottom verification ribbon bar -->
+    <path
+        android:fillColor="#FF7900"
+        android:pathData="M38,91 L82,91 L78,98 L42,98 Z" />
+</vector>

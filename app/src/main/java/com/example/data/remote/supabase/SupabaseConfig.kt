@@ -141,8 +141,9 @@ CREATE TABLE IF NOT EXISTS public.shop_profile (
 -- Migration automatique si la table existe déjà sans deployer_id
 ALTER TABLE public.shop_profile ADD COLUMN IF NOT EXISTS deployer_id TEXT;
 CREATE INDEX IF NOT EXISTS idx_shop_profile_deployer_id ON public.shop_profile(deployer_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_shop_profile_unique_name ON public.shop_profile (LOWER(BTRIM(name)));
 
--- 2. Table des Produits & Stock
+-- 2. Table des Produits & Stock (Catalogue permanent synchronisé avec Supabase)
 CREATE TABLE IF NOT EXISTS public.products (
     id BIGINT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -325,6 +326,7 @@ CREATE TABLE IF NOT EXISTS public.agent_deployments (
 
 CREATE INDEX IF NOT EXISTS idx_agent_deployments_agent_id ON public.agent_deployments(agent_id);
 CREATE INDEX IF NOT EXISTS idx_agent_deployments_timestamp ON public.agent_deployments(timestamp);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_deployments_unique_shop_name ON public.agent_deployments (LOWER(BTRIM(shop_name)));
 
 -- Activation de RLS (Row Level Security) avec accès lecture/écriture pour la clé anon
 ALTER TABLE public.shop_profile ENABLE ROW LEVEL SECURITY;

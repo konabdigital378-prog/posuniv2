@@ -1,5 +1,12 @@
 package com.example.ui.components
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.navigationBars
@@ -11,6 +18,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -27,18 +35,39 @@ fun KonabBottomBar(
     var showMoreMenu by remember { mutableStateOf(false) }
 
     val navItemColors = NavigationBarItemDefaults.colors(
-        selectedIconColor = KonabBlue,
-        selectedTextColor = KonabBlue,
-        indicatorColor = KonabBlueContainer,
-        unselectedIconColor = KonabTextSecondary,
-        unselectedTextColor = KonabTextSecondary
+        selectedIconColor = MaterialTheme.colorScheme.primary,
+        selectedTextColor = MaterialTheme.colorScheme.primary,
+        indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+
+    val dashScale by animateFloatAsState(
+        targetValue = if (currentScreen == KonabScreen.DASHBOARD) 1.12f else 1f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+        label = "nav_dash_scale"
+    )
+    val posScale by animateFloatAsState(
+        targetValue = if (currentScreen == KonabScreen.POS || currentScreen == KonabScreen.PAYMENT) 1.12f else 1f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+        label = "nav_pos_scale"
+    )
+    val stockScale by animateFloatAsState(
+        targetValue = if (currentScreen == KonabScreen.STOCK) 1.12f else 1f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+        label = "nav_stock_scale"
+    )
+    val reportsScale by animateFloatAsState(
+        targetValue = if (currentScreen == KonabScreen.REPORTS) 1.12f else 1f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+        label = "nav_reports_scale"
     )
 
     Surface(
-        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+        shape = RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp),
         color = MaterialTheme.colorScheme.surface,
-        border = BorderStroke(1.dp, KonabBorder),
-        shadowElevation = 8.dp
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.65f)),
+        shadowElevation = 10.dp
     ) {
         NavigationBar(
             containerColor = Color.Transparent,
@@ -52,7 +81,8 @@ fun KonabBottomBar(
                 icon = {
                     Icon(
                         imageVector = if (currentScreen == KonabScreen.DASHBOARD) Icons.Default.Dashboard else Icons.Default.Home,
-                        contentDescription = "Accueil"
+                        contentDescription = "Accueil",
+                        modifier = Modifier.graphicsLayer { scaleX = dashScale; scaleY = dashScale }
                     )
                 },
                 label = {
@@ -71,7 +101,11 @@ fun KonabBottomBar(
                 onClick = { onNavigate(KonabScreen.POS) },
                 icon = {
                     BadgedBox(badge = {
-                        if (cartItemCount > 0) {
+                        androidx.compose.animation.AnimatedVisibility(
+                            visible = cartItemCount > 0,
+                            enter = scaleIn(spring(dampingRatio = Spring.DampingRatioMediumBouncy)) + fadeIn(),
+                            exit = scaleOut()
+                        ) {
                             Badge(
                                 containerColor = KonabOrange,
                                 contentColor = Color.White
@@ -80,7 +114,11 @@ fun KonabBottomBar(
                             }
                         }
                     }) {
-                        Icon(Icons.Default.PointOfSale, contentDescription = "Ventes")
+                        Icon(
+                            Icons.Default.PointOfSale,
+                            contentDescription = "Ventes",
+                            modifier = Modifier.graphicsLayer { scaleX = posScale; scaleY = posScale }
+                        )
                     }
                 },
                 label = {
@@ -97,7 +135,13 @@ fun KonabBottomBar(
                 modifier = Modifier.testTag("nav_stock"),
                 selected = currentScreen == KonabScreen.STOCK,
                 onClick = { onNavigate(KonabScreen.STOCK) },
-                icon = { Icon(Icons.Default.Inventory2, contentDescription = "Produits") },
+                icon = {
+                    Icon(
+                        Icons.Default.Inventory2,
+                        contentDescription = "Produits",
+                        modifier = Modifier.graphicsLayer { scaleX = stockScale; scaleY = stockScale }
+                    )
+                },
                 label = {
                     Text(
                         text = "Stock",
@@ -112,7 +156,13 @@ fun KonabBottomBar(
                 modifier = Modifier.testTag("nav_reports"),
                 selected = currentScreen == KonabScreen.REPORTS,
                 onClick = { onNavigate(KonabScreen.REPORTS) },
-                icon = { Icon(Icons.Default.Assessment, contentDescription = "Rapports") },
+                icon = {
+                    Icon(
+                        Icons.Default.Assessment,
+                        contentDescription = "Rapports",
+                        modifier = Modifier.graphicsLayer { scaleX = reportsScale; scaleY = reportsScale }
+                    )
+                },
                 label = {
                     Text(
                         text = "Stats",

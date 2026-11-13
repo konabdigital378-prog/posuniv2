@@ -33,6 +33,10 @@ import com.example.data.local.entity.SaleEntity
 import com.example.data.local.entity.SaleItemEntity
 import com.example.data.local.entity.ShopProfileEntity
 import androidx.compose.ui.graphics.asImageBitmap
+import com.example.ui.components.KonabEmptyState
+import com.example.ui.components.KonabStaggeredReveal
+import com.example.ui.components.ResponsiveMaxWidthBox
+import com.example.ui.components.konabPressScale
 import com.example.ui.theme.*
 import com.example.util.CurrencyFormatter
 import com.example.util.QrCodeHelper
@@ -93,129 +97,150 @@ fun ReceiptViewScreen(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(paddingValues),
+                    .padding(paddingValues)
+                    .padding(24.dp),
                 contentAlignment = Alignment.Center
             ) {
-                Text("Aucune transaction sélectionnée", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                ResponsiveMaxWidthBox(maxWidth = 540.dp) {
+                    KonabEmptyState(
+                        icon = Icons.Default.ReceiptLong,
+                        title = "Aucune transaction sélectionnée",
+                        subtitle = "Sélectionnez une vente dans l'historique ou terminez un encaissement pour afficher son reçu."
+                    )
+                }
             }
         } else {
-            Column(
+            val paperInkPrimary = Color(0xFF0F172A)
+            val paperInkSecondary = Color(0xFF475569)
+
+            Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(paddingValues)
                     .background(MaterialTheme.colorScheme.background)
-                    .verticalScroll(rememberScrollState())
-                    .padding(20.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Receipt Thermal Card
-                Card(
-                    shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color.White),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .border(1.dp, KonabBorder, RoundedCornerShape(12.dp))
+                ResponsiveMaxWidthBox(
+                    maxWidth = 600.dp,
+                    modifier = Modifier.fillMaxSize()
                 ) {
                     Column(
                         modifier = Modifier
-                            .fillMaxWidth()
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState())
                             .padding(20.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        // Shop Header & Logo
-                        com.example.util.ShopLogoAvatar(
-                            logoUri = shopProfile.logoUri,
-                            size = 64.dp,
-                            shape = CircleShape,
-                            contentDescription = "Logo de la boutique"
-                        )
-
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        Text(
-                            text = shopProfile.name.ifBlank { "KONAB POS" },
-                            fontWeight = FontWeight.Black,
-                            fontSize = 20.sp,
-                            color = KonabBlueDark,
-                            textAlign = TextAlign.Center
-                        )
-                        if (shopProfile.slogan.isNotBlank()) {
-                            Text(
-                                text = shopProfile.slogan,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = KonabOrange,
-                                textAlign = TextAlign.Center
-                            )
-                        }
-                        Text(
-                            text = shopProfile.address,
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Text(
-                            text = "Tél : ${shopProfile.phone}",
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-
-                        Spacer(modifier = Modifier.height(14.dp))
-                        HorizontalDivider(color = Color(0xFFDDDDDD))
-                        Spacer(modifier = Modifier.height(14.dp))
-
-                        Text(
-                            text = "REÇU DE VENTE",
-                            fontWeight = FontWeight.ExtraBold,
-                            fontSize = 14.sp
-                        )
-                        Text(
-                            text = "N° : ${sale.transactionNumber}",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Text(
-                            text = CurrencyFormatter.formatDateTime(sale.timestamp),
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Text(
-                            text = "Client : ${sale.customerName}",
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-
-                        Spacer(modifier = Modifier.height(14.dp))
-                        HorizontalDivider(color = Color(0xFFDDDDDD))
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        // Table Header
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text("Produit", fontWeight = FontWeight.Bold, fontSize = 11.sp, modifier = Modifier.weight(1.5f))
-                            Text("Qté", fontWeight = FontWeight.Bold, fontSize = 11.sp, textAlign = TextAlign.Center, modifier = Modifier.weight(0.5f))
-                            Text("Prix", fontWeight = FontWeight.Bold, fontSize = 11.sp, textAlign = TextAlign.End, modifier = Modifier.weight(0.8f))
-                            Text("Total", fontWeight = FontWeight.Bold, fontSize = 11.sp, textAlign = TextAlign.End, modifier = Modifier.weight(1f))
-                        }
-
-                        HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp), color = Color(0xFFEEEEEE))
-
-                        // Items rows
-                        items.forEach { item ->
-                            Row(
+                        KonabStaggeredReveal(index = 0) {
+                            // Receipt Thermal Card
+                            Card(
+                                shape = RoundedCornerShape(14.dp),
+                                colors = CardDefaults.cardColors(containerColor = Color.White),
+                                elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(vertical = 4.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween
+                                    .border(1.dp, KonabBorder, RoundedCornerShape(14.dp))
                             ) {
-                                Text(item.productName, fontSize = 11.sp, modifier = Modifier.weight(1.5f))
-                                Text("${item.quantity}", fontSize = 11.sp, textAlign = TextAlign.Center, modifier = Modifier.weight(0.5f))
-                                Text(CurrencyFormatter.formatNumber(item.unitPrice), fontSize = 11.sp, textAlign = TextAlign.End, modifier = Modifier.weight(0.8f))
-                                Text(CurrencyFormatter.formatNumber(item.totalPrice), fontSize = 11.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.End, modifier = Modifier.weight(1f))
-                            }
-                        }
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(20.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    // Shop Header & Logo
+                                    com.example.util.ShopLogoAvatar(
+                                        logoUri = shopProfile.logoUri,
+                                        size = 64.dp,
+                                        shape = CircleShape,
+                                        contentDescription = "Logo de la boutique"
+                                    )
+
+                                    Spacer(modifier = Modifier.height(10.dp))
+
+                                    Text(
+                                        text = shopProfile.name.ifBlank { "KONAB POS" },
+                                        fontWeight = FontWeight.Black,
+                                        fontSize = 20.sp,
+                                        color = KonabBlueDark,
+                                        textAlign = TextAlign.Center
+                                    )
+                                    if (shopProfile.slogan.isNotBlank()) {
+                                        Text(
+                                            text = shopProfile.slogan,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = KonabOrange,
+                                            textAlign = TextAlign.Center
+                                        )
+                                    }
+                                    Text(
+                                        text = shopProfile.address,
+                                        fontSize = 11.sp,
+                                        color = paperInkSecondary
+                                    )
+                                    Text(
+                                        text = "Tél : ${shopProfile.phone}",
+                                        fontSize = 11.sp,
+                                        color = paperInkSecondary
+                                    )
+
+                                    Spacer(modifier = Modifier.height(14.dp))
+                                    HorizontalDivider(color = Color(0xFFDDDDDD))
+                                    Spacer(modifier = Modifier.height(14.dp))
+
+                                    Text(
+                                        text = "REÇU DE VENTE",
+                                        fontWeight = FontWeight.ExtraBold,
+                                        fontSize = 14.sp,
+                                        color = paperInkPrimary
+                                    )
+                                    Text(
+                                        text = "N° : ${sale.transactionNumber}",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = paperInkPrimary
+                                    )
+                                    Text(
+                                        text = CurrencyFormatter.formatDateTime(sale.timestamp),
+                                        fontSize = 11.sp,
+                                        color = paperInkSecondary
+                                    )
+                                    Text(
+                                        text = "Client : ${sale.customerName}",
+                                        fontSize = 11.sp,
+                                        color = paperInkSecondary
+                                    )
+
+                                    Spacer(modifier = Modifier.height(14.dp))
+                                    HorizontalDivider(color = Color(0xFFDDDDDD))
+                                    Spacer(modifier = Modifier.height(10.dp))
+
+                                    // Table Header
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text("Produit", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = paperInkPrimary, modifier = Modifier.weight(1.5f))
+                                        Text("Qté", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = paperInkPrimary, textAlign = TextAlign.Center, modifier = Modifier.weight(0.5f))
+                                        Text("Prix", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = paperInkPrimary, textAlign = TextAlign.End, modifier = Modifier.weight(0.8f))
+                                        Text("Total", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = paperInkPrimary, textAlign = TextAlign.End, modifier = Modifier.weight(1f))
+                                    }
+
+                                    HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp), color = Color(0xFFEEEEEE))
+
+                                    // Items rows
+                                    items.forEach { item ->
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(vertical = 4.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Text(item.productName, fontSize = 11.sp, color = paperInkPrimary, modifier = Modifier.weight(1.5f))
+                                            Text("${item.quantity}", fontSize = 11.sp, color = paperInkPrimary, textAlign = TextAlign.Center, modifier = Modifier.weight(0.5f))
+                                            Text(CurrencyFormatter.formatNumber(item.unitPrice), fontSize = 11.sp, color = paperInkSecondary, textAlign = TextAlign.End, modifier = Modifier.weight(0.8f))
+                                            Text(CurrencyFormatter.formatNumber(item.totalPrice), fontSize = 11.sp, color = paperInkPrimary, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.End, modifier = Modifier.weight(1f))
+                                        }
+                                    }
 
                         HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), color = Color(0xFFDDDDDD))
 
@@ -267,8 +292,8 @@ fun ReceiptViewScreen(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text("Mode de règlement :", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text("${sale.paymentMethod} (${sale.paymentStatus})", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = KonabTextPrimary)
+                            Text("Mode de règlement :", fontSize = 11.sp, color = paperInkSecondary)
+                            Text("${sale.paymentMethod} (${sale.paymentStatus})", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = paperInkPrimary)
                         }
 
                         Spacer(modifier = Modifier.height(16.dp))
@@ -279,7 +304,7 @@ fun ReceiptViewScreen(
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Medium,
                             textAlign = TextAlign.Center,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = paperInkSecondary
                         )
 
                         Spacer(modifier = Modifier.height(18.dp))
@@ -328,6 +353,7 @@ fun ReceiptViewScreen(
                                 textAlign = TextAlign.Center
                             )
                         }
+                        }
                     }
                 }
 
@@ -341,6 +367,7 @@ fun ReceiptViewScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(52.dp)
+                        .konabPressScale()
                         .testTag("btn_receipt_print_thermal")
                 ) {
                     Icon(Icons.Default.Print, contentDescription = null, tint = Color.White)
@@ -364,6 +391,7 @@ fun ReceiptViewScreen(
                         modifier = Modifier
                             .weight(1f)
                             .height(48.dp)
+                            .konabPressScale()
                             .testTag("btn_receipt_whatsapp_bottom")
                     ) {
                         Icon(Icons.Default.Share, contentDescription = null, tint = Color.White)
@@ -381,11 +409,14 @@ fun ReceiptViewScreen(
                         modifier = Modifier
                             .weight(1f)
                             .height(48.dp)
+                            .konabPressScale()
                             .testTag("btn_receipt_pdf_bottom")
                     ) {
                         Icon(Icons.Default.PictureAsPdf, contentDescription = null, tint = KonabBlue)
                         Spacer(modifier = Modifier.width(6.dp))
                         Text("Ouvrir PDF", color = KonabBlue, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    }
+                }
                     }
                 }
             }

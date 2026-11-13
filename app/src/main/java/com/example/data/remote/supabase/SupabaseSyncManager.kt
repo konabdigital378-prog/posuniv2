@@ -105,13 +105,62 @@ class SupabaseSyncManager(
     }
 
     suspend fun syncAll(repository: KonabRepository): Result<Int> {
-        return syncFullStore(repository)
+        val configRes = syncCompanyConfig(repository)
+        try {
+            syncProductsOnly(repository)
+        } catch (_: Exception) {}
+        try {
+            syncAgentDeployments()
+        } catch (_: Exception) {}
+        return configRes
+    }
+
+    suspend fun syncProductsOnly(repository: KonabRepository): Result<Int> {
+        if (!SupabaseConfig.isConfigured) return Result.success(0)
+        val products = repository.getAllProductsOnce()
+        if (products.isEmpty()) return Result.success(0)
+        return apiClient.pushProducts(products)
+    }
+
+    suspend fun deleteProductFromCloud(productId: Long): Result<Unit> {
+        if (!SupabaseConfig.isConfigured) return Result.success(Unit)
+        return apiClient.deleteProduct(productId)
     }
 
     /**
-     * Synchronise exclusivement les informations de configuration de l'entreprise (ShopProfile)
-     * avec Supabase Cloud. Toutes les autres données (ventes, stocks, clients, caisse)
-     * demeurent strictement locales et privées sur l'appareil.
+     * Vérifie qu'un nom de boutique est unique (localement + sur Supabase Cloud).
+     */
+    suspend fun verifyShopNameAvailable(
+        shopName: String,
+        excludeShopId: Long? = null
+    ): Result<Unit> {
+        val cleanName = shopName.trim()
+        if (cleanName.isBlank()) {
+            return Result.failure(IllegalArgumentException("Le nom de la boutique est obligatoire."))
+        }
+        if (excludeShopId == null && AgentDeploymentStorage.hasLocalDeploymentForShopName(context, cleanName)) {
+            return Result.failure(
+                IllegalStateException("La boutique « $cleanName » existe déjà. Chaque boutique doit avoir un nom unique.")
+            )
+        }
+        if (SupabaseConfig.isConfigured) {
+            val remoteCheck = apiClient.checkShopNameExists(cleanName, excludeShopId)
+            if (remoteCheck.isSuccess && remoteCheck.getOrDefault(false)) {
+                return Result.failure(
+                    IllegalStateException("Une boutique nommée « $cleanName » existe déjà dans la base de données. Choisissez un nom unique.")
+                )
+            }
+        }
+        return Result.success(Unit)
+    }
+
+    suspend fun fetchCloudShopsForAgent(agentId: String): Result<List<ShopProfileEntity>> {
+        return apiClient.fetchShopsForAgent(agentId)
+    }
+
+    /**
+     * Synchronise les informations de configuration de l'entreprise (ShopProfile)
+     * avec Supabase Cloud.
      */
     fun getOrCreateCloudShopId(): Long {
         var id = prefs.getLong("cloud_shop_id", 0L)
@@ -134,23 +183,45 @@ class SupabaseSyncManager(
 
     /**
      * Pousse immédiatement et directement un profil de boutique vers Supabase.
-     * Chaque personne/appareil dispose d'un identifiant unique (cloudShopId)
-     * pour que chaque boutique créée soit visible dans la base de données sans écraser les autres.
+     * Exige d'abord un compte Agent Déployeur créé et vérifie l'unicité du nom de la boutique.
      */
     suspend fun pushShopProfileDirectly(profile: ShopProfileEntity, isNewShop: Boolean = false): Result<Unit> {
         if (!SupabaseConfig.isConfigured) {
             return Result.failure(IllegalStateException("Supabase non configuré"))
         }
+        val activeAgent = AgentDeploymentStorage.getSavedAgentSession(context)
+        val effectiveDeployerId = profile.deployerId?.trim()?.uppercase()?.takeIf { it.isNotBlank() }
+            ?: activeAgent?.id?.trim()?.uppercase()
+        if (effectiveDeployerId.isNullOrBlank()) {
+            val msg = "Veuillez d'abord créer ou connecter un compte Agent Déployeur avant de créer une boutique."
+            _syncState.value = _syncState.value.copy(isSyncing = false, isError = true, statusMessage = msg)
+            return Result.failure(IllegalStateException(msg))
+        }
+
+        // 1. S'assurer d'abord que le compte agent existe dans Supabase (`agents`)
+        if (activeAgent != null && activeAgent.id.trim().equals(effectiveDeployerId, ignoreCase = true)) {
+            try {
+                apiClient.pushCloudAgent(activeAgent)
+            } catch (_: Exception) {}
+        }
+
         val cloudId = if (isNewShop) resetCloudShopId() else getOrCreateCloudShopId()
+        val profileWithAgent = profile.copy(deployerId = effectiveDeployerId)
+
         _syncState.value = _syncState.value.copy(
             isSyncing = true,
-            statusMessage = "Envoi de la boutique \"${profile.name}\" vers Supabase..."
+            statusMessage = "Envoi de la boutique \"${profileWithAgent.name}\" (Agent $effectiveDeployerId)..."
         )
-        val pushRes = apiClient.pushShopProfile(profile, cloudId)
+        val pushRes = apiClient.pushShopProfile(
+            profile = profileWithAgent,
+            cloudShopId = cloudId,
+            isNewShop = isNewShop
+        )
         val now = System.currentTimeMillis()
         if (pushRes.isSuccess) {
+            AgentDeploymentStorage.markCreatedShopOnDevice(context, profileWithAgent.name, effectiveDeployerId)
             saveLastSyncTimestamp(now)
-            val msg = "Boutique \"${profile.name}\" synchronisée avec succès dans Supabase (ID: $cloudId)"
+            val msg = "Boutique \"${profileWithAgent.name}\" synchronisée (Agent: $effectiveDeployerId)"
             _syncState.value = _syncState.value.copy(
                 isSyncing = false,
                 isError = false,
@@ -184,26 +255,31 @@ class SupabaseSyncManager(
         _syncState.value = _syncState.value.copy(
             isSyncing = true,
             isError = false,
-            statusMessage = "Synchronisation automatique de la configuration d'entreprise..."
+            statusMessage = "Synchronisation de la configuration boutique..."
         )
 
         try {
             var count = 0
 
-            // Synchronisation EXCLUSIVE du profil & configuration de l'entreprise
+            val activeAgent = AgentDeploymentStorage.getSavedAgentSession(context)
             val shop = repository.getShopProfileOnce()
             if (shop != null && shop.isConfigured && shop.name.isNotBlank()) {
-                val cloudId = getOrCreateCloudShopId()
-                val pushRes = apiClient.pushShopProfile(shop, cloudId)
-                if (pushRes.isSuccess) {
-                    count++
-                } else {
-                    val ex = pushRes.exceptionOrNull()
-                    if (ex != null) throw ex
+                val deployerId = shop.deployerId?.trim()?.uppercase()?.takeIf { it.isNotBlank() }
+                    ?: activeAgent?.id?.trim()?.uppercase()
+                if (!deployerId.isNullOrBlank()) {
+                    val cloudId = getOrCreateCloudShopId()
+                    val shopWithDeployer = shop.copy(deployerId = deployerId)
+                    val pushRes = apiClient.pushShopProfile(shopWithDeployer, cloudId, isNewShop = false)
+                    if (pushRes.isSuccess) {
+                        count++
+                    } else {
+                        val ex = pushRes.exceptionOrNull()
+                        if (ex != null) throw ex
+                    }
                 }
-            } else {
-                // Si non configuré en local ou nom vide, récupération de la configuration distante sur Supabase
-                val remoteShop = apiClient.fetchShopProfile().getOrNull()
+            } else if (activeAgent != null) {
+                // Récupérer uniquement la boutique liée à l'agent connecté (spécificité par agent)
+                val remoteShop = apiClient.fetchShopsForAgent(activeAgent.id).getOrNull()?.firstOrNull()
                 if (remoteShop != null && remoteShop.name.isNotBlank()) {
                     repository.saveShopProfile(remoteShop)
                     count++
@@ -214,7 +290,7 @@ class SupabaseSyncManager(
             saveLastSyncTimestamp(now)
 
             val companyName = shop?.name ?: "Boutique"
-            val successMsg = "Configuration d'entreprise synchronisée avec succès ($companyName sur Supabase)"
+            val successMsg = "Configuration boutique synchronisée ($companyName)"
             _syncState.value = _syncState.value.copy(
                 isSyncing = false,
                 isError = false,
@@ -223,18 +299,7 @@ class SupabaseSyncManager(
                 statusMessage = successMsg
             )
 
-            // Notification de confirmation discrète
             com.example.util.NotificationHelper.sendCloudSyncSuccess(context, successMsg)
-            repository.insertNotification(
-                com.example.data.local.entity.NotificationEntity(
-                    title = "Configuration Entreprise Synchronisée",
-                    message = "Informations de l'entreprise synchronisées avec Supabase ($companyName). Les ventes et produits restent sécurisés localement.",
-                    type = "SUPABASE_SYNC",
-                    priority = "NORMAL",
-                    actionRoute = "settings"
-                )
-            )
-
             return Result.success(count)
         } catch (e: Exception) {
             val errMsg = e.localizedMessage ?: "Erreur de synchronisation avec Supabase"
@@ -248,8 +313,8 @@ class SupabaseSyncManager(
     }
 
     /**
-     * Synchronise l'ensemble des données du magasin (Configuration, Produits, Clients, Ventes, Caisse)
-     * vers Supabase Cloud à la demande de l'utilisateur.
+     * Synchronise toutes les données persistantes de la boutique (configuration, produits, clients, ventes, fournisseurs, caisse)
+     * vers Supabase Cloud de façon permanente.
      */
     suspend fun syncFullStore(repository: KonabRepository): Result<Int> {
         if (!SupabaseConfig.isConfigured) {
@@ -261,34 +326,42 @@ class SupabaseSyncManager(
         _syncState.value = _syncState.value.copy(
             isSyncing = true,
             isError = false,
-            statusMessage = "Synchronisation complète de toutes les tables vers Supabase..."
+            statusMessage = "Synchronisation complète vers Supabase..."
         )
 
         try {
             var count = 0
 
-            // 1. Profil entreprise
+            // 1. Profil entreprise (uniquement si un agent déployeur est associé)
             val shop = repository.getShopProfileOnce()
-            if (shop != null) {
-                apiClient.pushShopProfile(shop)
-                count++
+            val activeAgent = AgentDeploymentStorage.getSavedAgentSession(context)
+            val deployerId = shop?.deployerId?.trim()?.uppercase()?.takeIf { it.isNotBlank() }
+                ?: activeAgent?.id?.trim()?.uppercase()
+            if (shop != null && shop.isConfigured && !deployerId.isNullOrBlank()) {
+                val cloudId = getOrCreateCloudShopId()
+                val res = apiClient.pushShopProfile(shop.copy(deployerId = deployerId), cloudId, isNewShop = false)
+                if (res.isSuccess) count++
             }
 
-            // 2. Produits
+            // 2. Déploiements d'agent
+            val depRes = syncAgentDeployments()
+            count += depRes.getOrDefault(0)
+
+            // 3. Produits & Stock (stockage permanent local + Cloud)
             val prods = repository.getAllProductsOnce()
             if (prods.isNotEmpty()) {
                 val res = apiClient.pushProducts(prods)
                 count += res.getOrDefault(0)
             }
 
-            // 3. Clients
+            // 4. Clients
             val custs = repository.getAllCustomersOnce()
             if (custs.isNotEmpty()) {
                 val res = apiClient.pushCustomers(custs)
                 count += res.getOrDefault(0)
             }
 
-            // 4. Ventes & Lignes de vente
+            // 5. Ventes & Lignes de vente
             val sales = repository.getAllSalesOnce()
             val saleItems = repository.getAllSaleItemsOnce()
             if (sales.isNotEmpty()) {
@@ -296,14 +369,14 @@ class SupabaseSyncManager(
                 count += res.getOrDefault(0)
             }
 
-            // 5. Fournisseurs
+            // 6. Fournisseurs
             val supps = repository.getDao().getAllSuppliersOnce()
             if (supps.isNotEmpty()) {
                 val res = apiClient.pushSuppliers(supps)
                 count += res.getOrDefault(0)
             }
 
-            // 6. Caisse
+            // 7. Caisse
             val movs = repository.getDao().getAllCashMovementsOnce()
             if (movs.isNotEmpty()) {
                 val res = apiClient.pushCashMovements(movs)
@@ -313,7 +386,7 @@ class SupabaseSyncManager(
             val now = System.currentTimeMillis()
             saveLastSyncTimestamp(now)
 
-            val successMsg = "Synchronisation complète réussie ($count données sur Supabase Cloud)"
+            val successMsg = "Synchronisation complète réussie ($count éléments sauvegardés dans Supabase)"
             _syncState.value = _syncState.value.copy(
                 isSyncing = false,
                 isError = false,
@@ -380,6 +453,55 @@ class SupabaseSyncManager(
             }
         }
         return Result.success(AgentDeploymentStorage.getDeploymentsForAgent(context, cleanId))
+    }
+
+    suspend fun registerNewAgentWithAutoMatricule(
+        name: String,
+        phone: String,
+        zone: String,
+        pin: String,
+        photoUri: String
+    ): Result<com.example.ui.screens.AgentUser> {
+        val cloudAgents = if (SupabaseConfig.isConfigured) {
+            try {
+                val res = apiClient.fetchCloudAgents()
+                if (res.isSuccess) {
+                    val list = res.getOrDefault(emptyList())
+                    if (list.isNotEmpty()) {
+                        AgentDeploymentStorage.saveCloudAgents(context, list)
+                    }
+                    list
+                } else emptyList()
+            } catch (_: Exception) {
+                emptyList()
+            }
+        } else {
+            emptyList()
+        }
+
+        val assignedMatricule = AgentDeploymentStorage.generateUniqueAgentMatricule(context, cloudAgents)
+        val cleanPhoto = photoUri.trim()
+        if (cleanPhoto.isNotBlank()) {
+            AgentDeploymentStorage.saveAgentPhotoUri(context, assignedMatricule, cleanPhoto)
+        }
+        val newAgent = com.example.ui.screens.AgentUser(
+            id = assignedMatricule,
+            name = name.trim(),
+            phone = phone.trim(),
+            zone = zone.trim().ifBlank { "National" },
+            pin = pin.trim(),
+            role = "Agent Déployeur",
+            photoUri = cleanPhoto
+        )
+
+        AgentDeploymentStorage.registerLocalAgent(context, newAgent)
+        AgentDeploymentStorage.saveAgentSession(context, newAgent)
+        if (SupabaseConfig.isConfigured) {
+            try {
+                apiClient.registerCloudAgent(newAgent)
+            } catch (_: Exception) {}
+        }
+        return Result.success(newAgent)
     }
 
     suspend fun registerAgentOnline(agent: com.example.ui.screens.AgentUser): Result<com.example.ui.screens.AgentUser> {

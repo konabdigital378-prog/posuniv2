@@ -12,10 +12,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ui.theme.OutfitFontFamily
-import com.example.ui.theme.KonabBorder
 
 @Composable
 fun StatCard(
@@ -29,11 +29,11 @@ fun StatCard(
     onClick: (() -> Unit)? = null
 ) {
     Card(
-        modifier = modifier,
+        modifier = modifier.konabPressScale(enabled = onClick != null),
         shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp, pressedElevation = 4.dp),
-        border = BorderStroke(1.dp, KonabBorder),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp, pressedElevation = 5.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.6f)),
         onClick = { onClick?.invoke() },
         enabled = onClick != null
     ) {
@@ -49,8 +49,8 @@ fun StatCard(
             ) {
                 Box(
                     modifier = Modifier
-                        .size(34.dp)
-                        .background(iconColor.copy(alpha = 0.12f), CircleShape),
+                        .size(36.dp)
+                        .background(iconColor.copy(alpha = 0.14f), CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
@@ -61,15 +61,19 @@ fun StatCard(
                     )
                 }
 
+                Spacer(modifier = Modifier.width(6.dp))
+
                 Surface(
                     shape = RoundedCornerShape(8.dp),
-                    color = containerColor.copy(alpha = 0.7f)
+                    color = containerColor.copy(alpha = 0.75f)
                 ) {
                     Text(
                         text = subtitle,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = iconColor,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
                     )
                 }
@@ -83,7 +87,8 @@ fun StatCard(
                 fontWeight = FontWeight.Bold,
                 fontSize = 18.sp,
                 color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
 
             Spacer(modifier = Modifier.height(2.dp))
@@ -93,8 +98,10 @@ fun StatCard(
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }
 }
+
