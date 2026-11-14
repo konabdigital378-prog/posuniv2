@@ -665,6 +665,7 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
             if (existing != null && existing.isConfigured && existing.name.isNotBlank()) {
                 reloadConnectedShopsState()
                 reloadRestaurantLocalState()
+                reloadCoutureLocalState()
                 resetTo(KonabScreen.DASHBOARD)
                 return@launch
             }
