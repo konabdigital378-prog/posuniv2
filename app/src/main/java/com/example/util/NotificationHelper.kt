@@ -22,6 +22,7 @@ object NotificationHelper {
     const val CHANNEL_DEBT = "konab_debt_channel"
     const val CHANNEL_SYNC = "konab_sync_channel"
     const val CHANNEL_SYSTEM = "konab_system_channel"
+    const val CHANNEL_RESTAURANT = "konab_restaurant_channel"
 
     private val notificationIdCounter = AtomicInteger(1000)
 
@@ -72,8 +73,17 @@ object NotificationHelper {
                 description = "Mises à jour et alertes importantes de la boutique"
             }
 
+            val restaurantChannel = NotificationChannel(
+                CHANNEL_RESTAURANT,
+                "Commandes Cuisine & Service",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Alertes temps réel pour la cuisine (QR tables) et notifications serveur (Prêt à servir)"
+                enableVibration(true)
+            }
+
             notificationManager.createNotificationChannels(
-                listOf(stockChannel, salesChannel, debtChannel, syncChannel, systemChannel)
+                listOf(stockChannel, salesChannel, debtChannel, syncChannel, systemChannel, restaurantChannel)
             )
         }
     }
@@ -224,6 +234,65 @@ object NotificationHelper {
             .setContentText(message)
             .setStyle(NotificationCompat.BigTextStyle().bigText(message))
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setContentIntent(getAppPendingIntent(context))
+            .setAutoCancel(true)
+
+        try {
+            NotificationManagerCompat.from(context).notify(notificationIdCounter.incrementAndGet(), builder.build())
+        } catch (e: SecurityException) {
+            e.printStackTrace()
+        }
+    }
+
+    fun sendRestaurantReadyAlert(
+        context: Context,
+        orderNumber: String,
+        tableName: String,
+        customerName: String,
+        itemsSummary: String
+    ) {
+        if (!hasNotificationPermission(context)) return
+
+        val title = "🍽️ Prêt à servir : $tableName ($orderNumber)"
+        val message = "Le serveur est notifié pour $customerName ($itemsSummary). À récupérer en cuisine !"
+
+        val builder = NotificationCompat.Builder(context, CHANNEL_RESTAURANT)
+            .setSmallIcon(android.R.drawable.ic_popup_reminder)
+            .setContentTitle(title)
+            .setContentText(message)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(message))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
+            .setContentIntent(getAppPendingIntent(context))
+            .setAutoCancel(true)
+
+        try {
+            NotificationManagerCompat.from(context).notify(notificationIdCounter.incrementAndGet(), builder.build())
+        } catch (e: SecurityException) {
+            e.printStackTrace()
+        }
+    }
+
+    fun sendRestaurantQrOrderAlert(
+        context: Context,
+        orderNumber: String,
+        tableName: String,
+        customerName: String,
+        totalAmount: Long,
+        currency: String = "FCFA"
+    ) {
+        if (!hasNotificationPermission(context)) return
+
+        val title = "📲 Commande QR en Cuisine : $tableName ($orderNumber)"
+        val message = "$customerName a commandé via le QR Code ($totalAmount $currency)."
+
+        val builder = NotificationCompat.Builder(context, CHANNEL_RESTAURANT)
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setContentTitle(title)
+            .setContentText(message)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(message))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
             .setContentIntent(getAppPendingIntent(context))
             .setAutoCancel(true)
 

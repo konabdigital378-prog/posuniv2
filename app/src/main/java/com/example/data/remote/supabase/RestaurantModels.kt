@@ -2,10 +2,12 @@ package com.example.data.remote.supabase
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.example.data.local.entity.ShopProfileEntity
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URLDecoder
 import java.net.URLEncoder
+import java.text.Normalizer
 import java.util.Locale
 
 enum class RestaurantStaffRole(
@@ -256,6 +258,23 @@ data class ParsedTableQr(
     val tableName: String
 )
 
+data class RestaurantTeamConfig(
+    val kitchenName: String = "Chef Cuisine",
+    val kitchenPhone: String = "",
+    val kitchenPin: String = "2222",
+    val waiterName: String = "Serveur Salle",
+    val waiterPhone: String = "",
+    val waiterPin: String = "1111",
+    val cashierName: String = "Caissier Salle",
+    val cashierPin: String = "0000",
+    val initialTableCount: Int = 4
+)
+
+data class RemoteStaffLoginResult(
+    val match: RemoteShopLoginMatch,
+    val staff: RestaurantStaffAccount?
+)
+
 object RestaurantQrParser {
     private const val SCHEME_PREFIX = "konabpos://menu"
 
@@ -264,8 +283,10 @@ object RestaurantQrParser {
         shopName: String,
         tableName: String
     ): String {
-        val encShop = URLEncoder.encode(shopName.trim(), "UTF-8")
-        val encTable = URLEncoder.encode(tableName.trim().ifBlank { "Table 1" }, "UTF-8")
+        val cleanShop = shopName.trim().take(48)
+        val cleanTable = tableName.trim().ifBlank { "Table 1" }.take(24)
+        val encShop = URLEncoder.encode(cleanShop, "UTF-8")
+        val encTable = URLEncoder.encode(cleanTable, "UTF-8")
         return "$SCHEME_PREFIX?shopId=$shopId&shop=$encShop&table=$encTable"
     }
 
@@ -273,12 +294,14 @@ object RestaurantQrParser {
         val clean = raw?.trim().orEmpty()
         if (clean.isBlank()) return null
 
+        val lower = clean.lowercase(Locale.ROOT)
         val queryPart = when {
-            clean.startsWith(SCHEME_PREFIX, ignoreCase = true) -> {
+            lower.startsWith(SCHEME_PREFIX) -> {
                 val idx = clean.indexOf('?')
                 if (idx >= 0) clean.substring(idx + 1) else ""
             }
-            clean.contains("konab", ignoreCase = true) && clean.contains("table=", ignoreCase = true) -> {
+            (lower.contains("konab") || lower.contains("menu=1") || lower.contains("mode=menu")) &&
+                (lower.contains("table=") || lower.contains("t=")) -> {
                 val idx = clean.indexOf('?')
                 if (idx >= 0) clean.substring(idx + 1) else clean
             }
@@ -300,9 +323,9 @@ object RestaurantQrParser {
             }
         }
 
-        val shopId = params["shopid"]?.toLongOrNull() ?: 0L
-        val shopName = params["shop"].orEmpty()
-        val tableName = params["table"].orEmpty().ifBlank { "Table 1" }
+        val shopId = (params["shopid"] ?: params["s"])?.toLongOrNull() ?: 0L
+        val shopName = (params["shop"] ?: params["n"]).orEmpty()
+        val tableName = (params["table"] ?: params["t"]).orEmpty().ifBlank { "Table 1" }
         if (shopId <= 0L && shopName.isBlank()) return null
         return ParsedTableQr(
             shopId = shopId,
@@ -350,6 +373,21 @@ object RestaurantStorage {
         if (idx >= 0) current[idx] = norm else current.add(norm)
         saveStaffAccounts(context, shopId, current)
         return current
+    }
+
+    @Synchronized
+    fun mergeStaffFromCloud(context: Context, shopId: Long, remoteStaff: List<RestaurantStaffAccount>): List<RestaurantStaffAccount> {
+        val mergedById = LinkedHashMap<String, RestaurantStaffAccount>()
+        getStaffAccounts(context, shopId).forEach { mergedById[it.id] = it }
+        remoteStaff.forEach { remote ->
+            val existing = mergedById[remote.id]
+            if (existing == null || remote.updatedAt >= existing.updatedAt) {
+                mergedById[remote.id] = remote.copy(shopId = shopId)
+            }
+        }
+        val finalList = mergedById.values.toList()
+        saveStaffAccounts(context, shopId, finalList)
+        return finalList
     }
 
     @Synchronized
@@ -435,6 +473,11 @@ object RestaurantStorage {
     }
 
     @Synchronized
+    fun clearActiveStaff(context: Context, shopId: Long) {
+        setActiveStaff(context, shopId, null)
+    }
+
+    @Synchronized
     fun getActiveStaff(context: Context, shopId: Long): RestaurantStaffAccount? {
         val id = prefs(context).getString("$KEY_ACTIVE_STAFF_ID$shopId", null)
         val all = getStaffAccounts(context, shopId)
@@ -481,6 +524,21 @@ object RestaurantStorage {
     }
 
     @Synchronized
+    fun mergeTablesFromCloud(context: Context, shopId: Long, remoteTables: List<RestaurantTableRecord>): List<RestaurantTableRecord> {
+        val mergedById = LinkedHashMap<String, RestaurantTableRecord>()
+        getTables(context, shopId).forEach { mergedById[it.id] = it }
+        remoteTables.forEach { remote ->
+            val existing = mergedById[remote.id]
+            if (existing == null || remote.updatedAt >= existing.updatedAt) {
+                mergedById[remote.id] = remote.copy(shopId = shopId)
+            }
+        }
+        val finalList = mergedById.values.toList()
+        saveTables(context, shopId, finalList)
+        return finalList
+    }
+
+    @Synchronized
     fun deleteTable(context: Context, shopId: Long, tableId: String): List<RestaurantTableRecord> {
         val updated = getTables(context, shopId).filterNot { it.id == tableId }
         saveTables(context, shopId, updated)
@@ -488,16 +546,17 @@ object RestaurantStorage {
     }
 
     @Synchronized
-    fun ensureDefaultTables(context: Context, shopId: Long): List<RestaurantTableRecord> {
+    fun ensureDefaultTables(context: Context, shopId: Long, count: Int = 4): List<RestaurantTableRecord> {
         val existing = getTables(context, shopId)
         if (existing.isNotEmpty()) return existing
         val now = System.currentTimeMillis()
-        val defaults = (1..4).map { num ->
+        val safeCount = count.coerceIn(1, 24)
+        val defaults = (1..safeCount).map { num ->
             RestaurantTableRecord(
                 id = "TBL-$shopId-$num",
                 shopId = shopId,
                 tableNumber = "Table $num",
-                zone = if (num <= 2) "Salle Principale" else "Terrasse",
+                zone = if (num <= (safeCount / 2).coerceAtLeast(2)) "Salle Principale" else "Terrasse",
                 seats = 4,
                 isActive = true,
                 updatedAt = now
@@ -619,5 +678,155 @@ object RestaurantStorage {
         if (productId in current) current.remove(productId) else current.add(productId)
         setMenuOfDayProductIds(context, shopId, current)
         return current
+    }
+}
+
+object RestaurantKitchenHelper {
+    private val KITCHEN_ACTIVE_STATUSES = setOf(
+        RestaurantOrderStatus.PENDING_MANAGER,
+        RestaurantOrderStatus.SENT_TO_KITCHEN,
+        RestaurantOrderStatus.IN_PREPARATION
+    )
+
+    fun filterActiveQrOrders(orders: List<RestaurantOrderRecord>): List<RestaurantOrderRecord> {
+        return orders
+            .filter { it.source.equals("QR_TABLE", ignoreCase = true) && it.status in KITCHEN_ACTIVE_STATUSES }
+            .sortedBy { it.createdAt }
+    }
+
+    fun filterAllActiveKitchenOrders(orders: List<RestaurantOrderRecord>): List<RestaurantOrderRecord> {
+        return orders
+            .filter { it.status in KITCHEN_ACTIVE_STATUSES }
+            .sortedBy { it.createdAt }
+    }
+
+    fun filterReadyToServeOrders(orders: List<RestaurantOrderRecord>): List<RestaurantOrderRecord> {
+        return orders
+            .filter { it.status == RestaurantOrderStatus.READY }
+            .sortedByDescending { it.updatedAt }
+    }
+
+    fun formatItemsSummary(order: RestaurantOrderRecord): String {
+        if (order.items.isEmpty()) return "Commande vide"
+        return order.items.joinToString(", ") { "${it.quantity}x ${it.productName}" }.take(90)
+    }
+
+    fun formatElapsedLabel(createdAt: Long, nowMillis: Long = System.currentTimeMillis()): String {
+        val diffMin = ((nowMillis - createdAt).coerceAtLeast(0L) / 60_000L)
+        return when {
+            diffMin < 1L -> "À l'instant"
+            diffMin < 60L -> "${diffMin} min"
+            else -> "${diffMin / 60L}h ${(diffMin % 60L).toString().padStart(2, '0')}"
+        }
+    }
+}
+
+data class PublicRestaurantListing(
+    val shopId: Long,
+    val name: String,
+    val slogan: String = "",
+    val city: String = "",
+    val address: String = "",
+    val phone: String = "",
+    val currency: String = "FCFA",
+    val logoUri: String? = null,
+    val businessType: String = "Restaurant"
+) {
+    fun toWebSlug(): String {
+        val decomposed = Normalizer.normalize(name.trim().lowercase(Locale.ROOT), Normalizer.Form.NFD)
+            .replace("\\p{InCombiningDiacriticalMarks}+".toRegex(), "")
+        val slug = decomposed.replace("[^a-z0-9]+".toRegex(), "-").trim('-')
+        return slug.ifBlank { "restaurant" }
+    }
+}
+
+object RestaurantDirectoryHelper {
+    private val RESTAURANT_KEYWORDS = listOf("restaurant", "maquis", "bistro", "grill", "café", "cafe", "snack", "fast food", "traiteur")
+
+    fun isRestaurantShop(businessType: String?): Boolean {
+        val clean = businessType?.trim()?.lowercase(Locale.ROOT).orEmpty()
+        if (clean.isBlank()) return false
+        return clean == "restaurant" || RESTAURANT_KEYWORDS.any { clean.contains(it) }
+    }
+
+    fun mergeAndFilterDirectory(
+        remoteListings: List<PublicRestaurantListing>,
+        cachedShops: List<ShopProfileEntity> = emptyList(),
+        connectedShops: List<ConnectedShopSession> = emptyList(),
+        localShop: ShopProfileEntity? = null,
+        localShopCloudId: Long = 0L,
+        query: String = ""
+    ): List<PublicRestaurantListing> {
+        val byKey = LinkedHashMap<String, PublicRestaurantListing>()
+
+        fun putIfValid(item: PublicRestaurantListing) {
+            if (item.name.isBlank() || !isRestaurantShop(item.businessType)) return
+            val normName = AgentDeploymentStorage.normalizeShopName(item.name)
+            val existing = byKey[normName]
+            if (existing == null || (existing.shopId <= 1L && item.shopId > 1L) || (existing.logoUri.isNullOrBlank() && !item.logoUri.isNullOrBlank())) {
+                byKey[normName] = item
+            }
+        }
+
+        remoteListings.forEach { putIfValid(it) }
+
+        connectedShops.forEach { s ->
+            putIfValid(
+                PublicRestaurantListing(
+                    shopId = s.cloudShopId,
+                    name = s.shopName,
+                    slogan = s.slogan,
+                    city = s.city,
+                    address = s.address,
+                    phone = s.phone,
+                    currency = s.currency.ifBlank { "FCFA" },
+                    logoUri = s.logoUri,
+                    businessType = s.businessType
+                )
+            )
+        }
+
+        cachedShops.forEach { s ->
+            putIfValid(
+                PublicRestaurantListing(
+                    shopId = s.id.toLong().takeIf { it > 1L } ?: 0L,
+                    name = s.name,
+                    slogan = s.slogan,
+                    city = s.city,
+                    address = s.address,
+                    phone = s.phone,
+                    currency = s.currency.ifBlank { "FCFA" },
+                    logoUri = s.logoUri,
+                    businessType = s.businessType
+                )
+            )
+        }
+
+        if (localShop != null && localShop.isConfigured) {
+            putIfValid(
+                PublicRestaurantListing(
+                    shopId = localShopCloudId.takeIf { it > 1L } ?: localShop.id.toLong(),
+                    name = localShop.name,
+                    slogan = localShop.slogan,
+                    city = localShop.city,
+                    address = localShop.address,
+                    phone = localShop.phone,
+                    currency = localShop.currency.ifBlank { "FCFA" },
+                    logoUri = localShop.logoUri,
+                    businessType = localShop.businessType
+                )
+            )
+        }
+
+        val cleanQuery = query.trim()
+        return byKey.values
+            .filter { item ->
+                cleanQuery.isBlank() ||
+                    item.name.contains(cleanQuery, ignoreCase = true) ||
+                    item.city.contains(cleanQuery, ignoreCase = true) ||
+                    item.slogan.contains(cleanQuery, ignoreCase = true) ||
+                    item.address.contains(cleanQuery, ignoreCase = true)
+            }
+            .sortedBy { it.name.lowercase(Locale.ROOT) }
     }
 }

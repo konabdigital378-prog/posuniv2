@@ -51,6 +51,7 @@ fun NotificationCenterModal(
             "STOCK" -> notifications.filter { it.type == "STOCK_ALERT" }
             "SALE" -> notifications.filter { it.type == "SALE_COMPLETED" }
             "DEBT" -> notifications.filter { it.type == "DEBT_ALERT" }
+            "RESTO" -> notifications.filter { it.type.startsWith("RESTAURANT_") }
             "SYNC" -> notifications.filter { it.type == "SUPABASE_SYNC" }
             else -> notifications
         }
@@ -178,6 +179,7 @@ fun NotificationCenterModal(
                         "ALL" to "Toutes (${notifications.size})",
                         "UNREAD" to "Non lues ($unreadCount)",
                         "STOCK" to "Stock (${notifications.count { it.type == "STOCK_ALERT" }})",
+                        "RESTO" to "Cuisine (${notifications.count { it.type.startsWith("RESTAURANT_") }})",
                         "SALE" to "Ventes (${notifications.count { it.type == "SALE_COMPLETED" }})",
                         "DEBT" to "Dettes (${notifications.count { it.type == "DEBT_ALERT" }})",
                         "SYNC" to "Cloud (${notifications.count { it.type == "SUPABASE_SYNC" }})"
@@ -345,6 +347,8 @@ private fun NotificationCardItem(
         "STOCK_ALERT" -> Triple(Icons.Default.WarningAmber, Color(0xFFD97706), Color(0xFFFEF3C7))
         "SALE_COMPLETED" -> Triple(Icons.Default.CheckCircle, KonabGreen, Color(0xFFD1FAE5))
         "DEBT_ALERT" -> Triple(Icons.Default.CreditCard, Color(0xFFEA580C), Color(0xFFFFEDD5))
+        "RESTAURANT_READY" -> Triple(Icons.Default.NotificationsActive, KonabGreen, Color(0xFFD1FAE5))
+        "RESTAURANT_QR_ORDER", "RESTAURANT_ORDER" -> Triple(Icons.Default.SoupKitchen, Color(0xFFEA580C), Color(0xFFFFEDD5))
         "SUPABASE_SYNC" -> Triple(Icons.Default.CloudDone, Color(0xFF0284C7), Color(0xFFE0F2FE))
         else -> Triple(Icons.Default.Info, Color(0xFF6B7280), Color(0xFFF3F4F6))
     }
@@ -457,6 +461,7 @@ private fun NotificationCardItem(
                             "customers" -> "Gérer le client"
                             "reports" -> "Voir la vente"
                             "settings" -> "Paramètres Cloud"
+                            "restaurant" -> "Ouvrir Cuisine / Service"
                             else -> "Ouvrir"
                         }
                         Button(

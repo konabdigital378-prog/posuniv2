@@ -37,7 +37,8 @@ data class SetupUiState(
     val cloudShopId: Long? = null,
     val generatedLicenseKey: String = "",
     val isCloudSyncSuccess: Boolean = false,
-    val cloudSyncMessage: String? = null
+    val cloudSyncMessage: String? = null,
+    val restaurantTeam: com.example.data.remote.supabase.RestaurantTeamConfig = com.example.data.remote.supabase.RestaurantTeamConfig()
 )
 
 class SetupViewModel(application: Application) : AndroidViewModel(application) {
@@ -117,6 +118,10 @@ class SetupViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update { it.copy(selectedSubscriptionTier = tier) }
     }
 
+    fun updateRestaurantTeam(transform: (com.example.data.remote.supabase.RestaurantTeamConfig) -> com.example.data.remote.supabase.RestaurantTeamConfig) {
+        _uiState.update { it.copy(restaurantTeam = transform(it.restaurantTeam), validationError = null) }
+    }
+
     fun validateBusinessInfo(): Boolean {
         val state = _uiState.value
         if (state.shopName.isBlank()) {
@@ -189,6 +194,13 @@ class SetupViewModel(application: Application) : AndroidViewModel(application) {
         if (state.adminPin != state.confirmPin) {
             _uiState.update { it.copy(validationError = "Les deux codes PIN ne correspondent pas") }
             return false
+        }
+        if (state.selectedBusinessType.equals("Restaurant", ignoreCase = true)) {
+            val team = state.restaurantTeam
+            if (team.kitchenPin.length < 4 || team.waiterPin.length < 4 || team.cashierPin.length < 4) {
+                _uiState.update { it.copy(validationError = "Les codes PIN Cuisine, Serveur et Caissier doivent comporter 4 chiffres") }
+                return false
+            }
         }
         _uiState.update { it.copy(validationError = null) }
         return true
@@ -327,7 +339,10 @@ class SetupViewModel(application: Application) : AndroidViewModel(application) {
                 preloadDemoData = state.preloadDemoData,
                 subscriptionTier = tier,
                 activeAgent = currentAgent,
-                notes = "Activité: ${state.selectedBusinessType}"
+                notes = "Activité: ${state.selectedBusinessType}",
+                restaurantTeam = if (state.selectedBusinessType.equals("Restaurant", ignoreCase = true)) {
+                    state.restaurantTeam
+                } else null
             )
 
             if (result.isFailure) {

@@ -1560,4 +1560,678 @@ class SupabaseApiClient(
             Result.failure(e)
         }
     }
+
+    // --- RESTAURANT MULTI-USER SYNC, STAFF, TABLES, MENU DU JOUR & ORDERS ---
+
+    data class PublicRestaurantMenuBundle(
+        val shopId: Long,
+        val shopName: String,
+        val city: String,
+        val phone: String,
+        val currency: String,
+        val products: List<ProductEntity>,
+        val menuDayIds: Set<Long>,
+        val slogan: String = "",
+        val address: String = "",
+        val logoUri: String? = null,
+        val tables: List<RestaurantTableRecord> = emptyList()
+    )
+
+    suspend fun fetchPublicRestaurantsDirectory(): Result<List<PublicRestaurantListing>> = withContext(Dispatchers.IO) {
+        if (!SupabaseConfig.isConfigured) return@withContext Result.success(emptyList())
+        try {
+            val request = buildRequest("shop_profile?select=*&order=updated_at.desc&limit=300")
+            client.newCall(request).execute().use { resp ->
+                if (!resp.isSuccessful) {
+                    return@withContext Result.failure(IOException("Échec chargement restaurants (${resp.code})"))
+                }
+                val arr = JSONArray(resp.body?.string() ?: "[]")
+                val list = mutableListOf<PublicRestaurantListing>()
+                for (i in 0 until arr.length()) {
+                    val o = arr.getJSONObject(i)
+                    val name = o.optString("name", "").trim()
+                    val bType = o.optString("business_type", "").trim()
+                    if (name.isNotBlank() && RestaurantDirectoryHelper.isRestaurantShop(bType)) {
+                        val rawLogo = if (o.has("logo_uri") && !o.isNull("logo_uri")) {
+                            o.optString("logo_uri", "").trim().ifBlank { null }
+                        } else null
+                        list.add(
+                            PublicRestaurantListing(
+                                shopId = o.optLong("id", 0L),
+                                name = name,
+                                slogan = o.optString("slogan", "").trim(),
+                                city = o.optString("city", "").trim(),
+                                address = o.optString("address", "").trim(),
+                                phone = o.optString("phone", "").trim(),
+                                currency = o.optString("currency", "FCFA").trim().ifBlank { "FCFA" },
+                                logoUri = rawLogo,
+                                businessType = bType
+                            )
+                        )
+                    }
+                }
+                Result.success(list)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun authenticateShopTeamMemberRemote(
+        identifier: String,
+        pin: String
+    ): Result<RemoteStaffLoginResult?> = withContext(Dispatchers.IO) {
+        if (!SupabaseConfig.isConfigured) {
+            return@withContext Result.failure(IllegalStateException("Supabase non configuré."))
+        }
+        val cleanId = identifier.trim()
+        val cleanPin = pin.trim()
+        if (cleanId.isBlank() || cleanPin.isBlank()) {
+            return@withContext Result.failure(IllegalArgumentException("Veuillez renseigner l'identifiant (boutique ou téléphone) et le code PIN."))
+        }
+        try {
+            val request = buildRequest("shop_profile?select=*&order=updated_at.desc&limit=1000")
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    val err = response.body?.string() ?: ""
+                    return@withContext Result.failure(IOException("Erreur connexion Supabase (${response.code}): $err"))
+                }
+                val body = response.body?.string() ?: "[]"
+                val jsonArr = JSONArray(body)
+                var firstIdMatchName: String? = null
+                for (i in 0 until jsonArr.length()) {
+                    val o = jsonArr.getJSONObject(i)
+                    val cloudId = o.optLong("id", 0L)
+                    val session = parseConnectedShopSession(o)
+                    val matchesId = MultiShopStorage.identifierMatchesSession(
+                        identifier = cleanId,
+                        shopName = session.shopName,
+                        shopPhone = session.phone,
+                        adminName = session.adminName,
+                        adminPhone = session.adminPhone,
+                        cloudShopId = cloudId
+                    )
+                    if (matchesId) {
+                        if (firstIdMatchName == null) firstIdMatchName = session.shopName
+                        val storedPin = if (o.has("admin_pin") && !o.isNull("admin_pin")) {
+                            o.optString("admin_pin", "").trim()
+                        } else ""
+                        val expectedPin = storedPin.ifBlank { "1234" }
+                        val match = RemoteShopLoginMatch(
+                            cloudShopId = cloudId,
+                            session = session,
+                            profile = session.toShopProfileEntity()
+                        )
+                        if (expectedPin == cleanPin) {
+                            return@withContext Result.success(RemoteStaffLoginResult(match = match, staff = null))
+                        }
+                        val staffList = fetchRestaurantStaff(cloudId).getOrDefault(emptyList())
+                        val staffMatch = staffList.firstOrNull { it.isActive && it.pin == cleanPin }
+                        if (staffMatch != null) {
+                            return@withContext Result.success(RemoteStaffLoginResult(match = match, staff = staffMatch))
+                        }
+                    }
+                }
+                if (firstIdMatchName != null) {
+                    return@withContext Result.failure(
+                        IllegalArgumentException("Code PIN gérant ou équipe incorrect pour « $firstIdMatchName ».")
+                    )
+                }
+                Result.success(null)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun pushRestaurantStaff(staff: List<RestaurantStaffAccount>, shopId: Long): Result<Int> = withContext(Dispatchers.IO) {
+        if (!SupabaseConfig.isConfigured || staff.isEmpty() || shopId <= 1L) return@withContext Result.success(0)
+        try {
+            val array = JSONArray()
+            staff.forEach { member ->
+                array.put(member.copy(shopId = shopId).toJson())
+            }
+            val request = buildRequest(
+                endpoint = "restaurant_staff?on_conflict=id",
+                method = "POST",
+                bodyString = array.toString(),
+                extraHeaders = mapOf("Prefer" to "resolution=merge-duplicates")
+            )
+            client.newCall(request).execute().use { resp ->
+                if (resp.isSuccessful) Result.success(staff.size)
+                else Result.failure(IOException("Échec sync équipe (${resp.code}): ${resp.body?.string() ?: ""}"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun fetchRestaurantStaff(shopId: Long): Result<List<RestaurantStaffAccount>> = withContext(Dispatchers.IO) {
+        if (!SupabaseConfig.isConfigured || shopId <= 1L) return@withContext Result.success(emptyList())
+        try {
+            val request = buildRequest("restaurant_staff?shop_id=eq.$shopId&select=*&order=updated_at.asc")
+            client.newCall(request).execute().use { resp ->
+                if (!resp.isSuccessful) {
+                    return@withContext Result.failure(IOException("Échec chargement équipe (${resp.code})"))
+                }
+                val arr = JSONArray(resp.body?.string() ?: "[]")
+                val list = mutableListOf<RestaurantStaffAccount>()
+                for (i in 0 until arr.length()) {
+                    list.add(RestaurantStaffAccount.fromJson(arr.getJSONObject(i)))
+                }
+                Result.success(list)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun deleteRestaurantStaff(staffId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        if (!SupabaseConfig.isConfigured || staffId.isBlank()) return@withContext Result.success(Unit)
+        try {
+            val enc = URLEncoder.encode(staffId, "UTF-8")
+            val request = buildRequest("restaurant_staff?id=eq.$enc", method = "DELETE")
+            client.newCall(request).execute().use { resp ->
+                if (resp.isSuccessful) Result.success(Unit)
+                else Result.failure(IOException("Échec suppression membre (${resp.code})"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun pushRestaurantTables(tables: List<RestaurantTableRecord>, shopId: Long): Result<Int> = withContext(Dispatchers.IO) {
+        if (!SupabaseConfig.isConfigured || tables.isEmpty() || shopId <= 1L) return@withContext Result.success(0)
+        try {
+            val array = JSONArray()
+            tables.forEach { t -> array.put(t.copy(shopId = shopId).toJson()) }
+            val request = buildRequest(
+                endpoint = "restaurant_tables?on_conflict=id",
+                method = "POST",
+                bodyString = array.toString(),
+                extraHeaders = mapOf("Prefer" to "resolution=merge-duplicates")
+            )
+            client.newCall(request).execute().use { resp ->
+                if (resp.isSuccessful) Result.success(tables.size)
+                else Result.failure(IOException("Échec sync tables (${resp.code}): ${resp.body?.string() ?: ""}"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun fetchRestaurantTables(shopId: Long): Result<List<RestaurantTableRecord>> = withContext(Dispatchers.IO) {
+        if (!SupabaseConfig.isConfigured || shopId <= 1L) return@withContext Result.success(emptyList())
+        try {
+            val request = buildRequest("restaurant_tables?shop_id=eq.$shopId&select=*&order=table_number.asc")
+            client.newCall(request).execute().use { resp ->
+                if (!resp.isSuccessful) {
+                    return@withContext Result.failure(IOException("Échec chargement tables (${resp.code})"))
+                }
+                val arr = JSONArray(resp.body?.string() ?: "[]")
+                val list = mutableListOf<RestaurantTableRecord>()
+                for (i in 0 until arr.length()) {
+                    list.add(RestaurantTableRecord.fromJson(arr.getJSONObject(i)))
+                }
+                Result.success(list)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun deleteRestaurantTable(tableId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        if (!SupabaseConfig.isConfigured || tableId.isBlank()) return@withContext Result.success(Unit)
+        try {
+            val enc = URLEncoder.encode(tableId, "UTF-8")
+            val request = buildRequest("restaurant_tables?id=eq.$enc", method = "DELETE")
+            client.newCall(request).execute().use { resp ->
+                if (resp.isSuccessful) Result.success(Unit)
+                else Result.failure(IOException("Échec suppression table (${resp.code})"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun pushRestaurantOrders(orders: List<RestaurantOrderRecord>, shopId: Long): Result<Int> = withContext(Dispatchers.IO) {
+        if (!SupabaseConfig.isConfigured || orders.isEmpty() || shopId <= 1L) return@withContext Result.success(0)
+        try {
+            val array = JSONArray()
+            orders.forEach { order ->
+                array.put(order.copy(shopId = shopId).toJson())
+            }
+            val request = buildRequest(
+                endpoint = "restaurant_orders?on_conflict=id",
+                method = "POST",
+                bodyString = array.toString(),
+                extraHeaders = mapOf("Prefer" to "resolution=merge-duplicates")
+            )
+            client.newCall(request).execute().use { resp ->
+                if (resp.isSuccessful) Result.success(orders.size)
+                else Result.failure(IOException("Échec sync commandes (${resp.code}): ${resp.body?.string() ?: ""}"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun fetchRestaurantOrders(shopId: Long): Result<List<RestaurantOrderRecord>> = withContext(Dispatchers.IO) {
+        if (!SupabaseConfig.isConfigured || shopId <= 1L) return@withContext Result.success(emptyList())
+        try {
+            val request = buildRequest("restaurant_orders?shop_id=eq.$shopId&select=*&order=created_at.desc&limit=200")
+            client.newCall(request).execute().use { resp ->
+                if (!resp.isSuccessful) {
+                    return@withContext Result.failure(IOException("Échec chargement commandes (${resp.code})"))
+                }
+                val arr = JSONArray(resp.body?.string() ?: "[]")
+                val list = mutableListOf<RestaurantOrderRecord>()
+                for (i in 0 until arr.length()) {
+                    list.add(RestaurantOrderRecord.fromJson(arr.getJSONObject(i)))
+                }
+                Result.success(list)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun pushMenuOfDay(shopId: Long, productIds: Set<Long>): Result<Unit> = withContext(Dispatchers.IO) {
+        if (!SupabaseConfig.isConfigured || shopId <= 1L) return@withContext Result.success(Unit)
+        try {
+            val idsArr = JSONArray().apply {
+                productIds.filter { it > 0L }.forEach { put(it) }
+            }
+            val payload = JSONArray().apply {
+                put(
+                    JSONObject().apply {
+                        put("shop_id", shopId)
+                        put("product_ids_json", idsArr.toString())
+                        put("updated_at", System.currentTimeMillis())
+                    }
+                )
+            }
+            val request = buildRequest(
+                endpoint = "restaurant_menu_day?on_conflict=shop_id",
+                method = "POST",
+                bodyString = payload.toString(),
+                extraHeaders = mapOf("Prefer" to "resolution=merge-duplicates")
+            )
+            client.newCall(request).execute().use { resp ->
+                if (resp.isSuccessful) Result.success(Unit)
+                else Result.failure(IOException("Échec sync menu du jour (${resp.code})"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun fetchMenuOfDay(shopId: Long): Result<Set<Long>> = withContext(Dispatchers.IO) {
+        if (!SupabaseConfig.isConfigured || shopId <= 1L) return@withContext Result.success(emptySet())
+        try {
+            val request = buildRequest("restaurant_menu_day?shop_id=eq.$shopId&select=*")
+            client.newCall(request).execute().use { resp ->
+                if (!resp.isSuccessful) {
+                    return@withContext Result.failure(IOException("Échec lecture menu du jour (${resp.code})"))
+                }
+                val arr = JSONArray(resp.body?.string() ?: "[]")
+                if (arr.length() == 0) return@withContext Result.success(emptySet())
+                val rawIds = arr.getJSONObject(0).optString("product_ids_json", "[]")
+                val idArr = JSONArray(rawIds)
+                val out = mutableSetOf<Long>()
+                for (i in 0 until idArr.length()) {
+                    val v = idArr.optLong(i, 0L)
+                    if (v > 0L) out.add(v)
+                }
+                Result.success(out)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun fetchPublicRestaurantMenuBundle(
+        shopId: Long,
+        fallbackShopName: String = ""
+    ): Result<PublicRestaurantMenuBundle> = withContext(Dispatchers.IO) {
+        if (!SupabaseConfig.isConfigured) {
+            return@withContext Result.failure(IllegalStateException("Connexion Cloud non configurée."))
+        }
+        try {
+            var resolvedShop: ShopProfileEntity? = null
+            var resolvedShopId = shopId
+
+            if (resolvedShopId > 1L) {
+                val req = buildRequest("shop_profile?id=eq.$resolvedShopId&select=*&limit=1")
+                client.newCall(req).execute().use { resp ->
+                    if (resp.isSuccessful) {
+                        val arr = JSONArray(resp.body?.string() ?: "[]")
+                        if (arr.length() > 0) {
+                            resolvedShop = parseShopProfile(arr.getJSONObject(0))
+                        }
+                    }
+                }
+            }
+            if (resolvedShop == null && fallbackShopName.isNotBlank()) {
+                val req = buildRequest("shop_profile?select=*&order=updated_at.desc&limit=500")
+                client.newCall(req).execute().use { resp ->
+                    if (resp.isSuccessful) {
+                        val arr = JSONArray(resp.body?.string() ?: "[]")
+                        val targetNorm = AgentDeploymentStorage.normalizeShopName(fallbackShopName)
+                        for (i in 0 until arr.length()) {
+                            val obj = arr.getJSONObject(i)
+                            val candidateName = AgentDeploymentStorage.normalizeShopName(obj.optString("name", ""))
+                            if (candidateName == targetNorm) {
+                                resolvedShop = parseShopProfile(obj)
+                                resolvedShopId = obj.optLong("id", resolvedShopId)
+                                break
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (resolvedShopId <= 1L && resolvedShop == null) {
+                return@withContext Result.failure(IllegalStateException("Restaurant introuvable."))
+            }
+
+            val products = fetchProducts(resolvedShopId).getOrDefault(emptyList())
+            val menuDayIds = fetchMenuOfDay(resolvedShopId).getOrDefault(emptySet())
+            val tables = fetchRestaurantTables(resolvedShopId).getOrDefault(emptyList())
+            val filtered = if (menuDayIds.isNotEmpty()) {
+                val matched = products.filter { p ->
+                    p.isAvailable && (
+                        p.id in menuDayIds ||
+                        MultiShopStorage.scopedCloudId(resolvedShopId, p.id) in menuDayIds ||
+                        (p.id % 100000L) in menuDayIds
+                    )
+                }
+                if (matched.isNotEmpty()) matched else products.filter { it.isAvailable }
+            } else {
+                products.filter { it.isAvailable }
+            }
+
+            Result.success(
+                PublicRestaurantMenuBundle(
+                    shopId = resolvedShopId,
+                    shopName = resolvedShop?.name?.takeIf { it.isNotBlank() } ?: fallbackShopName.ifBlank { "Restaurant" },
+                    city = resolvedShop?.city.orEmpty(),
+                    phone = resolvedShop?.phone.orEmpty(),
+                    currency = resolvedShop?.currency?.ifBlank { "FCFA" } ?: "FCFA",
+                    products = filtered,
+                    menuDayIds = menuDayIds,
+                    slogan = resolvedShop?.slogan.orEmpty(),
+                    address = resolvedShop?.address.orEmpty(),
+                    logoUri = resolvedShop?.logoUri,
+                    tables = tables
+                )
+            )
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    // --- COUTURE DIRECTORY, CATALOGUE QR, MESURES & SUIVI CLIENT ---
+
+    data class PublicCoutureCatalogBundle(
+        val shopId: Long,
+        val shopName: String,
+        val slogan: String = "",
+        val city: String = "",
+        val address: String = "",
+        val phone: String = "",
+        val currency: String = "FCFA",
+        val logoUri: String? = null,
+        val models: List<CoutureModelRecord> = emptyList(),
+        val products: List<ProductEntity> = emptyList()
+    )
+
+    suspend fun fetchPublicCouturiersDirectory(): Result<List<PublicCouturierListing>> = withContext(Dispatchers.IO) {
+        if (!SupabaseConfig.isConfigured) return@withContext Result.success(emptyList())
+        try {
+            val request = buildRequest("shop_profile?select=*&order=updated_at.desc&limit=300")
+            client.newCall(request).execute().use { resp ->
+                if (!resp.isSuccessful) {
+                    return@withContext Result.failure(IOException("Échec chargement couturiers (${resp.code})"))
+                }
+                val arr = JSONArray(resp.body?.string() ?: "[]")
+                val list = mutableListOf<PublicCouturierListing>()
+                for (i in 0 until arr.length()) {
+                    val o = arr.getJSONObject(i)
+                    val name = o.optString("name", "").trim()
+                    val bType = o.optString("business_type", "").trim()
+                    if (name.isNotBlank() && CoutureDirectoryHelper.isCoutureShop(bType)) {
+                        val rawLogo = if (o.has("logo_uri") && !o.isNull("logo_uri")) {
+                            o.optString("logo_uri", "").trim().ifBlank { null }
+                        } else null
+                        list.add(
+                            PublicCouturierListing(
+                                shopId = o.optLong("id", 0L),
+                                name = name,
+                                slogan = o.optString("slogan", "").trim(),
+                                city = o.optString("city", "").trim(),
+                                address = o.optString("address", "").trim(),
+                                phone = o.optString("phone", "").trim(),
+                                currency = o.optString("currency", "FCFA").trim().ifBlank { "FCFA" },
+                                logoUri = rawLogo,
+                                businessType = bType
+                            )
+                        )
+                    }
+                }
+                Result.success(list)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun fetchPublicCoutureModelsFeed(): Result<List<CoutureModelRecord>> = withContext(Dispatchers.IO) {
+        if (!SupabaseConfig.isConfigured) return@withContext Result.success(emptyList())
+        try {
+            val request = buildRequest("couture_models?is_available=eq.true&select=*&order=updated_at.desc&limit=300")
+            client.newCall(request).execute().use { resp ->
+                if (!resp.isSuccessful) {
+                    return@withContext Result.failure(IOException("Échec chargement modèles couture (${resp.code})"))
+                }
+                val arr = JSONArray(resp.body?.string() ?: "[]")
+                val list = (0 until arr.length()).map { CoutureModelRecord.fromJson(arr.getJSONObject(it)) }
+                Result.success(list)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun pushCoutureModels(models: List<CoutureModelRecord>, shopId: Long): Result<Int> = withContext(Dispatchers.IO) {
+        if (!SupabaseConfig.isConfigured || models.isEmpty() || shopId <= 1L) return@withContext Result.success(0)
+        try {
+            val array = JSONArray()
+            models.forEach { array.put(it.copy(shopId = shopId).toJson()) }
+            val request = buildRequest(
+                endpoint = "couture_models?on_conflict=id",
+                method = "POST",
+                bodyString = array.toString(),
+                extraHeaders = mapOf("Prefer" to "resolution=merge-duplicates")
+            )
+            client.newCall(request).execute().use { resp ->
+                if (resp.isSuccessful) Result.success(models.size)
+                else Result.failure(IOException("Échec sync modèles couture (${resp.code})"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun fetchCoutureModels(shopId: Long): Result<List<CoutureModelRecord>> = withContext(Dispatchers.IO) {
+        if (!SupabaseConfig.isConfigured || shopId <= 1L) return@withContext Result.success(emptyList())
+        try {
+            val request = buildRequest("couture_models?shop_id=eq.$shopId&select=*&order=updated_at.desc")
+            client.newCall(request).execute().use { resp ->
+                if (!resp.isSuccessful) {
+                    return@withContext Result.failure(IOException("Échec chargement modèles (${resp.code})"))
+                }
+                val arr = JSONArray(resp.body?.string() ?: "[]")
+                Result.success((0 until arr.length()).map { CoutureModelRecord.fromJson(arr.getJSONObject(it)) })
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun deleteCoutureModel(modelId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        if (!SupabaseConfig.isConfigured || modelId.isBlank()) return@withContext Result.success(Unit)
+        try {
+            val enc = URLEncoder.encode(modelId, "UTF-8")
+            val request = buildRequest("couture_models?id=eq.$enc", method = "DELETE")
+            client.newCall(request).execute().use { resp ->
+                if (resp.isSuccessful) Result.success(Unit)
+                else Result.failure(IOException("Échec suppression modèle (${resp.code})"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun pushCoutureOrders(orders: List<CoutureOrderRecord>, shopId: Long): Result<Int> = withContext(Dispatchers.IO) {
+        if (!SupabaseConfig.isConfigured || orders.isEmpty() || shopId <= 1L) return@withContext Result.success(0)
+        try {
+            val array = JSONArray()
+            orders.forEach { array.put(it.copy(shopId = shopId).toJson()) }
+            val request = buildRequest(
+                endpoint = "couture_orders?on_conflict=id",
+                method = "POST",
+                bodyString = array.toString(),
+                extraHeaders = mapOf("Prefer" to "resolution=merge-duplicates")
+            )
+            client.newCall(request).execute().use { resp ->
+                if (resp.isSuccessful) Result.success(orders.size)
+                else Result.failure(IOException("Échec sync fiches couture (${resp.code}): ${resp.body?.string() ?: ""}"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun fetchCoutureOrders(shopId: Long): Result<List<CoutureOrderRecord>> = withContext(Dispatchers.IO) {
+        if (!SupabaseConfig.isConfigured || shopId <= 1L) return@withContext Result.success(emptyList())
+        try {
+            val request = buildRequest("couture_orders?shop_id=eq.$shopId&select=*&order=updated_at.desc&limit=300")
+            client.newCall(request).execute().use { resp ->
+                if (!resp.isSuccessful) {
+                    return@withContext Result.failure(IOException("Échec chargement fiches couture (${resp.code})"))
+                }
+                val arr = JSONArray(resp.body?.string() ?: "[]")
+                Result.success((0 until arr.length()).map { CoutureOrderRecord.fromJson(arr.getJSONObject(it)) })
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun fetchClientCoutureOrdersByPhone(phone: String): Result<List<CoutureOrderRecord>> = withContext(Dispatchers.IO) {
+        if (!SupabaseConfig.isConfigured) return@withContext Result.success(emptyList())
+        val digits = CoutureDirectoryHelper.normalizePhone(phone)
+        if (digits.isBlank()) return@withContext Result.success(emptyList())
+        try {
+            val tail = if (digits.length > 8) digits.takeLast(8) else digits
+            val enc = URLEncoder.encode("*$tail*", "UTF-8")
+            val request = buildRequest("couture_orders?customer_phone=ilike.$enc&select=*&order=updated_at.desc&limit=100")
+            client.newCall(request).execute().use { resp ->
+                if (!resp.isSuccessful) {
+                    return@withContext Result.failure(IOException("Échec suivi couture (${resp.code})"))
+                }
+                val arr = JSONArray(resp.body?.string() ?: "[]")
+                Result.success((0 until arr.length()).map { CoutureOrderRecord.fromJson(arr.getJSONObject(it)) })
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun pushCoutureClientAccount(account: CoutureClientAccount): Result<Unit> = withContext(Dispatchers.IO) {
+        if (!SupabaseConfig.isConfigured) return@withContext Result.success(Unit)
+        try {
+            val arr = JSONArray().apply { put(account.toJson()) }
+            val request = buildRequest(
+                endpoint = "couture_clients?on_conflict=id",
+                method = "POST",
+                bodyString = arr.toString(),
+                extraHeaders = mapOf("Prefer" to "resolution=merge-duplicates")
+            )
+            client.newCall(request).execute().use { resp ->
+                if (resp.isSuccessful) Result.success(Unit)
+                else Result.failure(IOException("Échec sync compte client (${resp.code})"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun fetchPublicCoutureCatalogBundle(
+        shopId: Long,
+        fallbackShopName: String = ""
+    ): Result<PublicCoutureCatalogBundle> = withContext(Dispatchers.IO) {
+        if (!SupabaseConfig.isConfigured) {
+            return@withContext Result.failure(IllegalStateException("Connexion Cloud non configurée."))
+        }
+        try {
+            var resolvedShop: ShopProfileEntity? = null
+            var resolvedShopId = shopId
+
+            if (resolvedShopId > 1L) {
+                val req = buildRequest("shop_profile?id=eq.$resolvedShopId&select=*&limit=1")
+                client.newCall(req).execute().use { resp ->
+                    if (resp.isSuccessful) {
+                        val arr = JSONArray(resp.body?.string() ?: "[]")
+                        if (arr.length() > 0) {
+                            resolvedShop = parseShopProfile(arr.getJSONObject(0))
+                        }
+                    }
+                }
+            }
+            if (resolvedShop == null && fallbackShopName.isNotBlank()) {
+                val req = buildRequest("shop_profile?select=*&order=updated_at.desc&limit=500")
+                client.newCall(req).execute().use { resp ->
+                    if (resp.isSuccessful) {
+                        val arr = JSONArray(resp.body?.string() ?: "[]")
+                        val targetNorm = AgentDeploymentStorage.normalizeShopName(fallbackShopName)
+                        for (i in 0 until arr.length()) {
+                            val obj = arr.getJSONObject(i)
+                            val candidateName = AgentDeploymentStorage.normalizeShopName(obj.optString("name", ""))
+                            if (candidateName == targetNorm) {
+                                resolvedShop = parseShopProfile(obj)
+                                resolvedShopId = obj.optLong("id", resolvedShopId)
+                                break
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (resolvedShopId <= 1L && resolvedShop == null) {
+                return@withContext Result.failure(IllegalStateException("Atelier couture introuvable."))
+            }
+
+            val models = fetchCoutureModels(resolvedShopId).getOrDefault(emptyList()).filter { it.isAvailable }
+            val products = fetchProducts(resolvedShopId).getOrDefault(emptyList()).filter { it.isAvailable }
+
+            Result.success(
+                PublicCoutureCatalogBundle(
+                    shopId = resolvedShopId,
+                    shopName = resolvedShop?.name?.takeIf { it.isNotBlank() } ?: fallbackShopName.ifBlank { "Atelier Couture" },
+                    slogan = resolvedShop?.slogan.orEmpty(),
+                    city = resolvedShop?.city.orEmpty(),
+                    address = resolvedShop?.address.orEmpty(),
+                    phone = resolvedShop?.phone.orEmpty(),
+                    currency = resolvedShop?.currency?.ifBlank { "FCFA" } ?: "FCFA",
+                    logoUri = resolvedShop?.logoUri,
+                    models = models,
+                    products = products
+                )
+            )
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
 }

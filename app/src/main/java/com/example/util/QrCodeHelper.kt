@@ -61,23 +61,41 @@ object QrCodeHelper {
         return remainder
     }
 
-    // Version definitions: (Version, TotalCodewords, ECCodewords)
-    // Version 3: 29x29, 70 total codewords, 15 EC -> 55 data codewords
-    // Version 4: 33x33, 100 total codewords, 20 EC -> 80 data codewords
-    // Version 5: 37x37, 134 total codewords, 26 EC -> 108 data codewords
-    data class QrVersionInfo(val version: Int, val totalCodewords: Int, val ecCodewords: Int) {
-        val dataCodewords: Int get() = totalCodewords - ecCodewords
+    // Version definitions: (Version, TotalCodewords, NumBlocks, ECPerBlock)
+    // Spec ISO/IEC 18004 Level L (versions 1..9 keep 8-bit byte count, up to 232 data bytes)
+    data class QrVersionInfo(
+        val version: Int,
+        val totalCodewords: Int,
+        val blocks: Int,
+        val ecPerBlock: Int
+    ) {
+        val totalEcCodewords: Int get() = blocks * ecPerBlock
+        val dataCodewords: Int get() = totalCodewords - totalEcCodewords
         val dimension: Int get() = 17 + 4 * version
     }
 
     private val VERSIONS = listOf(
-        QrVersionInfo(1, 26, 7),     // 19 data bytes (21x21)
-        QrVersionInfo(2, 44, 10),    // 34 data bytes (25x25)
-        QrVersionInfo(3, 70, 15),    // 55 data bytes (29x29)
-        QrVersionInfo(4, 100, 20),   // 80 data bytes (33x33)
-        QrVersionInfo(5, 134, 26),   // 108 data bytes (37x37)
-        QrVersionInfo(6, 172, 36)    // 136 data bytes (41x41)
+        QrVersionInfo(1, 26, 1, 7),     // 19 data bytes (21x21)
+        QrVersionInfo(2, 44, 1, 10),    // 34 data bytes (25x25)
+        QrVersionInfo(3, 70, 1, 15),    // 55 data bytes (29x29)
+        QrVersionInfo(4, 100, 1, 20),   // 80 data bytes (33x33)
+        QrVersionInfo(5, 134, 1, 26),   // 108 data bytes (37x37)
+        QrVersionInfo(6, 172, 2, 18),   // 136 data bytes (41x41) - 2 blocks of 68+18
+        QrVersionInfo(7, 196, 2, 20),   // 156 data bytes (45x45) - 2 blocks of 78+20
+        QrVersionInfo(8, 242, 2, 24),   // 194 data bytes (49x49) - 2 blocks of 97+24
+        QrVersionInfo(9, 292, 2, 30)    // 232 data bytes (53x53) - 2 blocks of 116+30
     )
+
+    private fun getVersionInfoBits(version: Int): Int {
+        val d = version shl 12
+        var rem = d
+        for (i in 17 downTo 12) {
+            if (((rem shr i) and 1) != 0) {
+                rem = rem xor (0x1F25 shl (i - 12))
+            }
+        }
+        return d or rem
+    }
 
     /**
      * Encodes text into a square boolean matrix (true = black module, false = white module).
@@ -137,13 +155,29 @@ object QrCodeHelper {
             padToggle = !padToggle
         }
 
-        // Calculate Reed-Solomon Error Correction
-        val ecCodewords = calculateErrorCorrection(dataBytes, versionInfo.ecCodewords)
+        // Split into blocks, compute Reed-Solomon EC per block, and interleave per ISO 18004
+        val blockCount = versionInfo.blocks
+        val dataPerBlock = versionInfo.dataCodewords / blockCount
+        val dataBlocks = Array(blockCount) { blockIdx ->
+            val start = blockIdx * dataPerBlock
+            dataBytes.copyOfRange(start, start + dataPerBlock)
+        }
+        val ecBlocks = Array(blockCount) { blockIdx ->
+            calculateErrorCorrection(dataBlocks[blockIdx], versionInfo.ecPerBlock)
+        }
 
-        // Combine Data + EC
         val finalCodewords = IntArray(versionInfo.totalCodewords)
-        System.arraycopy(dataBytes, 0, finalCodewords, 0, dataBytes.size)
-        System.arraycopy(ecCodewords, 0, finalCodewords, dataBytes.size, ecCodewords.size)
+        var outIdx = 0
+        for (i in 0 until dataPerBlock) {
+            for (b in 0 until blockCount) {
+                finalCodewords[outIdx++] = dataBlocks[b][i]
+            }
+        }
+        for (i in 0 until versionInfo.ecPerBlock) {
+            for (b in 0 until blockCount) {
+                finalCodewords[outIdx++] = ecBlocks[b][i]
+            }
+        }
 
         // Generate QR Matrix
         val dim = versionInfo.dimension
@@ -183,7 +217,10 @@ object QrCodeHelper {
                 3 -> intArrayOf(6, 22)
                 4 -> intArrayOf(6, 26)
                 5 -> intArrayOf(6, 30)
-                else -> intArrayOf(6, 34)
+                6 -> intArrayOf(6, 34)
+                7 -> intArrayOf(6, 22, 38)
+                8 -> intArrayOf(6, 24, 42)
+                else -> intArrayOf(6, 26, 46)
             }
             for (r in alignPos) {
                 for (c in alignPos) {
@@ -225,6 +262,20 @@ object QrCodeHelper {
         for (i in (dim - 8) until dim) {
             reserved[8][i] = true
             reserved[i][8] = true
+        }
+
+        // 5b. Version Information areas (versions >= 7)
+        if (versionInfo.version >= 7) {
+            val vBits = getVersionInfoBits(versionInfo.version)
+            for (i in 0 until 18) {
+                val bit = ((vBits shr i) and 1) == 1
+                val a = i / 3
+                val b = dim - 11 + (i % 3)
+                matrix[a][b] = bit
+                reserved[a][b] = true
+                matrix[b][a] = bit
+                reserved[b][a] = true
+            }
         }
 
         // 6. Place Data bits in 2-column zig-zag right to left

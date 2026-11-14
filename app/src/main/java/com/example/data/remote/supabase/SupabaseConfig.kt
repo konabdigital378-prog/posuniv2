@@ -456,6 +456,121 @@ CREATE TABLE IF NOT EXISTS public.shop_ads (
 CREATE INDEX IF NOT EXISTS idx_shop_ads_updated_at ON public.shop_ads(updated_at);
 CREATE INDEX IF NOT EXISTS idx_shop_ads_is_active ON public.shop_ads(is_active);
 
+-- 15. Table des Comptes Équipe Restaurant (Gérant, Cuisine, Serveur, Caissier)
+CREATE TABLE IF NOT EXISTS public.restaurant_staff (
+    id TEXT PRIMARY KEY,
+    shop_id BIGINT NOT NULL DEFAULT 0,
+    name TEXT NOT NULL,
+    phone TEXT DEFAULT '',
+    role TEXT NOT NULL DEFAULT 'MANAGER',
+    pin TEXT NOT NULL DEFAULT '1234',
+    is_active BOOLEAN DEFAULT true,
+    updated_at BIGINT DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_restaurant_staff_shop_id ON public.restaurant_staff(shop_id);
+
+-- 16. Table des Tables & QR Codes Restaurant
+CREATE TABLE IF NOT EXISTS public.restaurant_tables (
+    id TEXT PRIMARY KEY,
+    shop_id BIGINT NOT NULL DEFAULT 0,
+    table_number TEXT NOT NULL,
+    zone TEXT DEFAULT 'Salle Principale',
+    seats INTEGER DEFAULT 4,
+    is_active BOOLEAN DEFAULT true,
+    updated_at BIGINT DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_restaurant_tables_shop_id ON public.restaurant_tables(shop_id);
+
+-- 17. Table des Commandes Restaurant & Cuisine Synchronisées
+CREATE TABLE IF NOT EXISTS public.restaurant_orders (
+    id TEXT PRIMARY KEY,
+    shop_id BIGINT NOT NULL DEFAULT 0,
+    order_number TEXT NOT NULL,
+    table_name TEXT NOT NULL,
+    customer_name TEXT DEFAULT 'Client Table',
+    customer_phone TEXT DEFAULT '',
+    source TEXT DEFAULT 'QR_TABLE',
+    status TEXT NOT NULL DEFAULT 'PENDING_MANAGER',
+    items_json TEXT NOT NULL DEFAULT '[]',
+    total_amount BIGINT DEFAULT 0,
+    notes TEXT DEFAULT '',
+    created_by_role TEXT DEFAULT 'CLIENT_QR',
+    created_by_name TEXT DEFAULT 'Client',
+    assigned_to_kitchen_by TEXT DEFAULT '',
+    sale_id BIGINT,
+    created_at BIGINT DEFAULT 0,
+    updated_at BIGINT DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_restaurant_orders_shop_id ON public.restaurant_orders(shop_id);
+CREATE INDEX IF NOT EXISTS idx_restaurant_orders_status ON public.restaurant_orders(status);
+CREATE INDEX IF NOT EXISTS idx_restaurant_orders_created_at ON public.restaurant_orders(created_at);
+
+-- 18. Table du Menu du Jour Restaurant
+CREATE TABLE IF NOT EXISTS public.restaurant_menu_day (
+    shop_id BIGINT PRIMARY KEY,
+    product_ids_json TEXT NOT NULL DEFAULT '[]',
+    updated_at BIGINT DEFAULT 0
+);
+
+-- 19. Table des Modèles & Catalogues Couture
+CREATE TABLE IF NOT EXISTS public.couture_models (
+    id TEXT PRIMARY KEY,
+    shop_id BIGINT NOT NULL DEFAULT 0,
+    shop_name TEXT DEFAULT '',
+    title TEXT NOT NULL,
+    category TEXT DEFAULT 'Tenue sur-mesure',
+    description TEXT DEFAULT '',
+    price BIGINT DEFAULT 0,
+    estimated_days INTEGER DEFAULT 5,
+    image_uri TEXT DEFAULT 'img_prod_mode',
+    gallery_images_json TEXT DEFAULT '[]',
+    is_featured BOOLEAN DEFAULT true,
+    is_available BOOLEAN DEFAULT true,
+    updated_at BIGINT DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_couture_models_shop_id ON public.couture_models(shop_id);
+
+-- 20. Table des Fiches Mesures, Photos Tissus, Rendez-vous & Suivi Couture
+CREATE TABLE IF NOT EXISTS public.couture_orders (
+    id TEXT PRIMARY KEY,
+    shop_id BIGINT NOT NULL DEFAULT 0,
+    shop_name TEXT DEFAULT '',
+    order_number TEXT NOT NULL,
+    customer_first_name TEXT DEFAULT '',
+    customer_last_name TEXT DEFAULT '',
+    customer_name TEXT DEFAULT 'Client Atelier',
+    customer_phone TEXT DEFAULT '',
+    model_id TEXT DEFAULT '',
+    model_title TEXT DEFAULT 'Tenue sur-mesure',
+    model_image_uri TEXT DEFAULT 'img_prod_mode',
+    is_custom_client_model BOOLEAN DEFAULT false,
+    fabric_photo_uri TEXT DEFAULT '',
+    fabric_notes TEXT DEFAULT '',
+    measurements_json TEXT NOT NULL DEFAULT '{}',
+    status TEXT NOT NULL DEFAULT 'MESURES_PRISES',
+    appointment_at BIGINT DEFAULT 0,
+    appointment_note TEXT DEFAULT '',
+    total_price BIGINT DEFAULT 0,
+    advance_paid BIGINT DEFAULT 0,
+    sale_id BIGINT,
+    tailor_notes TEXT DEFAULT '',
+    created_at BIGINT DEFAULT 0,
+    updated_at BIGINT DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_couture_orders_shop_id ON public.couture_orders(shop_id);
+CREATE INDEX IF NOT EXISTS idx_couture_orders_phone ON public.couture_orders(customer_phone);
+
+-- 21. Table des Comptes Clients Couture (Suivi Tenue)
+CREATE TABLE IF NOT EXISTS public.couture_clients (
+    id TEXT PRIMARY KEY,
+    first_name TEXT DEFAULT '',
+    last_name TEXT DEFAULT '',
+    phone TEXT NOT NULL,
+    city TEXT DEFAULT '',
+    updated_at BIGINT DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_couture_clients_phone ON public.couture_clients(phone);
+
 -- Activation de RLS (Row Level Security) avec accès lecture/écriture pour la clé anon
 ALTER TABLE public.shop_profile ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.products ENABLE ROW LEVEL SECURITY;
@@ -471,6 +586,13 @@ ALTER TABLE public.categories ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.agents ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.agent_deployments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.shop_ads ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.restaurant_staff ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.restaurant_tables ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.restaurant_orders ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.restaurant_menu_day ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.couture_models ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.couture_orders ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.couture_clients ENABLE ROW LEVEL SECURITY;
 
 -- Drop existing policies if they already exist to prevent "policy already exists" errors
 DROP POLICY IF EXISTS "Allow anon read/write for shop_profile" ON public.shop_profile;
@@ -487,6 +609,13 @@ DROP POLICY IF EXISTS "Allow anon read/write for categories" ON public.categorie
 DROP POLICY IF EXISTS "Allow anon read/write for agents" ON public.agents;
 DROP POLICY IF EXISTS "Allow anon read/write for agent_deployments" ON public.agent_deployments;
 DROP POLICY IF EXISTS "Allow anon read/write for shop_ads" ON public.shop_ads;
+DROP POLICY IF EXISTS "Allow anon read/write for restaurant_staff" ON public.restaurant_staff;
+DROP POLICY IF EXISTS "Allow anon read/write for restaurant_tables" ON public.restaurant_tables;
+DROP POLICY IF EXISTS "Allow anon read/write for restaurant_orders" ON public.restaurant_orders;
+DROP POLICY IF EXISTS "Allow anon read/write for restaurant_menu_day" ON public.restaurant_menu_day;
+DROP POLICY IF EXISTS "Allow anon read/write for couture_models" ON public.couture_models;
+DROP POLICY IF EXISTS "Allow anon read/write for couture_orders" ON public.couture_orders;
+DROP POLICY IF EXISTS "Allow anon read/write for couture_clients" ON public.couture_clients;
 
 CREATE POLICY "Allow anon read/write for shop_profile" ON public.shop_profile FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow anon read/write for products" ON public.products FOR ALL USING (true) WITH CHECK (true);
@@ -502,6 +631,13 @@ CREATE POLICY "Allow anon read/write for categories" ON public.categories FOR AL
 CREATE POLICY "Allow anon read/write for agents" ON public.agents FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow anon read/write for agent_deployments" ON public.agent_deployments FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow anon read/write for shop_ads" ON public.shop_ads FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow anon read/write for restaurant_staff" ON public.restaurant_staff FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow anon read/write for restaurant_tables" ON public.restaurant_tables FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow anon read/write for restaurant_orders" ON public.restaurant_orders FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow anon read/write for restaurant_menu_day" ON public.restaurant_menu_day FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow anon read/write for couture_models" ON public.couture_models FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow anon read/write for couture_orders" ON public.couture_orders FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow anon read/write for couture_clients" ON public.couture_clients FOR ALL USING (true) WITH CHECK (true);
 
 -- Bucket Storage public pour héberger les logos et vidéos publicitaires (60s)
 INSERT INTO storage.buckets (id, name, public)

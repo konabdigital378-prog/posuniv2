@@ -30,7 +30,11 @@ import com.example.ui.theme.*
 fun KonabBottomBar(
     currentScreen: KonabScreen,
     onNavigate: (KonabScreen) -> Unit,
-    cartItemCount: Int = 0
+    cartItemCount: Int = 0,
+    isRestaurantMode: Boolean = false,
+    openRestaurantOrdersCount: Int = 0,
+    isCoutureMode: Boolean = false,
+    openCoutureOrdersCount: Int = 0
 ) {
     var showMoreMenu by remember { mutableStateOf(false) }
 
@@ -177,6 +181,8 @@ fun KonabBottomBar(
                 modifier = Modifier.testTag("nav_more"),
                 colors = navItemColors,
                 selected = showMoreMenu || currentScreen in listOf(
+                    KonabScreen.RESTAURANT,
+                    KonabScreen.COUTURE,
                     KonabScreen.CUSTOMERS,
                     KonabScreen.SUPPLIERS,
                     KonabScreen.CASH,
@@ -191,6 +197,40 @@ fun KonabBottomBar(
                         expanded = showMoreMenu,
                         onDismissRequest = { showMoreMenu = false }
                     ) {
+                        if (isRestaurantMode) {
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        text = if (openRestaurantOrdersCount > 0) "Restaurant & Cuisine ($openRestaurantOrdersCount)" else "Restaurant & Cuisine",
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFFEA580C)
+                                    )
+                                },
+                                onClick = {
+                                    showMoreMenu = false
+                                    onNavigate(KonabScreen.RESTAURANT)
+                                },
+                                leadingIcon = { Icon(Icons.Default.RestaurantMenu, contentDescription = null, tint = Color(0xFFEA580C)) }
+                            )
+                            HorizontalDivider(color = KonabBorder)
+                        }
+                        if (isCoutureMode) {
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        text = if (openCoutureOrdersCount > 0) "Atelier Couture ($openCoutureOrdersCount)" else "Atelier Couture",
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF5B21B6)
+                                    )
+                                },
+                                onClick = {
+                                    showMoreMenu = false
+                                    onNavigate(KonabScreen.COUTURE)
+                                },
+                                leadingIcon = { Icon(Icons.Default.Checkroom, contentDescription = null, tint = Color(0xFF5B21B6)) }
+                            )
+                            HorizontalDivider(color = KonabBorder)
+                        }
                         DropdownMenuItem(
                             text = { Text("Historique des ventes", fontWeight = FontWeight.Medium) },
                             onClick = {
@@ -246,6 +286,8 @@ fun KonabBottomBar(
                     Text(
                         text = "Plus",
                         fontWeight = if (showMoreMenu || currentScreen in listOf(
+                            KonabScreen.RESTAURANT,
+                            KonabScreen.COUTURE,
                             KonabScreen.CUSTOMERS,
                             KonabScreen.SUPPLIERS,
                             KonabScreen.CASH,

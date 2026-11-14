@@ -167,9 +167,9 @@ fun PinLockDialog(
                         )
                         Text(
                             text = if (canUseBiometric) {
-                                "Code Gérant ou Empreinte Digitale"
+                                "Code PIN (Gérant / Équipe) ou Empreinte"
                             } else {
-                                "Code Gérant requis pour ouvrir l'application"
+                                "Code PIN (Gérant ou Équipe) requis"
                             },
                             fontSize = 11.5.sp,
                             fontWeight = FontWeight.SemiBold,
@@ -265,7 +265,7 @@ fun PinLockDialog(
                                                     if (newPin.length == targetPinLength) {
                                                         val success = onUnlock(newPin)
                                                         if (!success) {
-                                                            errorMessage = "Code Gérant incorrect. Veuillez réessayer."
+                                                            errorMessage = "Code PIN incorrect. Veuillez réessayer."
                                                             enteredPin = ""
                                                         }
                                                     }

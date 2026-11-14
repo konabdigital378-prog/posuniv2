@@ -2,6 +2,9 @@
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
     <cache-path name="shared_receipts" path="receipts/" />
     <cache-path name="shared_apks" path="apks/" />
+    <cache-path name="shared_qr" path="qr_cards/" />
+    <cache-path name="camera_photos" path="camera_photos/" />
     <files-path name="shared_exports" path="exports/" />
+    <files-path name="couture_photos" path="couture_photos/" />
 </paths>
 

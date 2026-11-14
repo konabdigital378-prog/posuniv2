@@ -68,16 +68,27 @@ fun ManagerPinEntryModal(
     fun attemptVerify() {
         val cleanEntered = enteredPin.trim()
         val expectedPin = shopProfile.adminPin.trim()
+        val activeCloudId = com.example.data.remote.supabase.MultiShopStorage.getActiveCloudShopId(context)
+        val matchedStaff = com.example.data.remote.supabase.RestaurantStorage.findStaffByPin(
+            context = context,
+            shopId = activeCloudId,
+            pin = cleanEntered
+        )
         when {
             cleanEntered.isEmpty() -> {
-                errorMessage = "Veuillez saisir le code gérant."
+                errorMessage = "Veuillez saisir le code PIN."
             }
             cleanEntered == expectedPin -> {
                 errorMessage = ""
                 onPinVerified()
             }
+            matchedStaff != null -> {
+                com.example.data.remote.supabase.RestaurantStorage.setActiveStaff(context, activeCloudId, matchedStaff.id)
+                errorMessage = ""
+                onPinVerified()
+            }
             else -> {
-                errorMessage = "Code gérant incorrect. Veuillez réessayer."
+                errorMessage = "Code PIN incorrect. Veuillez réessayer."
             }
         }
     }
@@ -192,7 +203,7 @@ fun ManagerPinEntryModal(
                     }
 
                     Text(
-                        text = "Entrez le code gérant (PIN administrateur) pour ouvrir la caisse de votre boutique :",
+                        text = "Entrez votre code PIN (Gérant ou Équipe) pour ouvrir votre espace de travail :",
                         fontSize = 13.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         lineHeight = 18.sp
@@ -205,7 +216,7 @@ fun ManagerPinEntryModal(
                             enteredPin = filtered
                             if (errorMessage.isNotEmpty()) errorMessage = ""
                         },
-                        label = { Text("Code Gérant (PIN) *") },
+                        label = { Text("Code PIN Gérant ou Équipe *") },
                         placeholder = { Text("Saisissez votre code secret") },
                         leadingIcon = {
                             Icon(Icons.Default.Password, contentDescription = null)

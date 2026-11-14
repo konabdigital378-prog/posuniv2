@@ -354,7 +354,7 @@ fun MultiShopManagerModal(
                                 modifier = Modifier.size(18.dp)
                             )
                             Text(
-                                text = "Saisissez le nom de la boutique ou le numéro du gérant et son code PIN pour charger tous ses produits et anciennes ventes.",
+                                text = "Saisissez le nom de la boutique ou le téléphone et le code PIN (Gérant, Cuisine, Serveur ou Caissier) pour synchroniser produits, commandes et ventes.",
                                 fontSize = 11.5.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 lineHeight = 15.sp
@@ -368,8 +368,8 @@ fun MultiShopManagerModal(
                             identifier = it
                             if (errorMessage.isNotEmpty()) errorMessage = ""
                         },
-                        label = { Text("Nom de la boutique ou Téléphone gérant *") },
-                        placeholder = { Text("Ex: Boutique Kaba ou 65413799") },
+                        label = { Text("Nom de la boutique ou Téléphone *") },
+                        placeholder = { Text("Ex: Resto Kaba ou 65413799") },
                         leadingIcon = {
                             Icon(Icons.Default.Storefront, contentDescription = null)
                         },
@@ -389,7 +389,7 @@ fun MultiShopManagerModal(
                             pin = input.filter { it.isDigit() }.take(8)
                             if (errorMessage.isNotEmpty()) errorMessage = ""
                         },
-                        label = { Text("Code PIN Gérant *") },
+                        label = { Text("Code PIN Gérant ou Équipe *") },
                         placeholder = { Text("Votre code secret (ex: 1234)") },
                         leadingIcon = {
                             Icon(Icons.Default.Lock, contentDescription = null)

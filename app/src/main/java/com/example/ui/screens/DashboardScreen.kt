@@ -37,6 +37,12 @@ import com.example.data.local.entity.ProductEntity
 import com.example.data.local.entity.SaleEntity
 import com.example.data.local.entity.ShopProfileEntity
 import com.example.data.remote.supabase.ConnectedShopSession
+import com.example.data.remote.supabase.CoutureDirectoryHelper
+import com.example.data.remote.supabase.CoutureOrderRecord
+import com.example.data.remote.supabase.CoutureStage
+import com.example.data.remote.supabase.RestaurantOrderRecord
+import com.example.data.remote.supabase.RestaurantOrderStatus
+import com.example.data.remote.supabase.RestaurantStaffAccount
 import com.example.ui.components.DailySalesChartCard
 import com.example.ui.components.KonabEmptyState
 import com.example.ui.components.KonabLivePulseDot
@@ -78,7 +84,12 @@ fun DashboardScreen(
     activeCloudShopId: Long = 0L,
     onConnectMultiShopRemote: (identifier: String, pin: String, onDone: (Boolean, String) -> Unit) -> Unit = { _, _, cb -> cb(false, "Indisponible") },
     onSwitchConnectedShop: (ConnectedShopSession, onDone: (Boolean, String) -> Unit) -> Unit = { _, cb -> cb(false, "Indisponible") },
-    onRefreshActiveShopFromCloud: ((onDone: (Boolean, String) -> Unit) -> Unit)? = null
+    onRefreshActiveShopFromCloud: ((onDone: (Boolean, String) -> Unit) -> Unit)? = null,
+    restaurantOrders: List<RestaurantOrderRecord> = emptyList(),
+    activeStaff: RestaurantStaffAccount? = null,
+    onTableQrScanned: ((String) -> Boolean)? = null,
+    coutureOrders: List<CoutureOrderRecord> = emptyList(),
+    coutureModelsCount: Int = 0
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     // Barcode scanner modal state
@@ -650,6 +661,288 @@ fun DashboardScreen(
                                 modifier = Modifier.weight(1f)
                             )
                         }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Restaurant & Cuisine Synchronisés Quick Card
+        if (businessType.equals("Restaurant", ignoreCase = true) || sectorPreset.sectorFeatures.hasTables) {
+            item {
+                val pendingCount = remember(restaurantOrders) {
+                    restaurantOrders.count { it.status == RestaurantOrderStatus.PENDING_MANAGER }
+                }
+                val kitchenCount = remember(restaurantOrders) {
+                    restaurantOrders.count {
+                        it.status == RestaurantOrderStatus.SENT_TO_KITCHEN ||
+                            it.status == RestaurantOrderStatus.IN_PREPARATION
+                    }
+                }
+                val readyCount = remember(restaurantOrders) {
+                    restaurantOrders.count {
+                        it.status == RestaurantOrderStatus.READY ||
+                            it.status == RestaurantOrderStatus.SERVED
+                    }
+                }
+                ResponsiveMaxWidthBox(
+                    maxWidth = 1120.dp,
+                    modifier = Modifier.padding(horizontal = 16.dp)
+                ) {
+                    Card(
+                        shape = RoundedCornerShape(18.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        border = BorderStroke(1.dp, Color(0xFFEA580C).copy(alpha = 0.45f)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onNavigate(KonabScreen.RESTAURANT) }
+                            .testTag("card_dashboard_restaurant")
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(36.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFFEA580C).copy(alpha = 0.14f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.RestaurantMenu,
+                                            contentDescription = "Restaurant & Cuisine",
+                                            tint = Color(0xFFEA580C),
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                    Column {
+                                        Text(
+                                            text = "Restaurant & Cuisine Synchronisés",
+                                            fontFamily = OutfitFontFamily,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            fontSize = 14.5.sp
+                                        )
+                                        Text(
+                                            text = "Opérateur : ${activeStaff?.name ?: "Gérant"} (${activeStaff?.role?.badgeLabel ?: "GÉRANT"})",
+                                            fontSize = 11.5.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                                Surface(
+                                    color = Color(0xFFEA580C),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Text(
+                                        text = "${pendingCount + kitchenCount + readyCount} actives",
+                                        color = Color.White,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        fontSize = 10.5.sp,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = Color(0xFFFEF3C7),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text(
+                                        text = "À valider : $pendingCount",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF92400E),
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                                    )
+                                }
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = Color(0xFFFFEDD5),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text(
+                                        text = "Cuisine : $kitchenCount",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF9A3412),
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                                    )
+                                }
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = KonabGreenLight,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text(
+                                        text = "Prêt/Servi : $readyCount",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = KonabGreenDark,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                                    )
+                                }
+                            }
+
+                            Button(
+                                onClick = { onNavigate(KonabScreen.RESTAURANT) },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEA580C)),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(48.dp)
+                                    .testTag("btn_dashboard_restaurant")
+                            ) {
+                                Icon(Icons.Default.SoupKitchen, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Gérer Commandes, Tables QR & Menu du Jour", fontWeight = FontWeight.Bold, fontSize = 12.5.sp)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Atelier Couture : Mesures, Photos Tissus, Modèles & QR Catalogue
+        if (CoutureDirectoryHelper.isCoutureShop(businessType)) {
+            item {
+                val activeCoutureCount = remember(coutureOrders) {
+                    coutureOrders.count { it.status.isOpenWork }
+                }
+                val readyCoutureCount = remember(coutureOrders) {
+                    coutureOrders.count { it.status == CoutureStage.ESSAYAGE_PRET }
+                }
+                ResponsiveMaxWidthBox(
+                    maxWidth = 1120.dp,
+                    modifier = Modifier.padding(horizontal = 16.dp)
+                ) {
+                    Card(
+                        shape = RoundedCornerShape(18.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        border = BorderStroke(1.dp, Color(0xFF5B21B6).copy(alpha = 0.45f)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onNavigate(KonabScreen.COUTURE) }
+                            .testTag("card_dashboard_couture")
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(36.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFF5B21B6).copy(alpha = 0.14f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Checkroom,
+                                            contentDescription = "Atelier Couture",
+                                            tint = Color(0xFF5B21B6),
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                    Column {
+                                        Text(
+                                            text = "Atelier Couture & Sur-Mesure",
+                                            fontFamily = OutfitFontFamily,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            fontSize = 14.5.sp
+                                        )
+                                        Text(
+                                            text = "$coutureModelsCount modèle(s) QR • Prise de mesures & photos tissus",
+                                            fontSize = 11.5.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                                Surface(
+                                    color = Color(0xFF5B21B6),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Text(
+                                        text = "$activeCoutureCount en cours",
+                                        color = Color.White,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        fontSize = 10.5.sp,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = Color(0xFFF5F3FF),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text(
+                                        text = "En atelier : $activeCoutureCount",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF5B21B6),
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                                    )
+                                }
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = KonabGreenLight,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text(
+                                        text = "Prêtes RDV : $readyCoutureCount",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = KonabGreenDark,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                                    )
+                                }
+                            }
+
+                            Button(
+                                onClick = { onNavigate(KonabScreen.COUTURE) },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF5B21B6)),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(48.dp)
+                                    .testTag("btn_dashboard_couture")
+                            ) {
+                                Icon(Icons.Default.Straighten, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Mesures, Photos Tissus, Modèles & QR", fontWeight = FontWeight.Bold, fontSize = 12.5.sp)
+                            }
                         }
                     }
                 }
@@ -1348,15 +1641,18 @@ fun DashboardScreen(
     // Direct Barcode Scanner Hardware Modal
     if (showScannerModal) {
         RealBarcodeScannerModal(
-            title = "Scanner un article",
-            subtitle = "Visez le code-barres pour vérifier le prix ou ajouter au panier",
+            title = "Scanner un article ou QR Table",
+            subtitle = "Visez un code-barres produit, un QR table restaurant ou un QR catalogue couture",
             onBarcodeScanned = { barcode ->
                 showScannerModal = false
-                val match = products.find { it.barcode.equals(barcode.trim(), ignoreCase = true) }
-                if (match != null) {
-                    scannedProduct = match
-                } else {
-                    unknownScannedBarcode = barcode
+                val handledAsTableQr = onTableQrScanned?.invoke(barcode) == true
+                if (!handledAsTableQr) {
+                    val match = products.find { it.barcode.equals(barcode.trim(), ignoreCase = true) }
+                    if (match != null) {
+                        scannedProduct = match
+                    } else {
+                        unknownScannedBarcode = barcode
+                    }
                 }
             },
             onDismiss = { showScannerModal = false }
@@ -1533,6 +1829,8 @@ fun DashboardScreen(
                     "cash" -> onNavigate(KonabScreen.CASH)
                     "reports" -> onNavigate(KonabScreen.REPORTS)
                     "settings" -> onNavigate(KonabScreen.SETTINGS)
+                    "restaurant" -> onNavigate(KonabScreen.RESTAURANT)
+                    "couture" -> onNavigate(KonabScreen.COUTURE)
                 }
             }
         )

@@ -7,6 +7,7 @@ import com.example.data.local.entity.ShopProfileEntity
 import com.example.data.repository.KonabRepository
 import com.example.ui.screens.AgentUser
 import com.example.util.BiometricSecurityHelper
+import com.example.util.CouturePhotoHelper
 import com.example.util.LicenseHelper
 import com.example.util.NotificationHelper
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -264,7 +265,8 @@ class SupabaseSyncManager(
         preloadDemoData: Boolean,
         subscriptionTier: String,
         activeAgent: AgentUser,
-        notes: String = "Activité: $businessType"
+        notes: String = "Activité: $businessType",
+        restaurantTeam: RestaurantTeamConfig? = null
     ): Result<ShopCreationResult> = shopSyncMutex.withLock {
         val cleanName = shopName.trim()
         if (cleanName.isBlank()) {
@@ -434,6 +436,61 @@ class SupabaseSyncManager(
                 MultiShopStorage.saveLocalSnapshotCache(context, snap)
             }
         } catch (_: Exception) {}
+
+        if (businessType.equals("Restaurant", ignoreCase = true)) {
+            val teamCfg = restaurantTeam ?: RestaurantTeamConfig()
+            val createdStaff = RestaurantStorage.ensureDefaultRestaurantTeam(
+                context = context,
+                shopId = cloudId,
+                adminName = adminName.trim().ifBlank { "Gérant" },
+                adminPhone = effectiveAdminPhone,
+                adminPin = adminPin,
+                kitchenName = teamCfg.kitchenName,
+                kitchenPhone = teamCfg.kitchenPhone,
+                kitchenPin = teamCfg.kitchenPin,
+                waiterName = teamCfg.waiterName,
+                waiterPhone = teamCfg.waiterPhone,
+                waiterPin = teamCfg.waiterPin,
+                cashierName = teamCfg.cashierName,
+                cashierPin = teamCfg.cashierPin
+            )
+            createdStaff.firstOrNull { it.role == RestaurantStaffRole.MANAGER }?.let { mgr ->
+                RestaurantStorage.setActiveStaff(context, cloudId, mgr.id)
+            }
+            val createdTables = RestaurantStorage.ensureDefaultTables(
+                context = context,
+                shopId = cloudId,
+                count = teamCfg.initialTableCount
+            )
+            val prodsNow = repository.getAllProductsOnce()
+            if (prodsNow.isNotEmpty() && RestaurantStorage.getMenuOfDayProductIds(context, cloudId).isEmpty()) {
+                val ids = prodsNow.map { it.id }.toSet()
+                RestaurantStorage.setMenuOfDayProductIds(context, cloudId, ids)
+            }
+            if (cloudSuccess) {
+                try {
+                    apiClient.pushRestaurantStaff(createdStaff, cloudId)
+                    apiClient.pushRestaurantTables(createdTables, cloudId)
+                    val menuIds = RestaurantStorage.getMenuOfDayProductIds(context, cloudId)
+                    if (menuIds.isNotEmpty()) {
+                        apiClient.pushMenuOfDay(cloudId, menuIds)
+                    }
+                } catch (_: Exception) {}
+            }
+        }
+
+        if (CoutureDirectoryHelper.isCoutureShop(businessType)) {
+            val defaultModels = CoutureStorage.ensureDefaultModelsForAtelier(
+                context = context,
+                shopId = cloudId,
+                shopName = cleanName
+            )
+            if (cloudSuccess && defaultModels.isNotEmpty()) {
+                try {
+                    apiClient.pushCoutureModels(defaultModels, cloudId)
+                } catch (_: Exception) {}
+            }
+        }
 
         if (cloudSuccess) {
             if (preloadDemoData) {
@@ -762,6 +819,37 @@ class SupabaseSyncManager(
                 count += res.getOrDefault(0)
             }
 
+            // 8. Données Restaurant synchronisées (Équipe, Tables QR, Commandes Cuisine, Menu du jour)
+            if (shop?.businessType.equals("Restaurant", ignoreCase = true) ||
+                RestaurantStorage.getOrders(context, activeCloudShopId).isNotEmpty() ||
+                RestaurantStorage.getTables(context, activeCloudShopId).isNotEmpty()
+            ) {
+                val staff = RestaurantStorage.getStaffAccounts(context, activeCloudShopId)
+                if (staff.isNotEmpty()) {
+                    count += apiClient.pushRestaurantStaff(staff, activeCloudShopId).getOrDefault(0)
+                }
+                val tables = RestaurantStorage.getTables(context, activeCloudShopId)
+                if (tables.isNotEmpty()) {
+                    count += apiClient.pushRestaurantTables(tables, activeCloudShopId).getOrDefault(0)
+                }
+                val orders = RestaurantStorage.getOrders(context, activeCloudShopId)
+                if (orders.isNotEmpty()) {
+                    count += apiClient.pushRestaurantOrders(orders, activeCloudShopId).getOrDefault(0)
+                }
+                val menuIds = RestaurantStorage.getMenuOfDayProductIds(context, activeCloudShopId)
+                if (menuIds.isNotEmpty()) {
+                    apiClient.pushMenuOfDay(activeCloudShopId, menuIds)
+                }
+            }
+
+            // 9. Données Atelier Couture (Modèles & Commandes/Mesures/Photos tissus)
+            if (CoutureDirectoryHelper.isCoutureShop(shop?.businessType) ||
+                CoutureStorage.getModels(context, activeCloudShopId).isNotEmpty() ||
+                CoutureStorage.getOrders(context, activeCloudShopId).isNotEmpty()
+            ) {
+                count += pushCoutureStateInternal(activeCloudShopId, shop?.name.orEmpty())
+            }
+
             // Sauvegarder aussi le cache local multiboutique
             repository.exportMultiShopSnapshot(activeCloudShopId)?.let { snap ->
                 MultiShopStorage.saveConnectedShop(context, snap.session)
@@ -873,12 +961,13 @@ class SupabaseSyncManager(
             // 1. Sauvegarder la boutique actuellement ouverte sur cet appareil avant de basculer
             snapshotCurrentLocalWorkspaceBestEffort(repository)
 
-            // 2. Authentification distante via Supabase
+            // 2. Authentification distante via Supabase (Gérant OU membre équipe Cuisine/Serveur/Caissier)
             if (SupabaseConfig.isConfigured) {
-                val authRes = apiClient.authenticateShopManagerRemote(cleanId, cleanPin)
+                val authRes = apiClient.authenticateShopTeamMemberRemote(cleanId, cleanPin)
                 if (authRes.isSuccess) {
-                    val match = authRes.getOrNull()
-                    if (match != null) {
+                    val staffLogin = authRes.getOrNull()
+                    if (staffLogin != null) {
+                        val match = staffLogin.match
                         val snapRes = pullRemoteSnapshotForShop(match)
                         if (snapRes.isSuccess) {
                             val snapshot = snapRes.getOrThrow()
@@ -888,9 +977,23 @@ class SupabaseSyncManager(
                             MultiShopStorage.saveLocalSnapshotCache(context, snapshot)
                             BiometricSecurityHelper.setShopConfiguredCache(context, true)
 
+                            // Hydrater l'état restaurant (équipe, tables, commandes, menu du jour)
+                            pullRestaurantStateInternal(match.cloudShopId)
+                            if (CoutureDirectoryHelper.isCoutureShop(snapshot.session.businessType)) {
+                                pullCoutureStateInternal(match.cloudShopId)
+                            }
+                            if (staffLogin.staff != null) {
+                                RestaurantStorage.setActiveStaff(context, match.cloudShopId, staffLogin.staff.id)
+                            } else {
+                                val mgr = RestaurantStorage.getStaffAccounts(context, match.cloudShopId)
+                                    .firstOrNull { it.role == RestaurantStaffRole.MANAGER && it.isActive }
+                                RestaurantStorage.setActiveStaff(context, match.cloudShopId, mgr?.id)
+                            }
+
                             val now = System.currentTimeMillis()
                             saveLastSyncTimestamp(now)
-                            val msg = "Connecté à « ${snapshot.session.shopName} » (${snapshot.products.size} produits, ${snapshot.sales.size} ventes)."
+                            val roleLabel = staffLogin.staff?.let { " [${it.role.badgeLabel}: ${it.name}]" } ?: ""
+                            val msg = "Connecté à « ${snapshot.session.shopName} »$roleLabel (${snapshot.products.size} produits, ${snapshot.sales.size} ventes)."
                             _syncState.value = _syncState.value.copy(
                                 isSyncing = false,
                                 isError = false,
@@ -982,6 +1085,10 @@ class SupabaseSyncManager(
                     MultiShopStorage.saveConnectedShop(context, snapshot.session)
                     MultiShopStorage.saveLocalSnapshotCache(context, snapshot)
                     BiometricSecurityHelper.setShopConfiguredCache(context, true)
+                    pullRestaurantStateInternal(target.cloudShopId)
+                    if (CoutureDirectoryHelper.isCoutureShop(target.businessType)) {
+                        pullCoutureStateInternal(target.cloudShopId)
+                    }
                     val now = System.currentTimeMillis()
                     saveLastSyncTimestamp(now)
                     val msg = "Boutique active : « ${target.shopName} » (${snapshot.products.size} produits, ${snapshot.sales.size} ventes)."
@@ -1057,11 +1164,145 @@ class SupabaseSyncManager(
             remoteSaleItems = remoteSaleItems,
             remoteCustomers = remoteCustomers
         )
+        val restaurantMerged = if (shop.businessType.equals("Restaurant", ignoreCase = true) ||
+            RestaurantStorage.getOrders(context, shopId).isNotEmpty()
+        ) {
+            pullRestaurantStateInternal(shopId)
+        } else 0
+        val coutureMerged = if (CoutureDirectoryHelper.isCoutureShop(shop.businessType) ||
+            CoutureStorage.getOrders(context, shopId).isNotEmpty() ||
+            CoutureStorage.getModels(context, shopId).isNotEmpty()
+        ) {
+            pullCoutureStateInternal(shopId)
+        } else 0
         repository.exportMultiShopSnapshot(shopId)?.let { snap ->
             MultiShopStorage.saveConnectedShop(context, snap.session)
             MultiShopStorage.saveLocalSnapshotCache(context, snap)
         }
-        return merged
+        return merged + restaurantMerged + coutureMerged
+    }
+
+    // --- SYNCHRONISATION TEMPS RÉEL RESTAURANT ---
+
+    private suspend fun pullRestaurantStateInternal(shopId: Long): Int {
+        if (!SupabaseConfig.isConfigured || shopId <= 1L) return 0
+        var updates = 0
+        try {
+            val remoteStaff = apiClient.fetchRestaurantStaff(shopId).getOrDefault(emptyList())
+            if (remoteStaff.isNotEmpty()) {
+                RestaurantStorage.mergeStaffFromCloud(context, shopId, remoteStaff)
+                updates += remoteStaff.size
+            }
+        } catch (_: Exception) {}
+
+        try {
+            val remoteTables = apiClient.fetchRestaurantTables(shopId).getOrDefault(emptyList())
+            if (remoteTables.isNotEmpty()) {
+                RestaurantStorage.mergeTablesFromCloud(context, shopId, remoteTables)
+                updates += remoteTables.size
+            }
+        } catch (_: Exception) {}
+
+        try {
+            val remoteOrders = apiClient.fetchRestaurantOrders(shopId).getOrDefault(emptyList())
+            if (remoteOrders.isNotEmpty()) {
+                RestaurantStorage.mergeOrdersFromCloud(context, shopId, remoteOrders)
+                updates += remoteOrders.size
+            }
+        } catch (_: Exception) {}
+
+        try {
+            val remoteMenu = apiClient.fetchMenuOfDay(shopId).getOrDefault(emptySet())
+            if (remoteMenu.isNotEmpty()) {
+                RestaurantStorage.setMenuOfDayProductIds(context, shopId, remoteMenu)
+                updates++
+            }
+        } catch (_: Exception) {}
+
+        return updates
+    }
+
+    suspend fun pullRestaurantStateNow(shopId: Long): Result<Int> {
+        if (!SupabaseConfig.isConfigured || shopId <= 1L) return Result.success(0)
+        return Result.success(pullRestaurantStateInternal(shopId))
+    }
+
+    suspend fun syncRestaurantOrderNow(shopId: Long, order: RestaurantOrderRecord): Result<Int> {
+        if (!SupabaseConfig.isConfigured || shopId <= 1L) return Result.success(0)
+        return apiClient.pushRestaurantOrders(listOf(order), shopId)
+    }
+
+    suspend fun syncRestaurantConfigNow(shopId: Long): Result<Int> {
+        if (!SupabaseConfig.isConfigured || shopId <= 1L) return Result.success(0)
+        var count = 0
+        val staff = RestaurantStorage.getStaffAccounts(context, shopId)
+        if (staff.isNotEmpty()) count += apiClient.pushRestaurantStaff(staff, shopId).getOrDefault(0)
+        val tables = RestaurantStorage.getTables(context, shopId)
+        if (tables.isNotEmpty()) count += apiClient.pushRestaurantTables(tables, shopId).getOrDefault(0)
+        val menu = RestaurantStorage.getMenuOfDayProductIds(context, shopId)
+        apiClient.pushMenuOfDay(shopId, menu)
+        return Result.success(count)
+    }
+
+    suspend fun deleteRestaurantStaffCloud(staffId: String): Result<Unit> {
+        return apiClient.deleteRestaurantStaff(staffId)
+    }
+
+    suspend fun deleteRestaurantTableCloud(tableId: String): Result<Unit> {
+        return apiClient.deleteRestaurantTable(tableId)
+    }
+
+    suspend fun fetchPublicMenuForQr(parsedQr: ParsedTableQr): Result<SupabaseApiClient.PublicRestaurantMenuBundle> {
+        return apiClient.fetchPublicRestaurantMenuBundle(
+            shopId = parsedQr.shopId,
+            fallbackShopName = parsedQr.shopName
+        )
+    }
+
+    fun getLocalPublicRestaurantsDirectory(localShop: ShopProfileEntity? = null): List<PublicRestaurantListing> {
+        val cachedShops = ShopAdStorage.getCachedShops(context)
+        val connectedShops = MultiShopStorage.getConnectedShops(context)
+        val activeLocalId = getOrCreateCloudShopId()
+        return RestaurantDirectoryHelper.mergeAndFilterDirectory(
+            remoteListings = emptyList(),
+            cachedShops = cachedShops,
+            connectedShops = connectedShops,
+            localShop = localShop,
+            localShopCloudId = activeLocalId
+        )
+    }
+
+    suspend fun fetchPublicRestaurantsDirectory(localShop: ShopProfileEntity? = null): Result<List<PublicRestaurantListing>> {
+        val cachedShops = ShopAdStorage.getCachedShops(context)
+        val connectedShops = MultiShopStorage.getConnectedShops(context)
+        val activeLocalId = getOrCreateCloudShopId()
+
+        val remoteRes = if (SupabaseConfig.isConfigured) {
+            apiClient.fetchPublicRestaurantsDirectory()
+        } else {
+            Result.success(emptyList())
+        }
+        val remoteList = remoteRes.getOrDefault(emptyList())
+        val merged = RestaurantDirectoryHelper.mergeAndFilterDirectory(
+            remoteListings = remoteList,
+            cachedShops = cachedShops,
+            connectedShops = connectedShops,
+            localShop = localShop,
+            localShopCloudId = activeLocalId
+        )
+        return if (remoteRes.isFailure && merged.isEmpty()) {
+            Result.failure(remoteRes.exceptionOrNull() ?: IllegalStateException("Impossible de charger les restaurants."))
+        } else {
+            Result.success(merged)
+        }
+    }
+
+    suspend fun submitPublicQrOrder(shopId: Long, order: RestaurantOrderRecord): Result<Int> {
+        if (shopId <= 1L) return Result.failure(IllegalArgumentException("Identifiant restaurant manquant."))
+        if (!SupabaseConfig.isConfigured) {
+            return Result.failure(IllegalStateException("Connexion Supabase requise pour transmettre la commande à distance."))
+        }
+        return apiClient.pushRestaurantOrders(listOf(order.copy(shopId = shopId)), shopId)
     }
 
     // --- AGENT DEPLOYMENTS CLOUD SYNC ---
@@ -1349,5 +1590,256 @@ class SupabaseSyncManager(
             apiClient.deleteShopAd(adId)
         }
         return Result.success(Unit)
+    }
+
+    // --- SECTEUR COUTURE : MODÈLES, MESURES, PHOTOS TISSUS, QR CATALOGUE & SUIVI CLIENT ---
+
+    private suspend fun uploadCoutureLocalPhotoIfNeeded(uri: String, subfolder: String): String {
+        val clean = uri.trim()
+        if (clean.isBlank() || clean.startsWith("http://") || clean.startsWith("https://")) {
+            return clean
+        }
+        if (!SupabaseConfig.isConfigured) return clean
+        val file = CouturePhotoHelper.getUploadableFileForUri(context, clean) ?: return clean
+        val remotePath = "couture/$subfolder/${file.name}"
+        val upRes = apiClient.uploadAdMedia(file, remotePath, "image/jpeg")
+        return if (upRes.isSuccess) upRes.getOrThrow() else clean
+    }
+
+    private suspend fun pushCoutureStateInternal(shopId: Long, shopName: String): Int {
+        if (!SupabaseConfig.isConfigured || shopId <= 1L) return 0
+        var count = 0
+        val localModels = CoutureStorage.getModels(context, shopId)
+        if (localModels.isNotEmpty()) {
+            val preparedModels = localModels.map { model ->
+                val resolvedImg = uploadCoutureLocalPhotoIfNeeded(model.imageUri, "models")
+                if (resolvedImg != model.imageUri || model.shopName.isBlank()) {
+                    val updated = model.copy(
+                        imageUri = resolvedImg,
+                        shopName = model.shopName.ifBlank { shopName }
+                    )
+                    CoutureStorage.upsertModel(context, shopId, updated)
+                    updated
+                } else {
+                    model
+                }
+            }
+            count += apiClient.pushCoutureModels(preparedModels, shopId).getOrDefault(0)
+        }
+
+        val localOrders = CoutureStorage.getOrders(context, shopId)
+        if (localOrders.isNotEmpty()) {
+            val preparedOrders = localOrders.map { order ->
+                val resolvedFabric = uploadCoutureLocalPhotoIfNeeded(order.fabricPhotoUri, "fabrics")
+                val resolvedModelImg = uploadCoutureLocalPhotoIfNeeded(order.modelImageUri, "models")
+                if (resolvedFabric != order.fabricPhotoUri || resolvedModelImg != order.modelImageUri || order.shopName.isBlank()) {
+                    val updated = order.copy(
+                        fabricPhotoUri = resolvedFabric,
+                        modelImageUri = resolvedModelImg,
+                        shopName = order.shopName.ifBlank { shopName }
+                    )
+                    CoutureStorage.upsertOrder(context, shopId, updated)
+                    updated
+                } else {
+                    order
+                }
+            }
+            count += apiClient.pushCoutureOrders(preparedOrders, shopId).getOrDefault(0)
+        }
+        return count
+    }
+
+    private suspend fun pullCoutureStateInternal(shopId: Long): Int {
+        if (!SupabaseConfig.isConfigured || shopId <= 1L) return 0
+        var updates = 0
+        try {
+            val remoteModels = apiClient.fetchCoutureModels(shopId).getOrDefault(emptyList())
+            if (remoteModels.isNotEmpty()) {
+                CoutureStorage.mergeModelsFromCloud(context, shopId, remoteModels)
+                updates += remoteModels.size
+            }
+        } catch (_: Exception) {}
+
+        try {
+            val remoteOrders = apiClient.fetchCoutureOrders(shopId).getOrDefault(emptyList())
+            if (remoteOrders.isNotEmpty()) {
+                CoutureStorage.mergeOrdersFromCloud(context, shopId, remoteOrders)
+                updates += remoteOrders.size
+            }
+        } catch (_: Exception) {}
+
+        return updates
+    }
+
+    suspend fun pullCoutureStateNow(shopId: Long): Result<Int> {
+        if (!SupabaseConfig.isConfigured || shopId <= 1L) return Result.success(0)
+        return Result.success(pullCoutureStateInternal(shopId))
+    }
+
+    suspend fun syncCoutureModelNow(shopId: Long, model: CoutureModelRecord, shopName: String): Result<CoutureModelRecord> {
+        val resolvedUri = uploadCoutureLocalPhotoIfNeeded(model.imageUri, "models")
+        val finalModel = model.copy(
+            shopId = shopId,
+            shopName = model.shopName.ifBlank { shopName },
+            imageUri = resolvedUri,
+            updatedAt = maxOf(model.updatedAt, System.currentTimeMillis())
+        )
+        CoutureStorage.upsertModel(context, shopId, finalModel)
+        if (SupabaseConfig.isConfigured && shopId > 1L) {
+            val pushRes = apiClient.pushCoutureModels(listOf(finalModel), shopId)
+            if (pushRes.isFailure) {
+                return Result.success(finalModel)
+            }
+        }
+        return Result.success(finalModel)
+    }
+
+    suspend fun syncCoutureOrderNow(shopId: Long, order: CoutureOrderRecord, shopName: String): Result<CoutureOrderRecord> {
+        val resolvedFabricUri = uploadCoutureLocalPhotoIfNeeded(order.fabricPhotoUri, "fabrics")
+        val resolvedModelUri = uploadCoutureLocalPhotoIfNeeded(order.modelImageUri, "models")
+        val finalOrder = order.copy(
+            shopId = shopId,
+            shopName = order.shopName.ifBlank { shopName },
+            fabricPhotoUri = resolvedFabricUri,
+            modelImageUri = resolvedModelUri,
+            updatedAt = maxOf(order.updatedAt, System.currentTimeMillis())
+        )
+        CoutureStorage.upsertOrder(context, shopId, finalOrder)
+        if (SupabaseConfig.isConfigured && shopId > 1L) {
+            apiClient.pushCoutureOrders(listOf(finalOrder), shopId)
+        }
+        return Result.success(finalOrder)
+    }
+
+    suspend fun syncAllCoutureConfigNow(shopId: Long, shopName: String): Result<Int> {
+        if (!SupabaseConfig.isConfigured || shopId <= 1L) return Result.success(0)
+        return Result.success(pushCoutureStateInternal(shopId, shopName))
+    }
+
+    suspend fun deleteCoutureModelCloud(modelId: String): Result<Unit> {
+        return apiClient.deleteCoutureModel(modelId)
+    }
+
+    fun getLocalPublicCoutureDirectory(localShop: ShopProfileEntity? = null): List<PublicCouturierListing> {
+        val cachedShops = ShopAdStorage.getCachedShops(context)
+        val connectedShops = MultiShopStorage.getConnectedShops(context)
+        val activeLocalId = getOrCreateCloudShopId()
+        val localModels = CoutureStorage.getAllLocalModels(context)
+        val counts = localModels.groupingBy { it.shopId }.eachCount()
+        return CoutureDirectoryHelper.mergeAndFilterDirectory(
+            remoteListings = emptyList(),
+            cachedShops = cachedShops,
+            connectedShops = connectedShops,
+            localShop = localShop,
+            localShopCloudId = activeLocalId,
+            modelCountsByShopId = counts
+        )
+    }
+
+    suspend fun fetchPublicCoutureDirectory(localShop: ShopProfileEntity? = null): Result<List<PublicCouturierListing>> {
+        val cachedShops = ShopAdStorage.getCachedShops(context)
+        val connectedShops = MultiShopStorage.getConnectedShops(context)
+        val activeLocalId = getOrCreateCloudShopId()
+
+        val remoteRes = if (SupabaseConfig.isConfigured) {
+            apiClient.fetchPublicCouturiersDirectory()
+        } else {
+            Result.success(emptyList())
+        }
+        val remoteModels = if (SupabaseConfig.isConfigured) {
+            apiClient.fetchPublicCoutureModelsFeed().getOrDefault(emptyList())
+        } else {
+            emptyList()
+        }
+        val allKnownModels = (remoteModels + CoutureStorage.getAllLocalModels(context)).distinctBy { it.id }
+        val counts = allKnownModels.groupingBy { it.shopId }.eachCount()
+
+        val merged = CoutureDirectoryHelper.mergeAndFilterDirectory(
+            remoteListings = remoteRes.getOrDefault(emptyList()),
+            cachedShops = cachedShops,
+            connectedShops = connectedShops,
+            localShop = localShop,
+            localShopCloudId = activeLocalId,
+            modelCountsByShopId = counts
+        )
+        return if (remoteRes.isFailure && merged.isEmpty()) {
+            Result.failure(remoteRes.exceptionOrNull() ?: IllegalStateException("Impossible de charger les couturiers."))
+        } else {
+            Result.success(merged)
+        }
+    }
+
+    suspend fun fetchPublicCoutureModelsFeed(): Result<List<CoutureModelRecord>> {
+        val localModels = CoutureStorage.getAllLocalModels(context)
+        if (!SupabaseConfig.isConfigured) {
+            return Result.success(localModels)
+        }
+        val remoteRes = apiClient.fetchPublicCoutureModelsFeed()
+        val remoteList = remoteRes.getOrDefault(emptyList())
+        val byId = LinkedHashMap<String, CoutureModelRecord>()
+        remoteList.forEach { byId[it.id] = it }
+        localModels.forEach { local ->
+            val existing = byId[local.id]
+            if (existing == null || local.updatedAt >= existing.updatedAt) {
+                byId[local.id] = local
+            }
+        }
+        return Result.success(byId.values.filter { it.isAvailable }.sortedByDescending { it.updatedAt })
+    }
+
+    suspend fun fetchPublicCoutureCatalogForQr(parsedQr: ParsedCoutureQr): Result<SupabaseApiClient.PublicCoutureCatalogBundle> {
+        return apiClient.fetchPublicCoutureCatalogBundle(
+            shopId = parsedQr.shopId,
+            fallbackShopName = parsedQr.shopName
+        )
+    }
+
+    suspend fun registerCoutureClientAccount(account: CoutureClientAccount): Result<CoutureClientAccount> {
+        val norm = account.copy(
+            id = account.id.ifBlank { "CLI-${CoutureDirectoryHelper.normalizePhone(account.phone).ifBlank { System.currentTimeMillis().toString() }}" },
+            firstName = account.firstName.trim(),
+            lastName = account.lastName.trim(),
+            phone = account.phone.trim(),
+            city = account.city.trim(),
+            updatedAt = System.currentTimeMillis()
+        )
+        CoutureStorage.saveClientAccount(context, norm)
+        if (SupabaseConfig.isConfigured) {
+            apiClient.pushCoutureClientAccount(norm)
+        }
+        return Result.success(norm)
+    }
+
+    suspend fun fetchClientCoutureProgress(clientPhone: String, clientName: String? = null): Result<List<CoutureOrderRecord>> {
+        val localMatches = CoutureStorage.getAllLocalOrders(context).filter {
+            CoutureDirectoryHelper.matchesClientOrder(it, clientPhone, clientName)
+        }
+        if (!SupabaseConfig.isConfigured) {
+            return Result.success(localMatches)
+        }
+        val remoteRes = apiClient.fetchClientCoutureOrdersByPhone(clientPhone)
+        val remoteMatches = remoteRes.getOrDefault(emptyList())
+        val byId = LinkedHashMap<String, CoutureOrderRecord>()
+        localMatches.forEach { byId[it.id] = it }
+        remoteMatches.forEach { remote ->
+            val existing = byId[remote.id]
+            if (existing == null || remote.updatedAt >= existing.updatedAt) {
+                byId[remote.id] = remote
+            }
+        }
+        val merged = byId.values.sortedByDescending { it.updatedAt }
+        return if (remoteRes.isFailure && merged.isEmpty()) {
+            Result.failure(remoteRes.exceptionOrNull() ?: IllegalStateException("Impossible de charger votre suivi couture."))
+        } else {
+            Result.success(merged)
+        }
+    }
+
+    suspend fun submitPublicCoutureOrderRequest(shopId: Long, order: CoutureOrderRecord): Result<Int> {
+        if (shopId <= 1L) return Result.failure(IllegalArgumentException("Identifiant atelier couturier manquant."))
+        if (!SupabaseConfig.isConfigured) {
+            return Result.failure(IllegalStateException("Connexion Supabase requise pour envoyer la demande au couturier."))
+        }
+        return apiClient.pushCoutureOrders(listOf(order.copy(shopId = shopId)), shopId)
     }
 }

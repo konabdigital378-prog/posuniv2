@@ -31,6 +31,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.local.entity.CustomerEntity
 import com.example.data.local.entity.ProductEntity
+import com.example.data.remote.supabase.RestaurantStaffAccount
+import com.example.data.remote.supabase.RestaurantTableRecord
 import com.example.ui.components.CoiffureServiceDialog
 import com.example.ui.components.CustomUnitSaleDialog
 import com.example.ui.components.ItemVariantCustomizerDialog
@@ -69,7 +71,12 @@ fun PosScreen(
     onSetDiscount: (Long) -> Unit,
     onProceedToPayment: () -> Unit,
     onBack: () -> Unit,
-    shopProfile: com.example.data.local.entity.ShopProfileEntity? = null
+    shopProfile: com.example.data.local.entity.ShopProfileEntity? = null,
+    restaurantTables: List<RestaurantTableRecord> = emptyList(),
+    activeStaff: RestaurantStaffAccount? = null,
+    openRestaurantOrdersCount: Int = 0,
+    onSubmitRestaurantOrder: ((tableName: String, serverName: String, notes: String, sendDirectlyToKitchen: Boolean) -> Unit)? = null,
+    onOpenRestaurantScreen: () -> Unit = {}
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf("Tous") }
@@ -123,6 +130,25 @@ fun PosScreen(
                 subtitle = "${sectorPreset.emoji} ${sectorPreset.title}",
                 onBack = onBack,
                 actions = {
+                    if (sectorFeatures.hasTables) {
+                        IconButton(
+                            onClick = onOpenRestaurantScreen,
+                            modifier = Modifier.testTag("btn_pos_open_restaurant")
+                        ) {
+                            BadgedBox(badge = {
+                                if (openRestaurantOrdersCount > 0) {
+                                    Badge(
+                                        containerColor = Color(0xFFEA580C),
+                                        contentColor = Color.White
+                                    ) {
+                                        Text("$openRestaurantOrdersCount", fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }) {
+                                Icon(Icons.Default.SoupKitchen, contentDescription = "Cuisine & Commandes", tint = Color(0xFFEA580C))
+                            }
+                        }
+                    }
                     IconButton(
                         onClick = { showScanDialog = true },
                         modifier = Modifier.testTag("btn_barcode_scan")
@@ -378,8 +404,13 @@ fun PosScreen(
                                 }
                             }
                         } else if (sectorFeatures.hasTables) {
+                            val posTables = remember(restaurantTables) {
+                                restaurantTables.filter { it.isActive }.map { it.tableNumber }.ifEmpty {
+                                    listOf("Table 1", "Table 2", "Table 3", "Table 4", "Terrasse", "Emporter")
+                                }
+                            }
                             LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                items(listOf("T-1", "T-2", "T-3", "T-4", "Terrasse", "Emporter")) { tbl ->
+                                items(posTables) { tbl ->
                                     val isSel = selectedTable == tbl
                                     FilterChip(
                                         selected = isSel,
@@ -1013,7 +1044,10 @@ fun PosScreen(
             cart = cart,
             shopName = shopProfile?.name ?: "Mon Établissement",
             initialTable = selectedTable,
+            tables = restaurantTables,
+            activeStaffName = activeStaff?.name ?: "Serveur",
             onUpdateItemNote = onUpdateItemNote,
+            onSubmitOrder = onSubmitRestaurantOrder,
             onDismiss = { showKitchenModal = false }
         )
     }

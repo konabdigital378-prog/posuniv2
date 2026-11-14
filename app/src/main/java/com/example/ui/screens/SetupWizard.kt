@@ -134,6 +134,9 @@ fun SetupWizard(
     activeCloudShopId: Long = 0L,
     onConnectMultiShopRemote: (identifier: String, pin: String, onDone: (Boolean, String) -> Unit) -> Unit = { _, _, cb -> cb(false, "Service indisponible") },
     onSwitchConnectedShop: (ConnectedShopSession, onDone: (Boolean, String) -> Unit) -> Unit = { _, cb -> cb(false, "Service indisponible") },
+    onScanTableQr: (String) -> Unit = {},
+    onOpenRestaurantDirectory: () -> Unit = {},
+    onOpenCouturePortal: () -> Unit = {},
     onEnterShop: () -> Unit = {},
     onComplete: (
         shopName: String,
@@ -165,6 +168,7 @@ fun SetupWizard(
     var showManagerPinModal by remember { mutableStateOf(false) }
     var showAgentDirectoryModal by remember { mutableStateOf(false) }
     var showMultiShopModal by remember { mutableStateOf(false) }
+    var showWelcomeQrScanner by remember { mutableStateOf(false) }
     var showPlanActivationSuccessDialog by remember { mutableStateOf(false) }
     var activatedPlanInfo by remember { mutableStateOf<Triple<String, String, String>?>(null) } // tier, key, agentName
 
@@ -541,6 +545,11 @@ fun SetupWizard(
                     onOpenMultiShopClick = {
                         showMultiShopModal = true
                     },
+                    onOpenRestaurantDirectoryClick = onOpenRestaurantDirectory,
+                    onOpenCouturePortalClick = onOpenCouturePortal,
+                    onScanTableQrClick = {
+                        showWelcomeQrScanner = true
+                    },
                     onRegisterAgentClick = {
                         agentModalInitialTab = 1
                         showAgentLoginDialog = true
@@ -605,6 +614,9 @@ fun SetupWizard(
                     adminPhone = uiState.adminPhone, onAdminPhoneChange = viewModel::updateAdminPhone,
                     adminPin = uiState.adminPin, onAdminPinChange = viewModel::updateAdminPin,
                     confirmPin = uiState.confirmPin, onConfirmPinChange = viewModel::updateConfirmPin,
+                    isRestaurantMode = uiState.selectedBusinessType.equals("Restaurant", ignoreCase = true),
+                    restaurantTeam = uiState.restaurantTeam,
+                    onRestaurantTeamChange = viewModel::updateRestaurantTeam,
                     errorMessage = uiState.validationError ?: ""
                 )
             }
@@ -617,6 +629,7 @@ fun SetupWizard(
                     city = uiState.city,
                     currency = uiState.currency,
                     adminName = uiState.adminName,
+                    restaurantTeam = if (uiState.selectedBusinessType.equals("Restaurant", ignoreCase = true)) uiState.restaurantTeam else null,
                     selectedLogoIcon = uiState.selectedLogoIcon,
                     selectedLogoColor = Color(uiState.selectedLogoColorHex)
                 )
@@ -713,6 +726,17 @@ fun SetupWizard(
             )
         }
 
+        // Modal : Scanner QR Code Table Restaurant -> Menu du Jour
+        if (showWelcomeQrScanner) {
+            com.example.ui.components.RealBarcodeScannerModal(
+                onDismiss = { showWelcomeQrScanner = false },
+                onBarcodeScanned = { scanned ->
+                    showWelcomeQrScanner = false
+                    onScanTableQr(scanned)
+                }
+            )
+        }
+
         // Modal : Liste Publique des Agents Déployeurs (si la boutique n'est pas configurée)
         if (showAgentDirectoryModal) {
             AgentContactDirectoryModal(
@@ -761,6 +785,9 @@ private fun WizardStepWelcome(
     connectedShopsCount: Int = 0,
     onEnterShopClick: () -> Unit = {},
     onOpenMultiShopClick: () -> Unit = {},
+    onOpenRestaurantDirectoryClick: () -> Unit = {},
+    onOpenCouturePortalClick: () -> Unit = {},
+    onScanTableQrClick: () -> Unit = {},
     onRegisterAgentClick: () -> Unit = {},
     onLoginAgentClick: () -> Unit = {},
     onConfigureShopAsAgent: () -> Unit = {},
@@ -1018,6 +1045,136 @@ private fun WizardStepWelcome(
                                 )
                             }
                         }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // =============================================================
+                // BLOC RESTAURANT : ANNUAIRE DES RESTAURANTS & SCAN MENU WEB
+                // =============================================================
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .konabPressScale(pressedScale = 0.985f)
+                        .clickable { onOpenRestaurantDirectoryClick() }
+                        .testTag("btn_welcome_scan_restaurant_qr"),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    border = BorderStroke(1.2.dp, KonabOrange.copy(alpha = 0.45f)),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(42.dp)
+                                .clip(CircleShape)
+                                .background(KonabOrange.copy(alpha = 0.14f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.RestaurantMenu,
+                                contentDescription = "Restaurants & Menus",
+                                tint = KonabOrange,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Restaurants & Menus Web",
+                                fontFamily = OutfitFontFamily,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.5.sp,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "Choisissez un restaurant inscrit, scannez votre table ou parcourez le menu illustré",
+                                fontSize = 11.5.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                lineHeight = 15.sp
+                            )
+                        }
+                        FilledTonalIconButton(
+                            onClick = onScanTableQrClick,
+                            colors = IconButtonDefaults.filledTonalIconButtonColors(
+                                containerColor = KonabOrange.copy(alpha = 0.15f),
+                                contentColor = KonabOrange
+                            ),
+                            modifier = Modifier
+                                .minimumInteractiveComponentSize()
+                                .testTag("btn_welcome_quick_scan_qr")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.QrCodeScanner,
+                                contentDescription = "Scanner QR Table directement"
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // =============================================================
+                // BLOC COUTURE : COUTURIERS, MODÈLES QR & SUIVI PROGRESSION
+                // =============================================================
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .konabPressScale(pressedScale = 0.985f)
+                        .clickable { onOpenCouturePortalClick() }
+                        .testTag("btn_welcome_couture_portal"),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    border = BorderStroke(1.2.dp, Color(0xFF7C3AED).copy(alpha = 0.45f)),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(42.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF7C3AED).copy(alpha = 0.14f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Checkroom,
+                                contentDescription = "Couture, Modèles et Suivi Tenue",
+                                tint = Color(0xFF6D28D9),
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Couture, Modèles & Suivi Tenue",
+                                fontFamily = OutfitFontFamily,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.5.sp,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "Créez votre compte, choisissez un couturier ou modèle, scannez son QR et suivez votre tenue",
+                                fontSize = 11.5.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                lineHeight = 15.sp
+                            )
+                        }
+                        Icon(
+                            imageVector = Icons.Default.ChevronRight,
+                            contentDescription = null,
+                            tint = Color(0xFF6D28D9)
+                        )
                     }
                 }
 
@@ -2061,6 +2218,9 @@ private fun WizardStepAdminAccount(
     adminPhone: String, onAdminPhoneChange: (String) -> Unit,
     adminPin: String, onAdminPinChange: (String) -> Unit,
     confirmPin: String, onConfirmPinChange: (String) -> Unit,
+    isRestaurantMode: Boolean = false,
+    restaurantTeam: com.example.data.remote.supabase.RestaurantTeamConfig = com.example.data.remote.supabase.RestaurantTeamConfig(),
+    onRestaurantTeamChange: ((com.example.data.remote.supabase.RestaurantTeamConfig) -> com.example.data.remote.supabase.RestaurantTeamConfig) -> Unit = {},
     errorMessage: String
 ) {
     Column(
@@ -2071,12 +2231,16 @@ private fun WizardStepAdminAccount(
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         Text(
-            text = "Compte Administrateur Local",
+            text = if (isRestaurantMode) "Compte Gérant & Équipe Restaurant" else "Compte Administrateur Local",
             style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.Bold
         )
         Text(
-            text = "Ce compte sera enregistré localement via Jetpack DataStore pour protéger vos bénéfices et opérations de caisse.",
+            text = if (isRestaurantMode) {
+                "Configurez le gérant principal et les comptes d'accès synchronisés (Cuisine, Serveur, Caissier) + tables QR."
+            } else {
+                "Ce compte sera enregistré localement via Jetpack DataStore pour protéger vos bénéfices et opérations de caisse."
+            },
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -2095,13 +2259,17 @@ private fun WizardStepAdminAccount(
                 Spacer(modifier = Modifier.width(12.dp))
                 Column {
                     Text(
-                        text = "Stockage sécurisé Android DataStore",
+                        text = if (isRestaurantMode) "Comptes multi-utilisateurs synchronisés" else "Stockage sécurisé Android DataStore",
                         fontWeight = FontWeight.Bold,
                         fontSize = 13.sp,
                         color = KonabGreenDark
                     )
                     Text(
-                        text = "Fonctionne intégralement sans connexion Internet (100% hors-ligne).",
+                        text = if (isRestaurantMode) {
+                            "Chaque membre (Gérant, Cuisine, Serveur, Caissier) pourra se connecter sur son propre téléphone."
+                        } else {
+                            "Fonctionne intégralement sans connexion Internet (100% hors-ligne)."
+                        },
                         fontSize = 11.sp,
                         color = KonabGreenDark.copy(alpha = 0.85f)
                     )
@@ -2112,7 +2280,7 @@ private fun WizardStepAdminAccount(
         OutlinedTextField(
             value = adminName,
             onValueChange = onAdminNameChange,
-            label = { Text("Nom de l'administrateur / propriétaire *") },
+            label = { Text("Nom du gérant / propriétaire *") },
             placeholder = { Text("Ex: Ibrahim Kaba") },
             leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
             singleLine = true,
@@ -2124,7 +2292,7 @@ private fun WizardStepAdminAccount(
         OutlinedTextField(
             value = adminPhone,
             onValueChange = onAdminPhoneChange,
-            label = { Text("Téléphone de l'administrateur *") },
+            label = { Text("Téléphone du gérant *") },
             placeholder = { Text("65413799") },
             leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null) },
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
@@ -2135,7 +2303,7 @@ private fun WizardStepAdminAccount(
         OutlinedTextField(
             value = adminPin,
             onValueChange = { if (it.length <= 4) onAdminPinChange(it) },
-            label = { Text("Code PIN secret (4 chiffres) *") },
+            label = { Text("Code PIN secret Gérant (4 chiffres) *") },
             leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
             visualTransformation = PasswordVisualTransformation(),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
@@ -2148,13 +2316,107 @@ private fun WizardStepAdminAccount(
         OutlinedTextField(
             value = confirmPin,
             onValueChange = { if (it.length <= 4) onConfirmPinChange(it) },
-            label = { Text("Confirmer le code PIN *") },
+            label = { Text("Confirmer le code PIN Gérant *") },
             leadingIcon = { Icon(Icons.Default.LockReset, contentDescription = null) },
             visualTransformation = PasswordVisualTransformation(),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
             singleLine = true,
             modifier = Modifier.fillMaxWidth()
         )
+
+        if (isRestaurantMode) {
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                border = BorderStroke(1.dp, KonabOrange.copy(alpha = 0.35f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Icon(Icons.Default.RestaurantMenu, contentDescription = null, tint = KonabOrange)
+                        Text(
+                            text = "Équipe Restaurant & Tables QR (Auto-créés)",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp,
+                            color = KonabOrangeDark
+                        )
+                    }
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        OutlinedTextField(
+                            value = restaurantTeam.kitchenName,
+                            onValueChange = { v -> onRestaurantTeamChange { it.copy(kitchenName = v) } },
+                            label = { Text("Compte Cuisine") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1.4f).testTag("input_wizard_kitchen_name")
+                        )
+                        OutlinedTextField(
+                            value = restaurantTeam.kitchenPin,
+                            onValueChange = { v -> if (v.length <= 4) onRestaurantTeamChange { it.copy(kitchenPin = v) } },
+                            label = { Text("PIN Cuisine") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                            singleLine = true,
+                            modifier = Modifier.weight(1f).testTag("input_wizard_kitchen_pin")
+                        )
+                    }
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        OutlinedTextField(
+                            value = restaurantTeam.waiterName,
+                            onValueChange = { v -> onRestaurantTeamChange { it.copy(waiterName = v) } },
+                            label = { Text("Compte Serveur") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1.4f).testTag("input_wizard_waiter_name")
+                        )
+                        OutlinedTextField(
+                            value = restaurantTeam.waiterPin,
+                            onValueChange = { v -> if (v.length <= 4) onRestaurantTeamChange { it.copy(waiterPin = v) } },
+                            label = { Text("PIN Serveur") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                            singleLine = true,
+                            modifier = Modifier.weight(1f).testTag("input_wizard_waiter_pin")
+                        )
+                    }
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        OutlinedTextField(
+                            value = restaurantTeam.cashierName,
+                            onValueChange = { v -> onRestaurantTeamChange { it.copy(cashierName = v) } },
+                            label = { Text("Compte Caissier") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1.4f).testTag("input_wizard_cashier_name")
+                        )
+                        OutlinedTextField(
+                            value = restaurantTeam.cashierPin,
+                            onValueChange = { v -> if (v.length <= 4) onRestaurantTeamChange { it.copy(cashierPin = v) } },
+                            label = { Text("PIN Caissier") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                            singleLine = true,
+                            modifier = Modifier.weight(1f).testTag("input_wizard_cashier_pin")
+                        )
+                    }
+
+                    Text("Nombre de tables QR à générer au lancement :", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf(4, 6, 8, 12).forEach { count ->
+                            val selected = restaurantTeam.initialTableCount == count
+                            FilterChip(
+                                selected = selected,
+                                onClick = { onRestaurantTeamChange { it.copy(initialTableCount = count) } },
+                                label = { Text("$count tables", fontWeight = FontWeight.Bold, fontSize = 11.sp) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = KonabOrange,
+                                    selectedLabelColor = Color.White
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+        }
 
         if (errorMessage.isNotBlank()) {
             Text(
@@ -2179,6 +2441,7 @@ private fun WizardStepReadySummary(
     city: String,
     currency: String,
     adminName: String,
+    restaurantTeam: com.example.data.remote.supabase.RestaurantTeamConfig? = null,
     selectedLogoIcon: String,
     selectedLogoColor: Color
 ) {
@@ -2275,8 +2538,30 @@ private fun WizardStepReadySummary(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text("Administrateur (DataStore) :", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Gérant principal :", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(adminName, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                }
+
+                if (restaurantTeam != null) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    HorizontalDivider()
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = "Comptes Restaurant & Tables QR créés :",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = KonabOrangeDark
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "• Cuisine: ${restaurantTeam.kitchenName} (PIN ${restaurantTeam.kitchenPin})\n" +
+                            "• Serveur: ${restaurantTeam.waiterName} (PIN ${restaurantTeam.waiterPin})\n" +
+                            "• Caissier: ${restaurantTeam.cashierName} (PIN ${restaurantTeam.cashierPin})\n" +
+                            "• ${restaurantTeam.initialTableCount} tables QR prêtes à télécharger & imprimer",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        lineHeight = 18.sp
+                    )
                 }
             }
         }

@@ -23,6 +23,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.data.remote.supabase.RestaurantTableRecord
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.CartItem
 import java.text.SimpleDateFormat
@@ -34,17 +35,24 @@ fun KitchenOrderModal(
     cart: List<CartItem>,
     shopName: String,
     initialTable: String = "Table 1",
+    tables: List<RestaurantTableRecord> = emptyList(),
+    activeStaffName: String = "Serveur",
     onUpdateItemNote: (productId: Long, note: String) -> Unit,
+    onSubmitOrder: ((tableName: String, serverName: String, notes: String, sendDirectlyToKitchen: Boolean) -> Unit)? = null,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
     var currentTable by remember { mutableStateOf(initialTable) }
-    var serverName by remember { mutableStateOf("Serveur") }
+    var serverName by remember(activeStaffName) { mutableStateOf(activeStaffName.ifBlank { "Serveur" }) }
     var orderNotes by remember { mutableStateOf("") }
     var editingItemNoteId by remember { mutableStateOf<Long?>(null) }
     var tempItemNote by remember { mutableStateOf("") }
 
-    val presetTables = listOf("Table 1", "Table 2", "Table 3", "Table 4", "Table 5", "Terrasse A", "Terrasse B", "À Emporter", "VIP")
+    val presetTables = remember(tables) {
+        tables.filter { it.isActive }.map { it.tableNumber }.ifEmpty {
+            listOf("Table 1", "Table 2", "Table 3", "Table 4", "Table 5", "Terrasse A", "Terrasse B", "À Emporter", "VIP")
+        }
+    }
 
     val currentTime = remember {
         SimpleDateFormat("HH:mm - dd/MM/yyyy", Locale.FRENCH).format(Date())
@@ -267,42 +275,105 @@ fun KitchenOrderModal(
                 }
             }
 
+            Spacer(modifier = Modifier.height(10.dp))
+
+            OutlinedTextField(
+                value = orderNotes,
+                onValueChange = { orderNotes = it },
+                label = { Text("Note générale cuisine (optionnel)") },
+                placeholder = { Text("Ex: Client pressé, servir ensemble...") },
+                singleLine = true,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("input_kitchen_order_notes")
+            )
+
             Spacer(modifier = Modifier.height(14.dp))
 
             // Actions
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                OutlinedButton(
-                    onClick = shareViaWhatsApp,
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(48.dp)
-                        .testTag("btn_share_kitchen_whatsapp"),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF25D366))
+            if (onSubmitOrder != null) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("WhatsApp", fontWeight = FontWeight.Bold)
-                }
+                    OutlinedButton(
+                        onClick = {
+                            onSubmitOrder(currentTable, serverName, orderNotes, false)
+                            Toast.makeText(context, "Commande envoyée au Gérant pour validation !", Toast.LENGTH_SHORT).show()
+                            onDismiss()
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp)
+                            .testTag("btn_send_order_manager")
+                    ) {
+                        Text("Au Gérant", fontWeight = FontWeight.Bold, fontSize = 12.5.sp)
+                    }
 
-                Button(
-                    onClick = {
-                        Toast.makeText(context, "Bon de commande transmis en cuisine !", Toast.LENGTH_SHORT).show()
-                        onDismiss()
-                    },
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEA580C)),
-                    modifier = Modifier
-                        .weight(1.2f)
-                        .height(48.dp)
-                        .testTag("btn_confirm_kitchen_order")
+                    Button(
+                        onClick = {
+                            onSubmitOrder(currentTable, serverName, orderNotes, true)
+                            Toast.makeText(context, "Commande transmise directement en cuisine !", Toast.LENGTH_SHORT).show()
+                            onDismiss()
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEA580C)),
+                        modifier = Modifier
+                            .weight(1.25f)
+                            .height(48.dp)
+                            .testTag("btn_confirm_kitchen_order")
+                    ) {
+                        Icon(Icons.Default.SoupKitchen, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Envoyer Cuisine", fontWeight = FontWeight.Bold, fontSize = 12.5.sp)
+                    }
+
+                    OutlinedIconButton(
+                        onClick = shareViaWhatsApp,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .size(48.dp)
+                            .testTag("btn_share_kitchen_whatsapp")
+                    ) {
+                        Icon(Icons.Default.Share, contentDescription = "Partager WhatsApp", tint = Color(0xFF25D366))
+                    }
+                }
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Envoyer Cuisine", fontWeight = FontWeight.Bold)
+                    OutlinedButton(
+                        onClick = shareViaWhatsApp,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp)
+                            .testTag("btn_share_kitchen_whatsapp"),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF25D366))
+                    ) {
+                        Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("WhatsApp", fontWeight = FontWeight.Bold)
+                    }
+
+                    Button(
+                        onClick = {
+                            Toast.makeText(context, "Bon de commande transmis en cuisine !", Toast.LENGTH_SHORT).show()
+                            onDismiss()
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEA580C)),
+                        modifier = Modifier
+                            .weight(1.2f)
+                            .height(48.dp)
+                            .testTag("btn_confirm_kitchen_order")
+                    ) {
+                        Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Envoyer Cuisine", fontWeight = FontWeight.Bold)
+                    }
                 }
             }
 

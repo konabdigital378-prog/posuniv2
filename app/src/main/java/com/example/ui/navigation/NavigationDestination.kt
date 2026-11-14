@@ -14,7 +14,9 @@ enum class KonabScreen(val title: String) {
     TRANSACTIONS("Historique des transactions"),
     SETTINGS("Paramètres"),
     SUBSCRIPTION("Abonnement"),
-    AGENT_PORTAL("Portail Agent")
+    AGENT_PORTAL("Portail Agent"),
+    RESTAURANT("Restaurant & Cuisine"),
+    COUTURE("Atelier Couture")
 }
 
 sealed class SetupWizardDestination(
