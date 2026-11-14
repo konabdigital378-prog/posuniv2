@@ -56,7 +56,8 @@ import com.example.util.BiometricSecurityHelper
 fun ManagerPinEntryModal(
     shopProfile: ShopProfileEntity,
     onDismiss: () -> Unit,
-    onPinVerified: () -> Unit
+    onPinVerified: () -> Unit,
+    onOpenMultiShopLogin: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     var enteredPin by remember { mutableStateOf("") }
@@ -322,6 +323,34 @@ fun ManagerPinEntryModal(
                             Text(
                                 text = "Entrer avec l'empreinte digitale",
                                 color = KonabGreen,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp
+                            )
+                        }
+                    }
+
+                    if (onOpenMultiShopLogin != null) {
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
+                        TextButton(
+                            onClick = {
+                                onDismiss()
+                                onOpenMultiShopLogin()
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 48.dp)
+                                .testTag("btn_pin_modal_switch_multishop")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Domain,
+                                contentDescription = null,
+                                tint = KonabBlue,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Changer de boutique / Connexion à distance",
+                                color = KonabBlue,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 13.sp
                             )

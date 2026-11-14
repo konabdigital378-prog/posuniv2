@@ -101,6 +101,9 @@ interface KonabDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertSupplier(supplier: SupplierEntity): Long
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertSuppliers(suppliers: List<SupplierEntity>)
+
     @Update
     suspend fun updateSupplier(supplier: SupplierEntity)
 
@@ -167,6 +170,9 @@ interface KonabDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertCashMovement(movement: CashMovementEntity): Long
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertCashMovements(movements: List<CashMovementEntity>)
+
     // Cash Session
     @Query("SELECT * FROM cash_sessions WHERE status = 'OPEN' ORDER BY openedAt DESC LIMIT 1")
     fun getActiveCashSession(): Flow<CashSessionEntity?>
@@ -183,6 +189,9 @@ interface KonabDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertCashSession(session: CashSessionEntity): Long
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertCashSessions(sessions: List<CashSessionEntity>)
+
     @Update
     suspend fun updateCashSession(session: CashSessionEntity)
 
@@ -195,6 +204,9 @@ interface KonabDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertPurchase(purchase: PurchaseEntity): Long
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertPurchases(purchases: List<PurchaseEntity>)
 
     // Data wipe / restore utility
     @Query("DELETE FROM products")

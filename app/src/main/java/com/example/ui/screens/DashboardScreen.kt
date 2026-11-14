@@ -36,12 +36,14 @@ import androidx.compose.ui.window.Dialog
 import com.example.data.local.entity.ProductEntity
 import com.example.data.local.entity.SaleEntity
 import com.example.data.local.entity.ShopProfileEntity
+import com.example.data.remote.supabase.ConnectedShopSession
 import com.example.ui.components.DailySalesChartCard
 import com.example.ui.components.KonabEmptyState
 import com.example.ui.components.KonabLivePulseDot
 import com.example.ui.components.KonabStaggeredReveal
 import com.example.ui.components.KonabWidthClass
 import com.example.ui.components.LocalKonabWidthClass
+import com.example.ui.components.MultiShopManagerModal
 import com.example.ui.components.RealBarcodeScannerModal
 import com.example.ui.components.ResponsiveMaxWidthBox
 import com.example.ui.components.StatCard
@@ -71,11 +73,19 @@ fun DashboardScreen(
     onMarkAllNotificationsAsRead: () -> Unit = {},
     onDeleteNotification: (Long) -> Unit = {},
     onClearAllNotifications: () -> Unit = {},
-    onTriggerTestNotification: (String) -> Unit = {}
+    onTriggerTestNotification: (String) -> Unit = {},
+    connectedShops: List<ConnectedShopSession> = emptyList(),
+    activeCloudShopId: Long = 0L,
+    onConnectMultiShopRemote: (identifier: String, pin: String, onDone: (Boolean, String) -> Unit) -> Unit = { _, _, cb -> cb(false, "Indisponible") },
+    onSwitchConnectedShop: (ConnectedShopSession, onDone: (Boolean, String) -> Unit) -> Unit = { _, cb -> cb(false, "Indisponible") },
+    onRefreshActiveShopFromCloud: ((onDone: (Boolean, String) -> Unit) -> Unit)? = null
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     // Barcode scanner modal state
     var showScannerModal by remember { mutableStateOf(false) }
     var showNotificationModal by remember { mutableStateOf(false) }
+    var showMultiShopModal by remember { mutableStateOf(false) }
+    var isRefreshingCloud by remember { mutableStateOf(false) }
     var scannedProduct by remember { mutableStateOf<ProductEntity?>(null) }
     var unknownScannedBarcode by remember { mutableStateOf<String?>(null) }
 
@@ -402,33 +412,109 @@ fun DashboardScreen(
                                     }
                                 }
 
-                                // Subscription Tier Badge (Clickable)
-                                Surface(
-                                    color = KonabGoldContainer,
-                                    shape = RoundedCornerShape(10.dp),
-                                    border = BorderStroke(1.dp, KonabGoldDark.copy(alpha = 0.3f)),
-                                    modifier = Modifier
-                                        .konabPressScale(pressedScale = 0.95f)
-                                        .clickable { onNavigate(KonabScreen.SUBSCRIPTION) }
-                                        .testTag("badge_subscription")
+                                // Right-side Badges: Multiboutique Switcher + Subscription Tier
+                                Column(
+                                    horizontalAlignment = Alignment.End,
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    Surface(
+                                        color = KonabGoldContainer,
+                                        shape = RoundedCornerShape(10.dp),
+                                        border = BorderStroke(1.dp, KonabGoldDark.copy(alpha = 0.3f)),
+                                        modifier = Modifier
+                                            .konabPressScale(pressedScale = 0.95f)
+                                            .clickable { onNavigate(KonabScreen.SUBSCRIPTION) }
+                                            .testTag("badge_subscription")
                                     ) {
-                                        Icon(
-                                            imageVector = Icons.Default.WorkspacePremium,
-                                            contentDescription = null,
-                                            tint = KonabGoldDark,
-                                            modifier = Modifier.size(14.dp)
-                                        )
-                                        Text(
-                                            text = shopProfile?.subscriptionTier?.uppercase() ?: "PREMIUM",
-                                            color = KonabGoldDark,
-                                            fontWeight = FontWeight.ExtraBold,
-                                            fontSize = 11.sp
-                                        )
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.WorkspacePremium,
+                                                contentDescription = null,
+                                                tint = KonabGoldDark,
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                            Text(
+                                                text = shopProfile?.subscriptionTier?.uppercase() ?: "PREMIUM",
+                                                color = KonabGoldDark,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                fontSize = 11.sp
+                                            )
+                                        }
+                                    }
+
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        if (onRefreshActiveShopFromCloud != null) {
+                                            Surface(
+                                                color = KonabGreen.copy(alpha = 0.12f),
+                                                shape = RoundedCornerShape(8.dp),
+                                                border = BorderStroke(1.dp, KonabGreen.copy(alpha = 0.35f)),
+                                                modifier = Modifier
+                                                    .konabPressScale(pressedScale = 0.95f)
+                                                    .clickable(enabled = !isRefreshingCloud) {
+                                                        isRefreshingCloud = true
+                                                        onRefreshActiveShopFromCloud { _, msg ->
+                                                            isRefreshingCloud = false
+                                                            android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+                                                        }
+                                                    }
+                                                    .testTag("btn_dashboard_cloud_refresh")
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Sync,
+                                                        contentDescription = "Actualiser produits et ventes",
+                                                        tint = KonabGreen,
+                                                        modifier = Modifier.size(13.dp)
+                                                    )
+                                                    Text(
+                                                        text = if (isRefreshingCloud) "..." else "Synchro",
+                                                        color = KonabGreen,
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 10.sp
+                                                    )
+                                                }
+                                            }
+                                        }
+
+                                        Surface(
+                                            color = KonabBlue.copy(alpha = 0.12f),
+                                            shape = RoundedCornerShape(8.dp),
+                                            border = BorderStroke(1.dp, KonabBlue.copy(alpha = 0.35f)),
+                                            modifier = Modifier
+                                                .konabPressScale(pressedScale = 0.95f)
+                                                .clickable { showMultiShopModal = true }
+                                                .testTag("btn_dashboard_multishop")
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Domain,
+                                                    contentDescription = "Multiboutique",
+                                                    tint = KonabBlue,
+                                                    modifier = Modifier.size(13.dp)
+                                                )
+                                                Text(
+                                                    text = if (connectedShops.size > 1) "Boutiques (${connectedShops.size})" else "Multiboutique",
+                                                    color = KonabBlue,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 10.sp
+                                                )
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -1449,6 +1535,18 @@ fun DashboardScreen(
                     "settings" -> onNavigate(KonabScreen.SETTINGS)
                 }
             }
+        )
+    }
+
+    if (showMultiShopModal) {
+        MultiShopManagerModal(
+            connectedShops = connectedShops,
+            activeCloudShopId = activeCloudShopId,
+            isCurrentShopConfigured = shopProfile?.isConfigured == true,
+            onConnectWithCredentials = onConnectMultiShopRemote,
+            onSwitchShop = onSwitchConnectedShop,
+            onRefreshActiveShop = onRefreshActiveShopFromCloud,
+            onDismiss = { showMultiShopModal = false }
         )
     }
 }

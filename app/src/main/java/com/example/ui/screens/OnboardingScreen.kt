@@ -32,6 +32,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -41,7 +42,14 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
+import com.example.data.local.entity.ShopProfileEntity
+import com.example.data.remote.supabase.AdCarouselSettings
+import com.example.data.remote.supabase.ShopAdRecord
+import com.example.data.remote.supabase.ShopAdStorage
+import com.example.data.remote.supabase.SupabaseSyncManager
 import com.example.ui.components.LaunchImageCarousel
+import com.example.ui.components.ShopAdConfigModal
+import com.example.ui.components.ShopAdVideoPlayerDialog
 import com.example.ui.theme.*
 import com.example.util.BusinessTypePresets
 import com.example.util.SubscriptionPricingHelper
@@ -232,6 +240,26 @@ fun OnboardingScreen(
 
 @Composable
 private fun Step1LaunchScreen(onStart: () -> Unit) {
+    val context = LocalContext.current
+    val syncManager = remember { SupabaseSyncManager(context) }
+    var showcaseAds by remember { mutableStateOf<List<ShopAdRecord>>(emptyList()) }
+    var registeredShops by remember { mutableStateOf<List<ShopProfileEntity>>(emptyList()) }
+    var carouselSettings by remember { mutableStateOf(ShopAdStorage.getCarouselSettings(context)) }
+    var showAdConfigModal by remember { mutableStateOf(false) }
+    var editingAdRecord by remember { mutableStateOf<ShopAdRecord?>(null) }
+    var selectedAdForPlayer by remember { mutableStateOf<ShopAdRecord?>(null) }
+    var showcaseRefreshTick by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(showcaseRefreshTick) {
+        carouselSettings = ShopAdStorage.getCarouselSettings(context)
+        val localFeed = syncManager.getLocalShowcaseFeed(null)
+        showcaseAds = localFeed.showcaseAds
+        registeredShops = localFeed.registeredShops
+        val cloudFeed = syncManager.fetchShowcaseFeed(null)
+        showcaseAds = cloudFeed.showcaseAds
+        registeredShops = cloudFeed.registeredShops
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -288,9 +316,19 @@ private fun Step1LaunchScreen(onStart: () -> Unit) {
 
         Spacer(modifier = Modifier.height(18.dp))
 
-        // Multiple scrolling images carousel for launch screen
+        // Multiple scrolling shops & ads carousel for launch screen
         LaunchImageCarousel(
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            shopAds = showcaseAds,
+            carouselSettings = carouselSettings,
+            pauseAutoScroll = showAdConfigModal || selectedAdForPlayer != null,
+            onOpenAdConfig = {
+                editingAdRecord = null
+                showAdConfigModal = true
+            },
+            onShopAdClick = { ad ->
+                selectedAdForPlayer = ad
+            }
         )
 
         Spacer(modifier = Modifier.height(18.dp))
@@ -310,6 +348,32 @@ private fun Step1LaunchScreen(onStart: () -> Unit) {
             Text("•", color = KonabGreen)
             PillarBadge("Hors ligne", Icons.Default.CloudOff)
         }
+    }
+
+    selectedAdForPlayer?.let { ad ->
+        ShopAdVideoPlayerDialog(
+            ad = ad,
+            onDismiss = { selectedAdForPlayer = null },
+            onEditAd = {
+                editingAdRecord = ad
+                showAdConfigModal = true
+            }
+        )
+    }
+
+    if (showAdConfigModal) {
+        ShopAdConfigModal(
+            currentShop = null,
+            registeredShops = registeredShops,
+            initialAdToEdit = editingAdRecord,
+            onDismiss = {
+                showAdConfigModal = false
+                editingAdRecord = null
+            },
+            onPublished = {
+                showcaseRefreshTick++
+            }
+        )
     }
 }
 

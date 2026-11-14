@@ -146,6 +146,8 @@ fun SettingsScreen(
     var showBluetoothPrinterModal by remember { mutableStateOf(false) }
     var showSupabaseAuthModal by remember { mutableStateOf(false) }
     var showSectorDialog by remember { mutableStateOf(false) }
+    var showShopAdConfigModal by remember { mutableStateOf(false) }
+    var partnerShopsForAds by remember { mutableStateOf<List<ShopProfileEntity>>(emptyList()) }
 
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
@@ -494,6 +496,28 @@ fun SettingsScreen(
                     trailingValue = "Éditer",
                     onClick = { showEditInfoDialog = true },
                     testTag = "row_receipt_custom"
+                )
+
+                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+                SettingsModernRow(
+                    icon = Icons.Default.Campaign,
+                    iconTint = KonabOrange,
+                    iconBg = KonabOrange.copy(alpha = 0.14f),
+                    title = "Publicité & Défilement Accueil",
+                    subtitle = "Logos partenaires défilants et vidéo promo de 60s",
+                    trailingValue = "Configurer",
+                    badgeText = "VITRINE 60s",
+                    badgeColor = KonabOrange,
+                    onClick = {
+                        partnerShopsForAds = com.example.data.remote.supabase.ShopAdStorage.getCachedShops(context)
+                        showShopAdConfigModal = true
+                        scope.launch {
+                            val feed = com.example.data.remote.supabase.SupabaseSyncManager(context).fetchShowcaseFeed(shopProfile)
+                            partnerShopsForAds = feed.registeredShops
+                        }
+                    },
+                    testTag = "row_shop_ad_config"
                 )
             }
 
@@ -2081,6 +2105,17 @@ fun SettingsScreen(
             onConfirmSector = { newType, reloadPresets ->
                 onSwitchSector?.invoke(newType, reloadPresets)
                 showSectorDialog = false
+            }
+        )
+    }
+
+    if (showShopAdConfigModal) {
+        com.example.ui.components.ShopAdConfigModal(
+            currentShop = shopProfile,
+            registeredShops = partnerShopsForAds,
+            onDismiss = { showShopAdConfigModal = false },
+            onPublished = {
+                Toast.makeText(context, "Vitrine publicitaire d'accueil mise à jour.", Toast.LENGTH_SHORT).show()
             }
         )
     }

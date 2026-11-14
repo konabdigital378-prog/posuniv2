@@ -63,7 +63,10 @@ import com.example.ui.components.KonabCardShape
 import com.example.ui.components.KonabLivePulseDot
 import com.example.ui.components.LaunchImageCarousel
 import com.example.ui.components.ManagerPinEntryModal
+import com.example.ui.components.MultiShopManagerModal
 import com.example.ui.components.ResponsiveMaxWidthBox
+import com.example.ui.components.ShopAdConfigModal
+import com.example.ui.components.ShopAdVideoPlayerDialog
 import com.example.ui.components.konabCardBorder
 import com.example.ui.components.konabHeroShimmer
 import com.example.ui.components.konabPressScale
@@ -78,8 +81,12 @@ import com.example.util.LicenseHelper
 import com.example.util.BusinessTypePresets
 import com.example.util.SubscriptionPricingHelper
 import androidx.compose.ui.graphics.toArgb
+import com.example.data.remote.supabase.AdCarouselSettings
 import com.example.data.remote.supabase.AgentDeploymentRecord
 import com.example.data.remote.supabase.AgentDeploymentStorage
+import com.example.data.remote.supabase.ConnectedShopSession
+import com.example.data.remote.supabase.ShopAdRecord
+import com.example.data.remote.supabase.ShopAdStorage
 import com.example.data.remote.supabase.SupabaseSyncManager
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -123,6 +130,10 @@ fun SetupWizard(
     viewModel: SetupViewModel = viewModel(),
     navController: NavHostController = rememberNavController(),
     shopProfile: ShopProfileEntity? = null,
+    connectedShops: List<ConnectedShopSession> = emptyList(),
+    activeCloudShopId: Long = 0L,
+    onConnectMultiShopRemote: (identifier: String, pin: String, onDone: (Boolean, String) -> Unit) -> Unit = { _, _, cb -> cb(false, "Service indisponible") },
+    onSwitchConnectedShop: (ConnectedShopSession, onDone: (Boolean, String) -> Unit) -> Unit = { _, cb -> cb(false, "Service indisponible") },
     onEnterShop: () -> Unit = {},
     onComplete: (
         shopName: String,
@@ -153,12 +164,17 @@ fun SetupWizard(
     var showAgentLoginDialog by remember { mutableStateOf(false) }
     var showManagerPinModal by remember { mutableStateOf(false) }
     var showAgentDirectoryModal by remember { mutableStateOf(false) }
+    var showMultiShopModal by remember { mutableStateOf(false) }
     var showPlanActivationSuccessDialog by remember { mutableStateOf(false) }
     var activatedPlanInfo by remember { mutableStateOf<Triple<String, String, String>?>(null) } // tier, key, agentName
 
     // Synchroniser l'étape active avec le ViewModel
     LaunchedEffect(currentDestination) {
         viewModel.goToStep(currentDestination.toStep())
+    }
+
+    LaunchedEffect(shopProfile?.isConfigured) {
+        viewModel.resetIfShopUnconfigured(shopProfile?.isConfigured == true)
     }
 
     // Gestion du bouton retour physique et geste
@@ -431,43 +447,7 @@ fun SetupWizard(
                                     navController.navigate(SetupWizardDestination.RegisterShop.route)
                                 }
                                 is SetupWizardDestination.RegisterShop -> {
-                                    val deployAgent = activeAgent ?: AgentDeploymentStorage.getSavedAgentSession(context)
-                                    if (deployAgent != null) {
-                                        val durationCode = when (uiState.selectedSubscriptionTier) {
-                                            "Premium" -> "VIE"
-                                            "Standard" -> "1M"
-                                            "Starter" -> "1M"
-                                            else -> "1A"
-                                        }
-                                        val keyData = LicenseHelper.generateKey(
-                                            tier = uiState.selectedSubscriptionTier,
-                                            durationCode = durationCode,
-                                            beneficiary = uiState.shopName.ifBlank { "Client Konab POS" },
-                                            note = "Déployé par ${deployAgent.name}"
-                                        )
-                                        val deployment = AgentDeploymentRecord(
-                                            id = "DEP-${System.currentTimeMillis()}",
-                                            agentId = deployAgent.id,
-                                            agentName = deployAgent.name,
-                                            agentPhone = deployAgent.phone,
-                                            shopName = uiState.shopName.ifBlank { "Client Konab POS" },
-                                            shopPhone = uiState.phone,
-                                            shopCity = uiState.city,
-                                            tier = uiState.selectedSubscriptionTier,
-                                            durationDays = when (uiState.selectedSubscriptionTier) { "Premium" -> 3650; "Standard" -> 30; "Starter" -> 30; else -> 365 },
-                                            licenseKey = keyData.key,
-                                            notes = "Activité: ${uiState.selectedBusinessType}",
-                                            timestamp = System.currentTimeMillis(),
-                                            isSynced = false
-                                        )
-                                        AgentDeploymentStorage.saveDeployment(context, deployment)
-                                        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-                                            try {
-                                                SupabaseSyncManager(context).syncAgentDeployments()
-                                            } catch (_: Exception) {}
-                                        }
-                                    }
-                                    viewModel.completeSetup(tier = uiState.selectedSubscriptionTier) {
+                                    viewModel.completeSetup(tier = uiState.selectedSubscriptionTier) { _ ->
                                         onComplete(
                                             uiState.shopName,
                                             uiState.slogan,
@@ -487,7 +467,9 @@ fun SetupWizard(
                                 }
                             }
                         },
-                        enabled = !uiState.isSubmitting && !uiState.isCheckingName,
+                        enabled = !uiState.isSubmitting &&
+                            !uiState.isCheckingName &&
+                            !(currentDestination is SetupWizardDestination.RegisterShop && uiState.isCompleted),
                         colors = ButtonDefaults.buttonColors(containerColor = KonabGreen),
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier
@@ -548,12 +530,16 @@ fun SetupWizard(
                 WizardStepWelcome(
                     shopProfile = shopProfile,
                     activeAgent = activeAgent,
+                    connectedShopsCount = connectedShops.size,
                     onEnterShopClick = {
                         if (shopProfile != null && shopProfile.isConfigured) {
                             showManagerPinModal = true
                         } else {
                             showAgentDirectoryModal = true
                         }
+                    },
+                    onOpenMultiShopClick = {
+                        showMultiShopModal = true
                     },
                     onRegisterAgentClick = {
                         agentModalInitialTab = 1
@@ -640,91 +626,20 @@ fun SetupWizard(
                     uiState = uiState,
                     activeAgent = activeAgent,
                     onActivatePlan = { chosenTier ->
-                        val durationCode = when (chosenTier) {
-                            "Premium" -> "VIE"
-                            "Standard" -> "1M"
-                            "Starter" -> "1M"
-                            else -> "1A"
-                        }
-                        val keyData = LicenseHelper.generateKey(
-                            tier = chosenTier,
-                            durationCode = durationCode,
-                            beneficiary = uiState.shopName.ifBlank { "Client Konab POS" },
-                            note = "Activé par ${activeAgent?.name ?: "Agent Konab"}"
-                        )
-
-                        // Enregistrer la boutique déployée au nom de cet agent et synchroniser sur Supabase
-                        val deployAgent = activeAgent ?: AgentUser("AGT-DIRECT", "Déploiement Direct", uiState.phone, uiState.city.ifBlank { "Burkina Faso" }, "")
-                        val deployment = AgentDeploymentRecord(
-                            id = "DEP-${System.currentTimeMillis()}",
-                            agentId = deployAgent.id,
-                            agentName = deployAgent.name,
-                            agentPhone = deployAgent.phone,
-                            shopName = uiState.shopName.ifBlank { "Client Konab POS" },
-                            shopPhone = uiState.phone,
-                            shopCity = uiState.city,
-                            tier = chosenTier,
-                            durationDays = when (chosenTier) { "Premium" -> 3650; "Standard" -> 30; "Starter" -> 30; else -> 365 },
-                            licenseKey = keyData.key,
-                            notes = "Activité: ${uiState.selectedBusinessType}",
-                            timestamp = System.currentTimeMillis(),
-                            isSynced = false
-                        )
-                        AgentDeploymentStorage.saveDeployment(context, deployment)
-                        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-                            try {
-                                SupabaseSyncManager(context).syncAgentDeployments()
-                            } catch (_: Exception) {}
-                        }
-
+                        val agentDisplayName = (activeAgent ?: AgentDeploymentStorage.getSavedAgentSession(context))?.name
+                            ?: "Agent Konab"
                         viewModel.updateSubscriptionTier(chosenTier)
-                        viewModel.completeSetup(tier = chosenTier) {
+                        viewModel.completeSetup(tier = chosenTier) { generatedKey ->
                             activatedPlanInfo = Triple(
                                 chosenTier,
-                                keyData.key,
-                                deployAgent.name
+                                generatedKey,
+                                agentDisplayName
                             )
                             showPlanActivationSuccessDialog = true
                         }
                     },
                     onRegisterClick = {
-                        val deployAgent = activeAgent ?: AgentDeploymentStorage.getSavedAgentSession(context)
-                        if (deployAgent != null) {
-                            val durationCode = when (uiState.selectedSubscriptionTier) {
-                                "Premium" -> "VIE"
-                                "Standard" -> "1M"
-                                "Starter" -> "1M"
-                                else -> "1A"
-                            }
-                            val keyData = LicenseHelper.generateKey(
-                                tier = uiState.selectedSubscriptionTier,
-                                durationCode = durationCode,
-                                beneficiary = uiState.shopName.ifBlank { "Client Konab POS" },
-                                note = "Déployé par ${deployAgent.name}"
-                            )
-                            val deployment = AgentDeploymentRecord(
-                                id = "DEP-${System.currentTimeMillis()}",
-                                agentId = deployAgent.id,
-                                agentName = deployAgent.name,
-                                agentPhone = deployAgent.phone,
-                                shopName = uiState.shopName.ifBlank { "Client Konab POS" },
-                                shopPhone = uiState.phone,
-                                shopCity = uiState.city,
-                                tier = uiState.selectedSubscriptionTier,
-                                durationDays = when (uiState.selectedSubscriptionTier) { "Premium" -> 3650; "Standard" -> 30; "Starter" -> 30; else -> 365 },
-                                licenseKey = keyData.key,
-                                notes = "Activité: ${uiState.selectedBusinessType}",
-                                timestamp = System.currentTimeMillis(),
-                                isSynced = false
-                            )
-                            AgentDeploymentStorage.saveDeployment(context, deployment)
-                            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-                                try {
-                                    SupabaseSyncManager(context).syncAgentDeployments()
-                                } catch (_: Exception) {}
-                            }
-                        }
-                        viewModel.completeSetup(tier = uiState.selectedSubscriptionTier) {
+                        viewModel.completeSetup(tier = uiState.selectedSubscriptionTier) { _ ->
                             onComplete(
                                 uiState.shopName,
                                 uiState.slogan,
@@ -779,7 +694,22 @@ fun SetupWizard(
                 onPinVerified = {
                     showManagerPinModal = false
                     onEnterShop()
+                },
+                onOpenMultiShopLogin = {
+                    showMultiShopModal = true
                 }
+            )
+        }
+
+        // Modal : Connexion Gérant Multiboutique (à la boutique ou à distance)
+        if (showMultiShopModal) {
+            MultiShopManagerModal(
+                connectedShops = connectedShops,
+                activeCloudShopId = activeCloudShopId,
+                isCurrentShopConfigured = shopProfile?.isConfigured == true,
+                onConnectWithCredentials = onConnectMultiShopRemote,
+                onSwitchShop = onSwitchConnectedShop,
+                onDismiss = { showMultiShopModal = false }
             )
         }
 
@@ -828,7 +758,9 @@ fun SetupWizard(
 private fun WizardStepWelcome(
     shopProfile: ShopProfileEntity? = null,
     activeAgent: AgentUser? = null,
+    connectedShopsCount: Int = 0,
     onEnterShopClick: () -> Unit = {},
+    onOpenMultiShopClick: () -> Unit = {},
     onRegisterAgentClick: () -> Unit = {},
     onLoginAgentClick: () -> Unit = {},
     onConfigureShopAsAgent: () -> Unit = {},
@@ -836,8 +768,28 @@ private fun WizardStepWelcome(
     onDisconnectAgent: () -> Unit = {}
 ) {
     val context = LocalContext.current
+    val syncManager = remember { SupabaseSyncManager(context) }
     val agentDeploymentsCount = remember(activeAgent) {
         activeAgent?.let { AgentDeploymentStorage.getDeploymentsForAgent(context, it.id).size } ?: 0
+    }
+
+    var showcaseAds by remember { mutableStateOf<List<ShopAdRecord>>(emptyList()) }
+    var registeredShops by remember { mutableStateOf<List<ShopProfileEntity>>(emptyList()) }
+    var carouselSettings by remember { mutableStateOf(ShopAdStorage.getCarouselSettings(context)) }
+    var showAdConfigModal by remember { mutableStateOf(false) }
+    var editingAdRecord by remember { mutableStateOf<ShopAdRecord?>(null) }
+    var selectedAdForPlayer by remember { mutableStateOf<ShopAdRecord?>(null) }
+    var showcaseRefreshTick by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(shopProfile?.name, shopProfile?.logoUri, shopProfile?.phone, showcaseRefreshTick) {
+        carouselSettings = ShopAdStorage.getCarouselSettings(context)
+        val localFeed = syncManager.getLocalShowcaseFeed(shopProfile)
+        showcaseAds = localFeed.showcaseAds
+        registeredShops = localFeed.registeredShops
+
+        val cloudFeed = syncManager.fetchShowcaseFeed(shopProfile)
+        showcaseAds = cloudFeed.showcaseAds
+        registeredShops = cloudFeed.registeredShops
     }
 
     Box(
@@ -923,9 +875,19 @@ private fun WizardStepWelcome(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Overlapping Launch Showcase Carousel
+                // Overlapping Launch Showcase Carousel (Vitrine Publicitaire des Boutiques)
                 LaunchImageCarousel(
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    shopAds = showcaseAds,
+                    carouselSettings = carouselSettings,
+                    pauseAutoScroll = showAdConfigModal || selectedAdForPlayer != null,
+                    onOpenAdConfig = {
+                        editingAdRecord = null
+                        showAdConfigModal = true
+                    },
+                    onShopAdClick = { ad ->
+                        selectedAdForPlayer = ad
+                    }
                 )
 
                 Spacer(modifier = Modifier.height(14.dp))
@@ -1056,6 +1018,85 @@ private fun WizardStepWelcome(
                                 )
                             }
                         }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // =============================================================
+                // BLOC MULTIBOUTIQUE : CONNEXION GÉRANT À DISTANCE & BASCULE
+                // =============================================================
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .konabPressScale(pressedScale = 0.985f)
+                        .clickable { onOpenMultiShopClick() }
+                        .testTag("btn_welcome_multishop_login"),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    border = BorderStroke(1.2.dp, KonabBlue.copy(alpha = 0.35f)),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 13.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(42.dp)
+                                .clip(CircleShape)
+                                .background(KonabBlue.copy(alpha = 0.12f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Domain,
+                                contentDescription = "Multiboutique",
+                                tint = KonabBlue,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = "Connexion Gérant • Multiboutique",
+                                    fontFamily = OutfitFontFamily,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                if (connectedShopsCount > 1) {
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = KonabGreen
+                                    ) {
+                                        Text(
+                                            text = "$connectedShopsCount",
+                                            color = Color.White,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
+                                        )
+                                    }
+                                }
+                            }
+                            Text(
+                                text = "Accéder à ma boutique partout où je suis (produits & anciennes ventes)",
+                                fontSize = 11.5.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                lineHeight = 15.sp
+                            )
+                        }
+                        Icon(
+                            imageVector = Icons.Default.ChevronRight,
+                            contentDescription = null,
+                            tint = KonabBlue
+                        )
                     }
                 }
 
@@ -1312,6 +1353,34 @@ private fun WizardStepWelcome(
                 Spacer(modifier = Modifier.height(16.dp))
             }
         }
+    }
+
+    // Modal Lecteur Vidéo 60s + Contact Direct (Appeler / WhatsApp) pour tous les utilisateurs
+    selectedAdForPlayer?.let { adToWatch ->
+        ShopAdVideoPlayerDialog(
+            ad = adToWatch,
+            onDismiss = { selectedAdForPlayer = null },
+            onEditAd = {
+                editingAdRecord = adToWatch
+                showAdConfigModal = true
+            }
+        )
+    }
+
+    // Système complet de configuration de publicité lancé directement depuis le cadre d'accueil
+    if (showAdConfigModal) {
+        ShopAdConfigModal(
+            currentShop = shopProfile,
+            registeredShops = registeredShops,
+            initialAdToEdit = editingAdRecord,
+            onDismiss = {
+                showAdConfigModal = false
+                editingAdRecord = null
+            },
+            onPublished = {
+                showcaseRefreshTick++
+            }
+        )
     }
 }
 
@@ -2451,6 +2520,8 @@ private fun WizardStepRegisterShop(
 
         Spacer(modifier = Modifier.height(10.dp))
 
+        val canRegisterAction = !uiState.isSubmitting && !uiState.isCompleted
+
         // 1. FORFAIT PROFESSIONNEL (Recommandé)
         PlanOfferCard(
             title = "Plan Professionnel (Recommandé)",
@@ -2466,6 +2537,7 @@ private fun WizardStepRegisterShop(
                 "Clôtures de caisse & rapports comptables"
             ),
             buttonLabel = if (activeAgent != null) "⚡ Activer le Plan Professionnel (Agent)" else "Activer le Plan Professionnel",
+            enabled = canRegisterAction,
             onClick = { onActivatePlan("Professionnel") },
             testTag = "btn_activate_plan_pro"
         )
@@ -2487,6 +2559,7 @@ private fun WizardStepRegisterShop(
                 "Support technique prioritaire dédié"
             ),
             buttonLabel = if (activeAgent != null) "⚡ Activer le Plan Premium Pro (Agent)" else "Activer le Plan Premium Pro",
+            enabled = canRegisterAction,
             onClick = { onActivatePlan("Premium") },
             testTag = "btn_activate_plan_premium"
         )
@@ -2506,6 +2579,7 @@ private fun WizardStepRegisterShop(
                 "Reçus de vente imprimables"
             ),
             buttonLabel = if (activeAgent != null) "⚡ Activer le Plan Standard (Agent)" else "Activer le Plan Standard",
+            enabled = canRegisterAction,
             onClick = { onActivatePlan("Standard") },
             testTag = "btn_activate_plan_standard"
         )
@@ -2525,6 +2599,7 @@ private fun WizardStepRegisterShop(
                 "Catalogue de démonstration prêt à l'emploi"
             ),
             buttonLabel = if (activeAgent != null) "⚡ Activer le Plan Starter Gratuit (Agent)" else "Activer le Plan Starter",
+            enabled = canRegisterAction,
             onClick = { onActivatePlan("Starter") },
             testTag = "btn_activate_plan_starter"
         )
@@ -2534,7 +2609,7 @@ private fun WizardStepRegisterShop(
         // Bouton de validation standard alternatif
         OutlinedButton(
             onClick = onRegisterClick,
-            enabled = !uiState.isSubmitting,
+            enabled = canRegisterAction,
             shape = RoundedCornerShape(12.dp),
             modifier = Modifier
                 .fillMaxWidth()
@@ -2544,12 +2619,16 @@ private fun WizardStepRegisterShop(
             Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(18.dp))
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = if (uiState.isSubmitting) "Enregistrement en cours..." else "Valider sans activation immédiate",
+                text = when {
+                    uiState.isSubmitting -> "Enregistrement en cours..."
+                    uiState.isCompleted -> "Boutique enregistrée"
+                    else -> "Valider sans activation immédiate"
+                },
                 fontWeight = FontWeight.SemiBold
             )
         }
 
-        val syncMessage = uiState.cloudSyncMessage
+        val syncMessage = uiState.cloudSyncMessage ?: uiState.validationError
         if (!syncMessage.isNullOrBlank()) {
             Spacer(modifier = Modifier.height(12.dp))
             Surface(
@@ -2590,6 +2669,7 @@ private fun PlanOfferCard(
     accentColor: Color,
     features: List<String>,
     buttonLabel: String,
+    enabled: Boolean = true,
     onClick: () -> Unit,
     testTag: String
 ) {
@@ -2661,6 +2741,7 @@ private fun PlanOfferCard(
 
             Button(
                 onClick = onClick,
+                enabled = enabled,
                 shape = RoundedCornerShape(10.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = accentColor,

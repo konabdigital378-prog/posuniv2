@@ -64,6 +64,8 @@ class MainActivity : FragmentActivity() {
                 val supabaseAuthState by viewModel.supabaseAuthState.collectAsStateWithLifecycle()
                 val notifications by viewModel.notifications.collectAsStateWithLifecycle()
                 val unreadNotificationsCount by viewModel.unreadNotificationsCount.collectAsStateWithLifecycle()
+                val connectedShops by viewModel.connectedShops.collectAsStateWithLifecycle()
+                val activeCloudShopId by viewModel.activeCloudShopId.collectAsStateWithLifecycle()
 
                 // Request POST_NOTIFICATIONS on Android 13+
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
@@ -149,8 +151,17 @@ class MainActivity : FragmentActivity() {
                                 KonabScreen.ONBOARDING -> {
                                     SetupWizard(
                                         shopProfile = shopProfile,
+                                        connectedShops = connectedShops,
+                                        activeCloudShopId = activeCloudShopId,
+                                        onConnectMultiShopRemote = { id, pin, cb ->
+                                            viewModel.loginToShopWithManagerCredentials(id, pin, cb)
+                                        },
+                                        onSwitchConnectedShop = { session, cb ->
+                                            viewModel.switchConnectedShop(session, cb)
+                                        },
                                         onEnterShop = {
                                             viewModel.resetTo(KonabScreen.DASHBOARD)
+                                            viewModel.refreshActiveShopFromCloud()
                                         },
                                         onComplete = { name, slogan, phone, address, city, currency, logoIcon, type, adminName, adminPhone, pin, preloadDemo, subscriptionTier ->
                                             viewModel.completeOnboarding(
@@ -189,7 +200,18 @@ class MainActivity : FragmentActivity() {
                                         onMarkAllNotificationsAsRead = { viewModel.markAllNotificationsAsRead() },
                                         onDeleteNotification = { viewModel.deleteNotification(it) },
                                         onClearAllNotifications = { viewModel.deleteAllNotifications() },
-                                        onTriggerTestNotification = { viewModel.triggerTestNotification(it) }
+                                        onTriggerTestNotification = { viewModel.triggerTestNotification(it) },
+                                        connectedShops = connectedShops,
+                                        activeCloudShopId = activeCloudShopId,
+                                        onConnectMultiShopRemote = { id, pin, cb ->
+                                            viewModel.loginToShopWithManagerCredentials(id, pin, cb)
+                                        },
+                                        onSwitchConnectedShop = { session, cb ->
+                                            viewModel.switchConnectedShop(session, cb)
+                                        },
+                                        onRefreshActiveShopFromCloud = { cb ->
+                                            viewModel.refreshActiveShopFromCloud(cb)
+                                        }
                                     )
                                 }
 

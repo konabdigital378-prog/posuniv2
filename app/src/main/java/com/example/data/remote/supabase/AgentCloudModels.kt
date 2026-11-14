@@ -149,13 +149,22 @@ object AgentDeploymentStorage {
 
     @Synchronized
     fun saveDeployment(context: Context, deployment: AgentDeploymentRecord) {
+        val targetName = normalizeShopName(deployment.shopName)
         val current = getAllDeployments(context).toMutableList()
-        val index = current.indexOfFirst { it.id == deployment.id }
-        if (index >= 0) {
-            current[index] = deployment
+        val existingById = current.firstOrNull { it.id == deployment.id }
+        val existingByName = if (targetName.isNotBlank()) {
+            current.firstOrNull { normalizeShopName(it.shopName) == targetName }
         } else {
-            current.add(0, deployment)
+            null
         }
+        val canonicalId = existingById?.id ?: existingByName?.id ?: deployment.id
+        val recordToSave = deployment.copy(id = canonicalId)
+
+        current.removeAll {
+            it.id == canonicalId || (targetName.isNotBlank() && normalizeShopName(it.shopName) == targetName)
+        }
+        current.add(0, recordToSave)
+
         val array = JSONArray()
         current.take(200).forEach { array.put(it.toJson()) }
         getPrefs(context).edit().putString(KEY_DEPLOYMENTS, array.toString()).apply()
@@ -163,23 +172,36 @@ object AgentDeploymentStorage {
 
     @Synchronized
     fun saveCloudDeployments(context: Context, deployments: List<AgentDeploymentRecord>) {
-        val current = getAllDeployments(context).toMutableList()
-        deployments.forEach { d ->
-            val index = current.indexOfFirst { it.id == d.id }
-            if (index >= 0) {
-                current[index] = d.copy(isSynced = true)
-            } else {
-                current.add(d.copy(isSynced = true))
-            }
+        val merged = (getAllDeployments(context) + deployments.map { it.copy(isSynced = true) })
+            .sortedWith(
+                compareByDescending<AgentDeploymentRecord> { it.timestamp }
+                    .thenByDescending { it.isSynced }
+            )
+        val deduped = mutableListOf<AgentDeploymentRecord>()
+        val seenIds = mutableSetOf<String>()
+        val seenNames = mutableSetOf<String>()
+        for (d in merged) {
+            val normName = normalizeShopName(d.shopName)
+            if (d.id in seenIds) continue
+            if (normName.isNotBlank() && normName in seenNames) continue
+            seenIds.add(d.id)
+            if (normName.isNotBlank()) seenNames.add(normName)
+            deduped.add(d)
         }
-        current.sortByDescending { it.timestamp }
         val array = JSONArray()
-        current.take(300).forEach { array.put(it.toJson()) }
+        deduped.take(300).forEach { array.put(it.toJson()) }
         getPrefs(context).edit().putString(KEY_DEPLOYMENTS, array.toString()).apply()
     }
 
     fun normalizeShopName(name: String): String {
         return name.trim().replace(Regex("\\s+"), " ").lowercase(java.util.Locale.ROOT)
+    }
+
+    @Synchronized
+    fun getDeploymentByShopName(context: Context, shopName: String): AgentDeploymentRecord? {
+        val target = normalizeShopName(shopName)
+        if (target.isBlank()) return null
+        return getAllDeployments(context).firstOrNull { normalizeShopName(it.shopName) == target }
     }
 
     @Synchronized

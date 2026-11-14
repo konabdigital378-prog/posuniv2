@@ -1342,44 +1342,13 @@ fun AgentPortalScreen(
                                                     activationNotes
                                                 )
                                                 if (success) {
-                                                    val durationCode = when (activationDays) {
-                                                        30 -> "1M"
-                                                        90 -> "3M"
-                                                        180 -> "6M"
-                                                        3650 -> "VIE"
-                                                        else -> "1A"
-                                                    }
-                                                    val keyData = LicenseHelper.generateKey(
-                                                        tier = activationTier,
-                                                        durationCode = durationCode,
-                                                        beneficiary = shopProfile?.name ?: "Boutique",
-                                                        note = "Agent: ${agent.name} (${agent.phone})"
+                                                    val savedDeployment = AgentDeploymentStorage.getDeploymentByShopName(
+                                                        context,
+                                                        shopProfile?.name ?: ""
                                                     )
-                                                    val deployment = AgentDeploymentRecord(
-                                                        id = "DEP-${System.currentTimeMillis()}",
-                                                        agentId = agent.id,
-                                                        agentName = agent.name,
-                                                        agentPhone = agent.phone,
-                                                        shopName = shopProfile?.name ?: "Boutique",
-                                                        shopPhone = shopProfile?.phone ?: "",
-                                                        shopCity = shopProfile?.city ?: "",
-                                                        tier = activationTier,
-                                                        durationDays = activationDays,
-                                                        licenseKey = keyData.key,
-                                                        notes = activationNotes,
-                                                        timestamp = System.currentTimeMillis(),
-                                                        isSynced = false
-                                                    )
-                                                    AgentDeploymentStorage.saveDeployment(context, deployment)
                                                     portalDeployments = AgentDeploymentStorage.getDeploymentsForAgent(context, agent.id)
-
-                                                    // Background Cloud Sync
-                                                    coroutineScope.launch {
-                                                        try {
-                                                            syncManager.syncAgentDeployments()
-                                                        } catch (_: Exception) {}
-                                                    }
-                                                    latestActivationKey = keyData.key
+                                                    latestActivationKey = savedDeployment?.licenseKey
+                                                        ?: LicenseHelper.getSavedLicenses(context).firstOrNull()?.key.orEmpty()
                                                     showActivationSuccessDialog = true
                                                     Toast.makeText(context, "Abonnement $activationTier validé avec succès !", Toast.LENGTH_LONG).show()
                                                 }

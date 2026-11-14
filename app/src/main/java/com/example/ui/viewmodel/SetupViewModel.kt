@@ -35,6 +35,7 @@ data class SetupUiState(
     val isSubmitting: Boolean = false,
     val isCompleted: Boolean = false,
     val cloudShopId: Long? = null,
+    val generatedLicenseKey: String = "",
     val isCloudSyncSuccess: Boolean = false,
     val cloudSyncMessage: String? = null
 )
@@ -254,18 +255,35 @@ class SetupViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update { it.copy(currentStep = step, validationError = null) }
     }
 
+    fun resetIfShopUnconfigured(isConfigured: Boolean) {
+        if (!isConfigured && _uiState.value.isCompleted) {
+            _uiState.update {
+                it.copy(
+                    isSubmitting = false,
+                    isCompleted = false,
+                    validationError = null,
+                    cloudShopId = null,
+                    generatedLicenseKey = "",
+                    isCloudSyncSuccess = false,
+                    cloudSyncMessage = null
+                )
+            }
+        }
+    }
+
     fun completeSetup(
         onSuccess: () -> Unit
     ) {
-        completeSetup(tier = _uiState.value.selectedSubscriptionTier, onSuccess = onSuccess)
+        completeSetup(tier = _uiState.value.selectedSubscriptionTier, onSuccess = { _ -> onSuccess() })
     }
 
     fun completeSetup(
         tier: String,
-        onSuccess: () -> Unit
+        onSuccess: (licenseKey: String) -> Unit
     ) {
         val state = _uiState.value
-        if (state.isSubmitting || state.isCompleted) {
+        if (state.isSubmitting) return
+        if (state.isCompleted) {
             _uiState.update {
                 it.copy(validationError = "Cette boutique a déjà été créée et ne peut pas être recréée.")
             }
@@ -281,31 +299,44 @@ class SetupViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
 
-        _uiState.update { it.copy(isSubmitting = true, validationError = null, selectedSubscriptionTier = tier) }
+        _uiState.update {
+            it.copy(
+                isSubmitting = true,
+                validationError = null,
+                cloudSyncMessage = null,
+                selectedSubscriptionTier = tier
+            )
+        }
 
         viewModelScope.launch {
-            // Guard 1: Une fois qu'une boutique est créée, on ne peut plus la recréer
-            val existing = repository.getShopProfileOnce()
-            if (existing != null && existing.isConfigured && existing.name.isNotBlank()) {
-                _uiState.update {
-                    it.copy(
-                        isSubmitting = false,
-                        validationError = "La boutique « ${existing.name} » est déjà créée et ne peut plus être recréée."
-                    )
-                }
-                return@launch
-            }
-
             val syncManager = com.example.data.remote.supabase.SupabaseSyncManager(app)
+            val result = syncManager.createShopExclusive(
+                repository = repository,
+                shopName = state.shopName,
+                slogan = state.slogan,
+                phone = state.phone,
+                address = state.address,
+                city = state.city,
+                currency = state.currency,
+                logoIcon = state.selectedLogoIcon,
+                logoColorHex = state.selectedLogoColorHex,
+                businessType = state.selectedBusinessType,
+                adminName = state.adminName,
+                adminPhone = state.adminPhone,
+                adminPin = state.adminPin,
+                preloadDemoData = state.preloadDemoData,
+                subscriptionTier = tier,
+                activeAgent = currentAgent,
+                notes = "Activité: ${state.selectedBusinessType}"
+            )
 
-            // Guard 2: Unicité absolue du nom de boutique (local + Supabase Cloud)
-            val uniqueness = syncManager.verifyShopNameAvailable(state.shopName.trim())
-            if (uniqueness.isFailure) {
-                val err = uniqueness.exceptionOrNull()?.message
+            if (result.isFailure) {
+                val err = result.exceptionOrNull()?.message
                     ?: "Une boutique portant ce nom existe déjà dans la base de données."
                 _uiState.update {
                     it.copy(
                         isSubmitting = false,
+                        isCompleted = false,
                         validationError = err,
                         isCloudSyncSuccess = false,
                         cloudSyncMessage = err
@@ -314,95 +345,18 @@ class SetupViewModel(application: Application) : AndroidViewModel(application) {
                 return@launch
             }
 
-            // 1. Save to DataStore
-            dataStore.saveSetupWizardData(
-                shopName = state.shopName.trim(),
-                slogan = state.slogan.trim(),
-                shopPhone = state.phone.trim(),
-                address = state.address.trim(),
-                city = state.city.trim(),
-                businessType = state.selectedBusinessType,
-                adminName = state.adminName.trim(),
-                adminPhone = state.adminPhone.trim().ifBlank { state.phone.trim() },
-                adminPin = state.adminPin,
-                currency = state.currency,
-                logoIcon = state.selectedLogoIcon,
-                logoColor = state.selectedLogoColorHex
-            )
-
-            val currentDeployerId = currentAgent.id.trim().uppercase()
-
-            // 2. Initialize local Room database
-            repository.initializeStore(
-                name = state.shopName.trim(),
-                slogan = state.slogan.trim(),
-                phone = state.phone.trim(),
-                address = state.address.trim(),
-                city = state.city.trim(),
-                businessType = state.selectedBusinessType,
-                adminName = state.adminName.trim(),
-                adminPhone = state.adminPhone.trim().ifBlank { state.phone.trim() },
-                adminPin = state.adminPin,
-                preloadDemoData = state.preloadDemoData,
-                subscriptionTier = tier,
-                deployerId = currentDeployerId
-            )
-            com.example.util.BiometricSecurityHelper.setShopConfiguredCache(app, true)
-
-            val profile = com.example.data.local.entity.ShopProfileEntity(
-                id = 1,
-                name = state.shopName.trim(),
-                slogan = state.slogan.trim(),
-                phone = state.phone.trim(),
-                address = state.address.trim(),
-                city = state.city.trim(),
-                currency = state.currency,
-                businessType = state.selectedBusinessType,
-                adminPin = state.adminPin,
-                cashierPin = "0000",
-                subscriptionTier = tier,
-                isConfigured = true,
-                receiptFooter = "Merci pour votre confiance ! À très bientôt !",
-                deployerId = currentDeployerId
-            )
-            val cloudId = syncManager.resetCloudShopId()
-            var cloudSuccess = false
-            var cloudMsg = ""
-
-            try {
-                val syncResult = syncManager.pushShopProfileDirectly(profile, isNewShop = true)
-                if (syncResult.isSuccess) {
-                    if (state.preloadDemoData) {
-                        try {
-                            syncManager.syncProductsOnly(repository)
-                        } catch (_: Exception) {}
-                    }
-                    cloudSuccess = true
-                    cloudMsg = "Boutique « ${profile.name} » créée et liée à l'agent ${currentAgent.name} ($currentDeployerId)."
-                } else {
-                    cloudMsg = syncResult.exceptionOrNull()?.message ?: "Enregistrée localement (sync Cloud en attente)"
-                    android.util.Log.e("SetupViewModel", "Erreur envoi boutique vers Cloud: $cloudMsg")
-                }
-                com.example.data.remote.supabase.AgentDeploymentStorage.markCreatedShopOnDevice(
-                    app,
-                    profile.name,
-                    currentDeployerId
-                )
-            } catch (e: Exception) {
-                cloudMsg = e.message ?: "Erreur de connexion"
-                android.util.Log.e("SetupViewModel", "Exception envoi direct boutique vers Cloud: ${e.message}", e)
-            }
-
+            val created = result.getOrThrow()
             _uiState.update {
                 it.copy(
                     isSubmitting = false,
                     isCompleted = true,
-                    cloudShopId = cloudId,
-                    isCloudSyncSuccess = cloudSuccess,
-                    cloudSyncMessage = cloudMsg
+                    cloudShopId = created.cloudShopId,
+                    generatedLicenseKey = created.licenseKey,
+                    isCloudSyncSuccess = created.isCloudSyncSuccess,
+                    cloudSyncMessage = created.cloudSyncMessage
                 )
             }
-            onSuccess()
+            onSuccess(created.licenseKey)
         }
     }
 }

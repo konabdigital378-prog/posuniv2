@@ -55,6 +55,13 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
                 if (com.example.util.BiometricSecurityHelper.isLaunchLockEnabled(application)) {
                     _isLocked.value = true
                 }
+                // S'assurer que la boutique locale active figure dans le registre multiboutique
+                val shopId = supabaseSyncManager.getOrCreateCloudShopId()
+                repository.exportMultiShopSnapshot(shopId)?.let { snap ->
+                    com.example.data.remote.supabase.MultiShopStorage.saveConnectedShop(application, snap.session)
+                    com.example.data.remote.supabase.MultiShopStorage.saveLocalSnapshotCache(application, snap)
+                }
+                reloadConnectedShopsState()
             }
         }
 
@@ -65,9 +72,28 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 if (supabaseSyncManager.isAutoSyncEnabled() && com.example.data.remote.supabase.SupabaseConfig.isConfigured) {
                     supabaseSyncManager.syncAll(repository)
+                    reloadConnectedShopsState()
                 }
             } catch (_: Exception) {}
         }
+    }
+
+    // Registre Multiboutique
+    private val _connectedShops = MutableStateFlow(
+        com.example.data.remote.supabase.MultiShopStorage.getConnectedShops(application)
+    )
+    val connectedShops: StateFlow<List<com.example.data.remote.supabase.ConnectedShopSession>> =
+        _connectedShops.asStateFlow()
+
+    private val _activeCloudShopId = MutableStateFlow(
+        com.example.data.remote.supabase.MultiShopStorage.getActiveCloudShopId(application)
+    )
+    val activeCloudShopId: StateFlow<Long> = _activeCloudShopId.asStateFlow()
+
+    private fun reloadConnectedShopsState() {
+        val app = getApplication<Application>()
+        _connectedShops.value = com.example.data.remote.supabase.MultiShopStorage.getConnectedShops(app)
+        _activeCloudShopId.value = com.example.data.remote.supabase.MultiShopStorage.getActiveCloudShopId(app)
     }
 
     // DataStore Local Admin Account Stream
@@ -363,6 +389,7 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
 
+            triggerAutoSync()
             onSuccess(sale)
         }
     }
@@ -371,6 +398,7 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val operator = if (_currentRole.value == "ADMIN") "Gérant" else "Caissier"
             repository.openCashSession(openingBalance, operator)
+            triggerAutoSync()
         }
     }
 
@@ -379,6 +407,7 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val operator = if (_currentRole.value == "ADMIN") "Gérant" else "Caissier"
             repository.closeCashSession(active, actualCountedBalance, operator, notes)
+            triggerAutoSync()
         }
     }
 
@@ -391,6 +420,7 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
                 reason = reason,
                 operatorName = operator
             )
+            triggerAutoSync()
         }
     }
 
@@ -431,6 +461,7 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
             } else {
                 repository.updateCustomer(customer)
             }
+            triggerAutoSync()
         }
     }
 
@@ -438,6 +469,7 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val operator = if (_currentRole.value == "ADMIN") "Gérant" else "Caissier"
             repository.recordCustomerDebtPayment(customer, amount, method, operator)
+            triggerAutoSync()
         }
     }
 
@@ -448,6 +480,7 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
             } else {
                 repository.updateSupplier(supplier)
             }
+            triggerAutoSync()
         }
     }
 
@@ -470,6 +503,7 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
                 operatorName = operator,
                 notes = notes
             )
+            triggerAutoSync()
         }
     }
 
@@ -488,57 +522,115 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
     ) {
         viewModelScope.launch {
             val app = getApplication<android.app.Application>()
-            val currentAgent = com.example.data.remote.supabase.AgentDeploymentStorage.getSavedAgentSession(app)
-                ?: return@launch
-            val currentDeployerId = currentAgent.id.trim().uppercase()
-
             val existing = repository.getShopProfileOnce()
             if (existing != null && existing.isConfigured && existing.name.isNotBlank()) {
                 resetTo(KonabScreen.DASHBOARD)
                 return@launch
             }
 
-            val profile = com.example.data.local.entity.ShopProfileEntity(
-                id = 1,
-                name = shopName.trim(),
-                slogan = slogan.trim(),
-                phone = phone.trim(),
-                address = address.trim(),
-                city = city.trim(),
-                currency = "FCFA",
-                businessType = businessType,
-                adminPin = adminPin,
-                cashierPin = "0000",
-                subscriptionTier = subscriptionTier,
-                isConfigured = true,
-                receiptFooter = "Merci pour votre confiance ! À très bientôt !",
-                deployerId = currentDeployerId
-            )
-            repository.initializeStore(
-                name = shopName.trim(),
-                slogan = slogan.trim(),
-                phone = phone.trim(),
-                address = address.trim(),
-                city = city.trim(),
-                businessType = businessType,
-                adminName = adminName.trim(),
-                adminPhone = adminPhone.trim(),
-                adminPin = adminPin,
-                preloadDemoData = preloadDemoData,
-                subscriptionTier = subscriptionTier,
-                deployerId = currentDeployerId
-            )
-            com.example.util.BiometricSecurityHelper.setShopConfiguredCache(app, true)
-            withContext(kotlinx.coroutines.Dispatchers.IO) {
-                try {
-                    supabaseSyncManager.pushShopProfileDirectly(profile, isNewShop = true)
-                    supabaseSyncManager.syncProductsOnly(repository)
-                    supabaseSyncManager.syncAgentDeployments()
-                } catch (e: Exception) {
-                    android.util.Log.e("KonabPOS", "Erreur envoi initial boutique vers Cloud: ${e.message}", e)
-                }
+            val currentAgent = com.example.data.remote.supabase.AgentDeploymentStorage.getSavedAgentSession(app)
+                ?: return@launch
+
+            val creationResult = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                supabaseSyncManager.createShopExclusive(
+                    repository = repository,
+                    shopName = shopName,
+                    slogan = slogan,
+                    phone = phone,
+                    address = address,
+                    city = city,
+                    currency = "FCFA",
+                    logoIcon = "storefront",
+                    logoColorHex = 0xFF087A45,
+                    businessType = businessType,
+                    adminName = adminName,
+                    adminPhone = adminPhone,
+                    adminPin = adminPin,
+                    preloadDemoData = preloadDemoData,
+                    subscriptionTier = subscriptionTier,
+                    activeAgent = currentAgent
+                )
             }
-            resetTo(KonabScreen.DASHBOARD)
+            if (creationResult.isSuccess) {
+                reloadConnectedShopsState()
+                resetTo(KonabScreen.DASHBOARD)
+            } else {
+                android.util.Log.e(
+                    "KonabPOS",
+                    "Échec completeOnboarding: ${creationResult.exceptionOrNull()?.message}"
+                )
+            }
+        }
+    }
+
+    // --- MULTIBOUTIQUE : CONNEXION GÉRANT & BASCULE ---
+
+    fun loginToShopWithManagerCredentials(
+        identifier: String,
+        pin: String,
+        onResult: (Boolean, String) -> Unit
+    ) {
+        viewModelScope.launch {
+            val res = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                supabaseSyncManager.loginAndHydrateShopRemote(identifier, pin, repository)
+            }
+            if (res.isSuccess) {
+                val session = res.getOrThrow()
+                _cart.value = emptyList()
+                _selectedCustomer.value = null
+                _discountAmount.value = 0L
+                _lastCompletedSale.value = null
+                _currentRole.value = "ADMIN"
+                _isLocked.value = false
+                reloadConnectedShopsState()
+                resetTo(KonabScreen.DASHBOARD)
+                onResult(true, "Connecté à « ${session.shopName} »")
+            } else {
+                onResult(false, res.exceptionOrNull()?.localizedMessage ?: "Identifiants gérant incorrects.")
+            }
+        }
+    }
+
+    fun switchConnectedShop(
+        session: com.example.data.remote.supabase.ConnectedShopSession,
+        onResult: (Boolean, String) -> Unit
+    ) {
+        viewModelScope.launch {
+            val res = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                supabaseSyncManager.switchToConnectedShop(session, repository)
+            }
+            if (res.isSuccess) {
+                val loaded = res.getOrThrow()
+                _cart.value = emptyList()
+                _selectedCustomer.value = null
+                _discountAmount.value = 0L
+                _lastCompletedSale.value = null
+                _currentRole.value = "ADMIN"
+                _isLocked.value = false
+                reloadConnectedShopsState()
+                resetTo(KonabScreen.DASHBOARD)
+                onResult(true, "Boutique active : « ${loaded.shopName} »")
+            } else {
+                onResult(false, res.exceptionOrNull()?.localizedMessage ?: "Échec du changement de boutique.")
+            }
+        }
+    }
+
+    fun refreshActiveShopFromCloud(onResult: (Boolean, String) -> Unit = { _, _ -> }) {
+        viewModelScope.launch {
+            val res = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                supabaseSyncManager.refreshActiveShopFromCloud(repository)
+            }
+            reloadConnectedShopsState()
+            if (res.isSuccess) {
+                val updates = res.getOrDefault(0)
+                onResult(
+                    true,
+                    if (updates > 0) "$updates mise(s) à jour chargée(s) depuis Supabase." else "Produits et ventes déjà à jour."
+                )
+            } else {
+                onResult(false, res.exceptionOrNull()?.localizedMessage ?: "Impossible d'actualiser depuis le Cloud.")
+            }
         }
     }
 
@@ -857,6 +949,7 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
                         curr
                     )
                 }
+                triggerAutoSync()
                 onResult(true, "Vente annulée avec succès. Les articles ont été remis en stock.")
             } else {
                 val errMsg = result.exceptionOrNull()?.localizedMessage ?: "Échec de l'annulation"

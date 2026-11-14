@@ -10,6 +10,9 @@ import java.util.Locale
 
 import com.example.data.local.datastore.KonabDataStore
 import com.example.data.local.datastore.LocalAdminAccount
+import com.example.data.remote.supabase.ConnectedShopSession
+import com.example.data.remote.supabase.MultiShopSnapshot
+import kotlinx.coroutines.flow.first
 
 class KonabRepository(
     private val dao: KonabDao,
@@ -393,7 +396,10 @@ class KonabRepository(
         adminPin: String = "1234",
         preloadDemoData: Boolean = false,
         subscriptionTier: String = "Premium",
-        deployerId: String? = null
+        deployerId: String? = null,
+        currency: String = "FCFA",
+        logoIcon: String = "storefront",
+        logoColor: Long = 0xFF087A45
     ) {
         val effectiveAdminPhone = if (adminPhone.isNotBlank()) adminPhone else phone
 
@@ -408,7 +414,9 @@ class KonabRepository(
             adminName = adminName,
             adminPhone = effectiveAdminPhone,
             adminPin = adminPin,
-            currency = "FCFA"
+            currency = currency,
+            logoIcon = logoIcon,
+            logoColor = logoColor
         )
 
         val profile = ShopProfileEntity(
@@ -418,7 +426,7 @@ class KonabRepository(
             phone = phone,
             address = address,
             city = city,
-            currency = "FCFA",
+            currency = currency,
             businessType = businessType,
             adminPin = adminPin,
             cashierPin = "0000",
@@ -483,6 +491,194 @@ class KonabRepository(
             )
             dao.saveShopProfile(resetProfile)
         }
+    }
+
+    suspend fun getAdminAccountOnce(): LocalAdminAccount {
+        return try {
+            dataStore.adminAccountFlow.first()
+        } catch (_: Exception) {
+            LocalAdminAccount()
+        }
+    }
+
+    suspend fun exportMultiShopSnapshot(cloudShopId: Long): MultiShopSnapshot? {
+        val profile = dao.getShopProfileOnce() ?: return null
+        if (!profile.isConfigured || profile.name.isBlank()) return null
+        val admin = getAdminAccountOnce()
+        val session = ConnectedShopSession(
+            cloudShopId = cloudShopId,
+            shopName = profile.name,
+            businessType = profile.businessType,
+            city = profile.city,
+            address = profile.address,
+            phone = profile.phone,
+            slogan = profile.slogan,
+            currency = profile.currency,
+            receiptFooter = profile.receiptFooter,
+            logoUri = profile.logoUri,
+            adminName = admin.adminName.ifBlank { "Gérant" },
+            adminPhone = admin.adminPhone.ifBlank { profile.phone },
+            adminPin = profile.adminPin,
+            cashierPin = profile.cashierPin,
+            subscriptionTier = profile.subscriptionTier,
+            deployerId = profile.deployerId,
+            lastSyncedAt = System.currentTimeMillis()
+        )
+        return MultiShopSnapshot(
+            session = session,
+            shopProfile = profile,
+            products = dao.getAllProductsOnce(),
+            customers = dao.getAllCustomersOnce(),
+            sales = dao.getAllSalesOnce(),
+            saleItems = dao.getAllSaleItemsOnce(),
+            suppliers = dao.getAllSuppliersOnce(),
+            purchases = dao.getAllPurchasesOnce(),
+            cashMovements = dao.getAllCashMovementsOnce(),
+            cashSessions = dao.getAllCashSessionsOnce()
+        )
+    }
+
+    /**
+     * Remplace l'espace de travail local par les données complètes d'une boutique connectée
+     * (profil, produits, ventes, lignes de vente, clients, fournisseurs, achats, caisse).
+     */
+    suspend fun replaceLocalWorkspaceFromCloud(snapshot: MultiShopSnapshot) {
+        dao.deleteAllProducts()
+        dao.deleteAllSales()
+        dao.deleteAllSaleItems()
+        dao.deleteAllCustomers()
+        dao.deleteAllSuppliers()
+        dao.deleteAllCashMovements()
+        dao.deleteAllCashSessions()
+        dao.deleteAllPurchases()
+        dao.deleteAllNotifications()
+
+        val profile = snapshot.shopProfile.copy(id = 1, isConfigured = true)
+        dao.saveShopProfile(profile)
+
+        dataStore.saveSetupWizardData(
+            shopName = profile.name,
+            slogan = profile.slogan,
+            shopPhone = profile.phone,
+            address = profile.address,
+            city = profile.city,
+            businessType = profile.businessType,
+            adminName = snapshot.session.adminName.ifBlank { "Gérant" },
+            adminPhone = snapshot.session.adminPhone.ifBlank { profile.phone },
+            adminPin = profile.adminPin,
+            currency = profile.currency
+        )
+
+        if (snapshot.products.isNotEmpty()) dao.insertProducts(snapshot.products)
+        if (snapshot.customers.isNotEmpty()) dao.insertCustomers(snapshot.customers)
+        if (snapshot.suppliers.isNotEmpty()) dao.insertSuppliers(snapshot.suppliers)
+        if (snapshot.sales.isNotEmpty()) dao.insertSales(snapshot.sales)
+        if (snapshot.saleItems.isNotEmpty()) dao.insertSaleItems(snapshot.saleItems)
+        if (snapshot.purchases.isNotEmpty()) dao.insertPurchases(snapshot.purchases)
+        if (snapshot.cashSessions.isNotEmpty()) dao.insertCashSessions(snapshot.cashSessions)
+        if (snapshot.cashMovements.isNotEmpty()) dao.insertCashMovements(snapshot.cashMovements)
+    }
+
+    /**
+     * Fusionne les nouveautés distantes (produits créés ailleurs, ventes enregistrées en boutique/à distance)
+     * sans écraser les opérations locales non encore poussées.
+     */
+    suspend fun mergeRemoteUpdates(
+        remoteProducts: List<ProductEntity>,
+        remoteSales: List<SaleEntity>,
+        remoteSaleItems: List<SaleItemEntity>,
+        remoteCustomers: List<CustomerEntity>
+    ): Int {
+        var mergedCount = 0
+
+        if (remoteProducts.isNotEmpty()) {
+            val localProducts = dao.getAllProductsOnce()
+            val localById = localProducts.associateBy { it.id }
+            val localByName = localProducts.associateBy { it.name.trim().lowercase(Locale.ROOT) }
+            val toInsert = mutableListOf<ProductEntity>()
+            for (rp in remoteProducts) {
+                val existingById = localById[rp.id]
+                if (existingById != null) {
+                    if (existingById != rp) {
+                        toInsert.add(rp)
+                    }
+                } else {
+                    val existingByName = localByName[rp.name.trim().lowercase(Locale.ROOT)]
+                    if (existingByName == null) {
+                        toInsert.add(rp)
+                    } else if (
+                        existingByName.stockQuantity != rp.stockQuantity ||
+                        existingByName.sellPrice != rp.sellPrice ||
+                        existingByName.buyPrice != rp.buyPrice ||
+                        existingByName.isAvailable != rp.isAvailable
+                    ) {
+                        toInsert.add(
+                            rp.copy(id = existingByName.id)
+                        )
+                    }
+                }
+            }
+            if (toInsert.isNotEmpty()) {
+                dao.insertProducts(toInsert)
+                mergedCount += toInsert.size
+            }
+        }
+
+        if (remoteCustomers.isNotEmpty()) {
+            val localCustomers = dao.getAllCustomersOnce()
+            val localIds = localCustomers.map { it.id }.toSet()
+            val newCustomers = remoteCustomers.filter { it.id !in localIds }
+            if (newCustomers.isNotEmpty()) {
+                dao.insertCustomers(newCustomers)
+                mergedCount += newCustomers.size
+            }
+        }
+
+        if (remoteSales.isNotEmpty()) {
+            val localSales = dao.getAllSalesOnce()
+            val localByTx = localSales.associateBy { it.transactionNumber.trim() }
+            val localItemsBySaleId = dao.getAllSaleItemsOnce().groupBy { it.saleId }
+            val remoteItemsBySaleId = remoteSaleItems.groupBy { it.saleId }
+
+            val salesToInsert = mutableListOf<SaleEntity>()
+            val itemsToInsert = mutableListOf<SaleItemEntity>()
+
+            for (rs in remoteSales) {
+                val existing = localByTx[rs.transactionNumber.trim()]
+                if (existing == null) {
+                    salesToInsert.add(rs)
+                    itemsToInsert.addAll(remoteItemsBySaleId[rs.id].orEmpty())
+                } else {
+                    if (rs.isCancelled && !existing.isCancelled) {
+                        salesToInsert.add(
+                            existing.copy(
+                                isCancelled = true,
+                                paymentStatus = "ANNULÉ",
+                                cancelledAt = rs.cancelledAt,
+                                cancellationReason = rs.cancellationReason,
+                                cancelledBy = rs.cancelledBy
+                            )
+                        )
+                    }
+                    if (localItemsBySaleId[existing.id].isNullOrEmpty()) {
+                        val remItems = remoteItemsBySaleId[rs.id].orEmpty()
+                        if (remItems.isNotEmpty()) {
+                            itemsToInsert.addAll(remItems.map { it.copy(saleId = existing.id) })
+                        }
+                    }
+                }
+            }
+
+            if (salesToInsert.isNotEmpty()) {
+                dao.insertSales(salesToInsert)
+                mergedCount += salesToInsert.size
+            }
+            if (itemsToInsert.isNotEmpty()) {
+                dao.insertSaleItems(itemsToInsert)
+            }
+        }
+
+        return mergedCount
     }
 
     fun getDao(): KonabDao = dao

@@ -33,7 +33,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
+import com.example.data.remote.supabase.AdCarouselSettings
+import com.example.data.remote.supabase.ShopAdRecord
 import com.example.ui.theme.*
+import com.example.util.ShopLogoAvatar
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -89,21 +92,60 @@ val defaultLaunchSlides = listOf(
     )
 )
 
+private fun resolveBackdropForBusinessType(businessType: String): Int {
+    val lower = businessType.lowercase()
+    return when {
+        "resto" in lower || "restaurant" in lower || "maquis" in lower || "boulangerie" in lower -> R.drawable.img_prod_resto
+        "mode" in lower || "boutique" in lower || "couture" in lower -> R.drawable.burkina_commerce_faso
+        "quincaillerie" in lower || "btp" in lower || "mécanique" in lower -> R.drawable.img_prod_quincaillerie
+        "épicerie" in lower || "alimentation" in lower || "kiosque" in lower -> R.drawable.burkina_ouaga_market
+        "coiffure" in lower || "salon" in lower -> R.drawable.hero_entrepreneur
+        else -> R.drawable.burkina_bobo_dioulasso
+    }
+}
+
 @Composable
 fun LaunchImageCarousel(
     modifier: Modifier = Modifier,
     slides: List<LaunchSlide> = defaultLaunchSlides,
-    autoScrollDelayMs: Long = 3800L
+    shopAds: List<ShopAdRecord> = emptyList(),
+    carouselSettings: AdCarouselSettings = AdCarouselSettings(),
+    autoScrollDelayMs: Long = 3800L,
+    pauseAutoScroll: Boolean = false,
+    onOpenAdConfig: (() -> Unit)? = null,
+    onShopAdClick: ((ShopAdRecord) -> Unit)? = null
 ) {
-    val pagerState = rememberPagerState(initialPage = 0, pageCount = { slides.size })
+    val showingAds = shopAds.isNotEmpty()
+    val pageCount = if (showingAds) shopAds.size else slides.size
+    val pagerState = rememberPagerState(initialPage = 0, pageCount = { pageCount.coerceAtLeast(1) })
     val coroutineScope = rememberCoroutineScope()
+    val effectiveIntervalMs = (carouselSettings.scrollIntervalSeconds.coerceIn(2, 15) * 1000L)
+        .takeIf { carouselSettings.scrollIntervalSeconds != 4 } ?: autoScrollDelayMs
 
-    // Auto-scroll loop when user is not manually interacting
-    LaunchedEffect(pagerState.isScrollInProgress, slides.size) {
-        if (!pagerState.isScrollInProgress && slides.isNotEmpty()) {
+    LaunchedEffect(pageCount) {
+        if (pageCount > 0 && pagerState.currentPage >= pageCount) {
+            pagerState.scrollToPage(0)
+        }
+    }
+
+    // Auto-scroll loop controlled by AdCarouselSettings when user is not manually interacting or watching modal
+    LaunchedEffect(
+        pagerState.isScrollInProgress,
+        pageCount,
+        pauseAutoScroll,
+        showingAds,
+        carouselSettings.autoScrollEnabled,
+        effectiveIntervalMs
+    ) {
+        if (carouselSettings.autoScrollEnabled && !pagerState.isScrollInProgress && !pauseAutoScroll && pageCount > 1) {
             while (true) {
-                delay(autoScrollDelayMs)
-                val nextPage = (pagerState.currentPage + 1) % slides.size
+                val currentAdHasVideo = showingAds &&
+                    carouselSettings.autoPlayVideoPreviewInCarousel &&
+                    pagerState.currentPage in shopAds.indices &&
+                    shopAds[pagerState.currentPage].hasVideo
+                val waitMs = if (currentAdHasVideo) maxOf(effectiveIntervalMs, 9500L) else effectiveIntervalMs
+                delay(waitMs)
+                val nextPage = (pagerState.currentPage + 1) % pageCount
                 pagerState.animateScrollToPage(
                     page = nextPage,
                     animationSpec = tween(durationMillis = 650, easing = FastOutSlowInEasing)
@@ -123,7 +165,7 @@ fun LaunchImageCarousel(
         modifier = modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Main Carousel Card with HorizontalPager
+        // Main Carousel Card with HorizontalPager (Exact Design Preserved)
         Card(
             shape = RoundedCornerShape(24.dp),
             border = BorderStroke(1.5.dp, Color.White.copy(alpha = 0.85f)),
@@ -138,105 +180,302 @@ fun LaunchImageCarousel(
                     state = pagerState,
                     modifier = Modifier.fillMaxSize()
                 ) { page ->
-                    val slide = slides[page]
-                    Box(modifier = Modifier.fillMaxSize()) {
-                        // Background Image
-                        Image(
-                            painter = painterResource(id = slide.imageRes),
-                            contentDescription = slide.title,
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop
-                        )
+                    if (showingAds && page in shopAds.indices) {
+                        val ad = shopAds[page]
+                        val isSettledCurrentPage = pagerState.currentPage == page && !pagerState.isScrollInProgress && !pauseAutoScroll
+                        var inlineVideoFailed by remember(ad.id, ad.videoUri) { mutableStateOf(false) }
 
-                        // Gradient Scrim for crisp text readability
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .background(
-                                    Brush.verticalGradient(
-                                        colors = listOf(
-                                            KonabBlueDeep.copy(alpha = 0.28f),
-                                            Color.Transparent,
-                                            KonabBlueDeep.copy(alpha = 0.90f)
+                                .clickable(enabled = onShopAdClick != null) {
+                                    onShopAdClick?.invoke(ad)
+                                }
+                        ) {
+                            // Background Image (always rendered underneath for seamless loading)
+                            Image(
+                                painter = painterResource(id = resolveBackdropForBusinessType(ad.businessType)),
+                                contentDescription = ad.effectiveTitle,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+
+                            // Live 60s Video Preview right inside the home screen carousel frame
+                            if (ad.hasVideo && carouselSettings.autoPlayVideoPreviewInCarousel && isSettledCurrentPage && !inlineVideoFailed) {
+                                ShopAdVideoSurface(
+                                    videoUri = ad.videoUri,
+                                    modifier = Modifier.fillMaxSize(),
+                                    isMuted = true,
+                                    isPlaying = true,
+                                    loop = true,
+                                    resizeZoom = true,
+                                    onPlaybackError = { inlineVideoFailed = true }
+                                )
+                            }
+
+                            // Gradient Scrim for crisp text readability
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(
+                                        Brush.verticalGradient(
+                                            colors = listOf(
+                                                KonabBlueDeep.copy(alpha = 0.34f),
+                                                Color.Transparent,
+                                                KonabBlueDeep.copy(alpha = 0.92f)
+                                            )
                                         )
                                     )
-                                )
-                        )
+                            )
 
-                        // Top Tag / Badge
+                            // Top-Start Shop / Ad Badge
+                            val accentColor = if (ad.hasVideo) KonabOrange else KonabGreen
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = KonabBlueDark.copy(alpha = 0.88f),
+                                border = BorderStroke(1.dp, accentColor.copy(alpha = 0.80f)),
+                                modifier = Modifier
+                                    .align(Alignment.TopStart)
+                                    .padding(12.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = if (ad.hasVideo) Icons.Default.PlayCircle else Icons.Default.Storefront,
+                                        contentDescription = null,
+                                        tint = accentColor,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    val tagText = if (ad.hasVideo) {
+                                        "PUB VIDÉO • ${ad.videoDurationSec.coerceIn(1, 60)}s"
+                                    } else {
+                                        listOfNotNull(
+                                            ad.businessType.takeIf { it.isNotBlank() },
+                                            ad.city.takeIf { it.isNotBlank() }
+                                        ).joinToString(" • ").ifBlank { "Boutique KONAB" }
+                                    }
+                                    Text(
+                                        text = tagText,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+
+                            // Bottom Shop Logo + Ad Title/Description + Watch/Contact Chip
+                            Row(
+                                modifier = Modifier
+                                    .align(Alignment.BottomStart)
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                ShopLogoAvatar(
+                                    logoUri = ad.logoUri.ifBlank { null },
+                                    size = 46.dp,
+                                    shape = CircleShape,
+                                    contentDescription = "Logo ${ad.shopName}"
+                                )
+
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = ad.effectiveTitle,
+                                        fontFamily = OutfitFontFamily,
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = Color.White,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    if (!ad.effectiveTitle.equals(ad.shopName, ignoreCase = true)) {
+                                        Text(
+                                            text = ad.shopName,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = KonabOrangeLight,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                    Text(
+                                        text = ad.effectiveDescription,
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = Color(0xFFE2E8F0),
+                                        lineHeight = 15.sp,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+
+                                if (onShopAdClick != null) {
+                                    Surface(
+                                        onClick = { onShopAdClick(ad) },
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = if (ad.hasVideo) KonabOrange else KonabGreen,
+                                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.6f)),
+                                        modifier = Modifier.testTag("btn_carousel_watch_contact_${ad.id}")
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = if (ad.hasVideo) Icons.Default.PlayArrow else Icons.Default.Call,
+                                                contentDescription = null,
+                                                tint = Color.White,
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                            Text(
+                                                text = if (ad.hasVideo) "Voir" else ad.ctaLabel,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                color = Color.White
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        val slide = slides[page.coerceIn(0, slides.lastIndex)]
+                        Box(modifier = Modifier.fillMaxSize()) {
+                            Image(
+                                painter = painterResource(id = slide.imageRes),
+                                contentDescription = slide.title,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(
+                                        Brush.verticalGradient(
+                                            colors = listOf(
+                                                KonabBlueDeep.copy(alpha = 0.28f),
+                                                Color.Transparent,
+                                                KonabBlueDeep.copy(alpha = 0.90f)
+                                            )
+                                        )
+                                    )
+                            )
+
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = KonabBlueDark.copy(alpha = 0.88f),
+                                border = BorderStroke(1.dp, slide.accentColor.copy(alpha = 0.75f)),
+                                modifier = Modifier
+                                    .align(Alignment.TopStart)
+                                    .padding(12.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = slide.icon,
+                                        contentDescription = null,
+                                        tint = slide.accentColor,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = slide.tag,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White
+                                    )
+                                }
+                            }
+
+                            Column(
+                                modifier = Modifier
+                                    .align(Alignment.BottomStart)
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 14.dp)
+                            ) {
+                                Text(
+                                    text = slide.title,
+                                    fontFamily = OutfitFontFamily,
+                                    fontSize = 17.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = Color.White,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Spacer(modifier = Modifier.height(3.dp))
+                                Text(
+                                    text = slide.description,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = Color(0xFFE2E8F0),
+                                    lineHeight = 16.sp,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Top-Right Controls inside the Carousel Modal: Ad Config Trigger + Slide Counter Pill
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (onOpenAdConfig != null) {
                         Surface(
+                            onClick = onOpenAdConfig,
                             shape = RoundedCornerShape(10.dp),
-                            color = KonabBlueDark.copy(alpha = 0.88f),
-                            border = BorderStroke(1.dp, slide.accentColor.copy(alpha = 0.75f)),
-                            modifier = Modifier
-                                .align(Alignment.TopStart)
-                                .padding(12.dp)
+                            color = KonabOrange.copy(alpha = 0.92f),
+                            border = BorderStroke(0.8.dp, Color.White.copy(alpha = 0.55f)),
+                            modifier = Modifier.testTag("btn_carousel_open_ad_config")
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp)
                             ) {
                                 Icon(
-                                    imageVector = slide.icon,
-                                    contentDescription = null,
-                                    tint = slide.accentColor,
-                                    modifier = Modifier.size(14.dp)
+                                    imageVector = Icons.Default.Campaign,
+                                    contentDescription = "Configurer une publicité",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(13.dp)
                                 )
-                                Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = slide.tag,
+                                    text = "Pub",
                                     fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
+                                    fontWeight = FontWeight.ExtraBold,
                                     color = Color.White
                                 )
                             }
                         }
+                    }
 
-                        // Top-Right Slide Counter Pill
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = Color.Black.copy(alpha = 0.55f),
-                            border = BorderStroke(0.8.dp, Color.White.copy(alpha = 0.2f)),
-                            modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .padding(12.dp)
-                        ) {
-                            Text(
-                                text = "${page + 1} / ${slides.size}",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White,
-                                modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp)
-                            )
-                        }
-
-                        // Bottom Text Overlay (Title & Description)
-                        Column(
-                            modifier = Modifier
-                                .align(Alignment.BottomStart)
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 14.dp)
-                        ) {
-                            Text(
-                                text = slide.title,
-                                fontFamily = OutfitFontFamily,
-                                fontSize = 17.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = Color.White,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Spacer(modifier = Modifier.height(3.dp))
-                            Text(
-                                text = slide.description,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = Color(0xFFE2E8F0),
-                                lineHeight = 16.sp,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = Color.Black.copy(alpha = 0.55f),
+                        border = BorderStroke(0.8.dp, Color.White.copy(alpha = 0.2f))
+                    ) {
+                        Text(
+                            text = "${pagerState.currentPage + 1} / $pageCount",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp)
+                        )
                     }
                 }
 
@@ -264,7 +503,7 @@ fun LaunchImageCarousel(
                     }
                 }
 
-                if (pagerState.currentPage < slides.size - 1) {
+                if (pagerState.currentPage < pageCount - 1) {
                     IconButton(
                         onClick = {
                             coroutineScope.launch {
@@ -299,7 +538,7 @@ fun LaunchImageCarousel(
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp)
         ) {
-            slides.indices.forEach { index ->
+            (0 until pageCount).forEach { index ->
                 val isSelected = pagerState.currentPage == index
                 val width by animateDpAsState(
                     targetValue = if (isSelected) 28.dp else 8.dp,
