@@ -7,7 +7,9 @@ import com.example.data.local.entity.ShopProfileEntity
 import com.example.ui.viewmodel.CartItem
 import com.example.util.BusinessTypePresets
 import com.example.util.CurrencyFormatter
+import com.example.util.PricingCategory
 import com.example.util.ReceiptPrinterHelper
+import com.example.util.SubscriptionPricingHelper
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -237,6 +239,81 @@ class KonabPosUnitTest {
 
         val profileDefault = ShopProfileEntity(name = "Boutique Standard")
         assertNull(profileDefault.deployerId)
+    }
+
+    @Test
+    fun testCourtierAndDifferentiatedSubscriptionPricing() {
+        val types = BusinessTypePresets.getAllTypes()
+        assertTrue(types.contains("Courtier"))
+        val courtierPreset = BusinessTypePresets.getPreset("Courtier")
+        assertFalse(courtierPreset.defaultProducts.isEmpty())
+        assertTrue(courtierPreset.quickUnits.contains("commission"))
+
+        val nomadPricing = SubscriptionPricingHelper.getPricingProfile("Vendeur ambulant")
+        val brokerPricing = SubscriptionPricingHelper.getPricingProfile("Courtier")
+        val artisanPricing = SubscriptionPricingHelper.getPricingProfile("Coiffure")
+        val shopPricing = SubscriptionPricingHelper.getPricingProfile("Boutique")
+
+        assertEquals(PricingCategory.NOMAD_BROKER, nomadPricing.category)
+        assertEquals(PricingCategory.NOMAD_BROKER, brokerPricing.category)
+        assertEquals(PricingCategory.ARTISAN_MICRO, artisanPricing.category)
+        assertEquals(PricingCategory.BOUTIQUE_ENTREPRISE, shopPricing.category)
+
+        assertTrue(nomadPricing.isReducedTariff)
+        assertTrue(brokerPricing.isReducedTariff)
+        assertFalse(shopPricing.isReducedTariff)
+
+        // Reduced nomad/broker fees strictly below artisan & established shop fees
+        assertEquals(1500L, brokerPricing.standardMonthly)
+        assertEquals(12000L, brokerPricing.proAnnual)
+        assertEquals(30000L, brokerPricing.premiumLifetime)
+
+        assertTrue(brokerPricing.standardMonthly < artisanPricing.standardMonthly)
+        assertTrue(artisanPricing.standardMonthly < shopPricing.standardMonthly)
+        assertTrue(brokerPricing.proAnnual < shopPricing.proAnnual)
+        assertTrue(brokerPricing.premiumLifetime < shopPricing.premiumLifetime)
+
+        assertEquals(
+            12000L,
+            SubscriptionPricingHelper.getPriceForDuration("Courtier", "Professionnel", 365)
+        )
+        assertEquals(
+            35000L,
+            SubscriptionPricingHelper.getPriceForDuration("Boutique", "Professionnel", 365)
+        )
+        assertEquals(
+            0L,
+            SubscriptionPricingHelper.getPriceForDuration("Vendeur ambulant", "Starter", 30)
+        )
+    }
+
+    @Test
+    fun testSasPayPhoneFormattingAndStatus() {
+        assertEquals(
+            "+22665413799",
+            com.example.data.remote.saspay.SasPayApiClient.formatPhoneWithCountryCode("65 41 37 99", "+226")
+        )
+        assertEquals(
+            "+22670112233",
+            com.example.data.remote.saspay.SasPayApiClient.formatPhoneWithCountryCode("+22670112233", "+226")
+        )
+        assertEquals(
+            "+2250701020304",
+            com.example.data.remote.saspay.SasPayApiClient.formatPhoneWithCountryCode("2250701020304", "+225")
+        )
+
+        assertTrue(com.example.data.remote.saspay.SasPayApiClient.isStatusPaid("success"))
+        assertTrue(com.example.data.remote.saspay.SasPayApiClient.isStatusPaid("COMPLETED"))
+        assertTrue(com.example.data.remote.saspay.SasPayApiClient.isStatusPaid("paid"))
+        assertFalse(com.example.data.remote.saspay.SasPayApiClient.isStatusPaid("PENDING"))
+        assertFalse(com.example.data.remote.saspay.SasPayApiClient.isStatusPaid("FAILED"))
+
+        val defaults = com.example.data.remote.saspay.SasPayApiClient.defaultWestAfricaCountries()
+        assertTrue(defaults.any { it.code == "BF" && it.dialCode == "+226" })
+        val bf = defaults.first { it.code == "BF" }
+        assertTrue(bf.networks.any { it.code == "orange_bf" })
+        assertTrue(bf.networks.any { it.code == "moov_bf" })
+        assertTrue(bf.networks.any { it.code == "wave_bf" })
     }
 }
 

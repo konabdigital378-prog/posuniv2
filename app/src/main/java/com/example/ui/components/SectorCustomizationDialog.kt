@@ -28,6 +28,7 @@ import com.example.ui.theme.KonabBlue
 import com.example.ui.theme.KonabGreen
 import com.example.ui.theme.KonabOrange
 import com.example.util.BusinessTypePresets
+import com.example.util.SubscriptionPricingHelper
 
 @Composable
 fun SectorCustomizationDialog(
@@ -135,10 +136,10 @@ fun SectorCustomizationDialog(
                                 info.description.contains(sectorSearchQuery, ignoreCase = true)
 
                         val matchGroup = when (selectedGroupFilter) {
-                            "Commerce" -> sectorName in listOf("Boutique", "Commerce général", "Kiosque", "Vendeur ambulant", "Bijouterie", "Librairie")
+                            "Commerce" -> sectorName in listOf("Boutique", "Commerce général", "Kiosque", "Vendeur ambulant", "Courtier", "Bijouterie", "Librairie")
                             "Alimentation" -> sectorName in listOf("Restaurant", "Boulangerie", "Boucherie", "Poissonnerie", "Commerce général", "Kiosque")
                             "Artisanat & BTP" -> sectorName in listOf("Maçonnerie", "Menuiserie", "Soudure", "Plomberie", "Électricité", "Quincaillerie", "Agro-pastoral")
-                            "Services & Tech" -> sectorName in listOf("Coiffure", "Couture", "Pressing", "Informatique", "Lavage Auto-Moto", "Mécanique", "Pharmacie")
+                            "Services & Tech" -> sectorName in listOf("Coiffure", "Couture", "Pressing", "Courtier", "Informatique", "Lavage Auto-Moto", "Mécanique", "Pharmacie")
                             else -> true
                         }
                         matchSearch && matchGroup
@@ -147,6 +148,7 @@ fun SectorCustomizationDialog(
 
                 displayedSectors.forEach { sectorName ->
                     val info = BusinessTypePresets.getPreset(sectorName)
+                    val pricing = remember(sectorName) { SubscriptionPricingHelper.getPricingProfile(sectorName) }
                     val isSelected = selectedSector.equals(sectorName, ignoreCase = true)
 
                     val sectorIcon: ImageVector = when (sectorName) {
@@ -154,6 +156,7 @@ fun SectorCustomizationDialog(
                         "Restaurant" -> Icons.Default.Restaurant
                         "Kiosque" -> Icons.Default.Storefront
                         "Vendeur ambulant" -> Icons.Default.DirectionsWalk
+                        "Courtier" -> Icons.Default.Handshake
                         "Pharmacie" -> Icons.Default.LocalPharmacy
                         "Quincaillerie" -> Icons.Default.Build
                         "Coiffure" -> Icons.Default.ContentCut
@@ -181,6 +184,7 @@ fun SectorCustomizationDialog(
                         "Coiffure" -> Color(0xFFDB2777)
                         "Kiosque" -> Color(0xFF0284C7)
                         "Vendeur ambulant" -> Color(0xFFE11D48)
+                        "Courtier" -> Color(0xFF0F766E)
                         "Commerce général" -> Color(0xFF0D9488)
                         "Boulangerie" -> Color(0xFFD97706)
                         "Couture" -> Color(0xFF8B5CF6)
@@ -268,6 +272,33 @@ fun SectorCustomizationDialog(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     lineHeight = 14.sp
                                 )
+
+                                // Tariff + Units summary row
+                                Row(
+                                    modifier = Modifier.padding(top = 4.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Surface(
+                                        shape = RoundedCornerShape(4.dp),
+                                        color = Color(pricing.category.accentColorHex).copy(alpha = 0.14f)
+                                    ) {
+                                        Text(
+                                            text = "Dès ${SubscriptionPricingHelper.formatCompactPrice(pricing.standardMonthly, "/m")}",
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(pricing.category.accentColorHex),
+                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                    Text(
+                                        text = "Unités : ${info.quickUnits.take(3).joinToString(", ")}",
+                                        fontSize = 9.5.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
 
                                 // Feature Badges
                                 Row(

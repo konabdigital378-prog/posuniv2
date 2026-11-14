@@ -33,11 +33,14 @@ import androidx.compose.ui.unit.sp
 import com.example.data.local.entity.ProductEntity
 import com.example.data.local.entity.PurchaseEntity
 import com.example.data.local.entity.SupplierEntity
+import com.example.ui.components.KonabCardShape
 import com.example.ui.components.KonabEmptyState
+import com.example.ui.components.KonabScreenTopBar
 import com.example.ui.components.KonabStaggeredReveal
 import com.example.ui.components.KonabWidthClass
 import com.example.ui.components.LocalKonabWidthClass
 import com.example.ui.components.ResponsiveMaxWidthBox
+import com.example.ui.components.konabCardBorder
 import com.example.ui.components.konabPressScale
 import com.example.ui.theme.*
 import com.example.util.CurrencyFormatter
@@ -59,14 +62,10 @@ fun SuppliersScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Fournisseurs & Achats", fontWeight = FontWeight.Bold) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Retour")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
+            KonabScreenTopBar(
+                title = "Fournisseurs & Achats",
+                subtitle = "${suppliers.size} fournisseur(s) • ${purchases.size} réapprovisionnement(s)",
+                onBack = onBack
             )
         },
         floatingActionButton = {
@@ -75,7 +74,7 @@ fun SuppliersScreen(
                     if (selectedTab == 0) showAddSupplierDialog = true
                     else showRecordPurchaseDialog = true
                 },
-                containerColor = KonabGreen,
+                containerColor = KonabBlue,
                 contentColor = Color.White,
                 shape = CircleShape,
                 modifier = Modifier
@@ -103,7 +102,8 @@ fun SuppliersScreen(
                 Column(modifier = Modifier.fillMaxSize()) {
                     TabRow(
                         selectedTabIndex = selectedTab,
-                        containerColor = MaterialTheme.colorScheme.surface
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        contentColor = KonabBlue
                     ) {
                         Tab(
                             selected = selectedTab == 0,
@@ -156,8 +156,10 @@ fun SuppliersScreen(
                                     itemsIndexed(suppliers, key = { _, s -> s.id }) { idx, supplier ->
                                         KonabStaggeredReveal(index = idx) {
                                             Card(
-                                                shape = RoundedCornerShape(14.dp),
+                                                shape = KonabCardShape,
                                                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                                border = konabCardBorder(),
+                                                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
                                                 modifier = Modifier
                                                     .fillMaxWidth()
                                                     .konabPressScale(pressedScale = 0.985f)
@@ -237,8 +239,10 @@ fun SuppliersScreen(
                                     itemsIndexed(purchases, key = { _, p -> p.id }) { idx, p ->
                                         KonabStaggeredReveal(index = idx) {
                                             Card(
-                                                shape = RoundedCornerShape(14.dp),
+                                                shape = KonabCardShape,
                                                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                                border = konabCardBorder(),
+                                                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
                                                 modifier = Modifier
                                                     .fillMaxWidth()
                                                     .konabPressScale(pressedScale = 0.985f)

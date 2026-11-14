@@ -139,30 +139,12 @@ fun DashboardScreen(
     val sectorAccent = remember(businessType) {
         com.example.util.SectorUiHelper.getAccentColor(businessType)
     }
-    val sectorBadges = remember(sectorPreset) {
-        com.example.util.SectorUiHelper.getFeatureBadges(sectorPreset.sectorFeatures)
-    }
-
     val widthClass = LocalKonabWidthClass.current
-    val isDark = isSystemInDarkTheme()
-    val dashboardBgColors = if (isDark) {
-        listOf(
-            Color(0xFF0A1628),
-            MaterialTheme.colorScheme.background,
-            MaterialTheme.colorScheme.background
-        )
-    } else {
-        listOf(
-            Color(0xFFD6E4FA),
-            Color(0xFFC2DCF9),
-            Color(0xFFB2D4F7)
-        )
-    }
 
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .background(brush = Brush.verticalGradient(colors = dashboardBgColors))
+            .background(MaterialTheme.colorScheme.background)
             .testTag("dashboard_screen"),
         contentPadding = PaddingValues(bottom = 96.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -201,18 +183,30 @@ fun DashboardScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            com.example.util.ShopLogoAvatar(
-                                logoUri = shopProfile?.logoUri,
-                                size = 46.dp,
+                            Surface(
+                                modifier = Modifier.size(42.dp),
                                 shape = CircleShape,
-                                contentDescription = "Logo de la boutique"
-                            )
+                                color = Color.White,
+                                border = BorderStroke(1.5.dp, KonabOrange.copy(alpha = 0.85f)),
+                                shadowElevation = 4.dp
+                            ) {
+                                Image(
+                                    painter = painterResource(id = R.drawable.ic_konab_logo),
+                                    contentDescription = "KONAB POS",
+                                    modifier = Modifier
+                                        .padding(3.dp)
+                                        .fillMaxSize(),
+                                    contentScale = ContentScale.Fit
+                                )
+                            }
                             Column {
                                 Text(
-                                    text = shopProfile?.name?.ifBlank { "KONAB POS" } ?: "KONAB POS",
+                                    text = "KONAB POS",
+                                    fontFamily = OutfitFontFamily,
                                     style = MaterialTheme.typography.titleMedium.copy(
-                                        fontWeight = FontWeight.ExtraBold,
-                                        color = Color.White
+                                        fontWeight = FontWeight.Black,
+                                        color = Color.White,
+                                        letterSpacing = 0.6.sp
                                     ),
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
@@ -436,22 +430,6 @@ fun DashboardScreen(
                                             fontSize = 11.sp
                                         )
                                     }
-                                    val sectorPreset = com.example.util.BusinessTypePresets.getPreset(shopProfile?.businessType ?: "Boutique")
-                                    Surface(
-                                        shape = RoundedCornerShape(6.dp),
-                                        color = KonabBlue.copy(alpha = 0.08f),
-                                        modifier = Modifier
-                                            .padding(top = 4.dp)
-                                            .clickable { onNavigate(KonabScreen.SETTINGS) }
-                                    ) {
-                                        Text(
-                                            text = "${sectorPreset.emoji} ${sectorPreset.title}",
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = KonabBlue,
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                        )
-                                    }
                                 }
                             }
                         }
@@ -545,46 +523,6 @@ fun DashboardScreen(
                             }
                         }
 
-                        // Sector Capabilities Strip
-                        if (sectorBadges.isNotEmpty()) {
-                            Surface(
-                                color = sectorAccent.copy(alpha = 0.08f),
-                                shape = RoundedCornerShape(10.dp),
-                                border = BorderStroke(1.dp, sectorAccent.copy(alpha = 0.2f)),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { onNavigate(KonabScreen.POS) }
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                        modifier = Modifier.weight(1f)
-                                    ) {
-                                        Text(sectorPreset.emoji, fontSize = 14.sp)
-                                        Text(
-                                            text = "Outils actifs : ${sectorBadges.take(3).joinToString(" • ")}",
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = sectorAccent,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                    }
-                                    Icon(
-                                        Icons.Default.ChevronRight,
-                                        contentDescription = null,
-                                        tint = sectorAccent,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                }
-                            }
-                        }
-
                         // 4 Quick Module Shortcuts
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -593,8 +531,8 @@ fun DashboardScreen(
                             DashboardShortcutPill(
                                 icon = Icons.Default.AccountBalanceWallet,
                                 label = "Caisse",
-                                badgeColor = KonabGoldDark,
-                                containerColor = KonabGoldContainer,
+                                badgeColor = KonabOrange,
+                                containerColor = KonabOrange.copy(alpha = 0.14f),
                                 onClick = { onNavigate(KonabScreen.CASH) },
                                 modifier = Modifier.weight(1f)
                             )
@@ -602,8 +540,8 @@ fun DashboardScreen(
                             DashboardShortcutPill(
                                 icon = Icons.Default.Inventory2,
                                 label = if (sectorPreset.isServiceSector) "Catalogue" else "Stock",
-                                badgeColor = KonabGreen,
-                                containerColor = KonabGreenLight,
+                                badgeColor = KonabBlue,
+                                containerColor = KonabBlue.copy(alpha = 0.14f),
                                 onClick = { onNavigate(KonabScreen.STOCK) },
                                 modifier = Modifier.weight(1f)
                             )
@@ -611,8 +549,8 @@ fun DashboardScreen(
                             DashboardShortcutPill(
                                 icon = Icons.Default.People,
                                 label = "Clients",
-                                badgeColor = Color(0xFF1E88E5),
-                                containerColor = Color(0xFFE3F2FD),
+                                badgeColor = Color(0xFF0284C7),
+                                containerColor = Color(0xFF0284C7).copy(alpha = 0.14f),
                                 onClick = { onNavigate(KonabScreen.CUSTOMERS) },
                                 modifier = Modifier.weight(1f)
                             )
@@ -620,8 +558,8 @@ fun DashboardScreen(
                             DashboardShortcutPill(
                                 icon = Icons.Default.BarChart,
                                 label = "Rapports",
-                                badgeColor = Color(0xFF8E24AA),
-                                containerColor = Color(0xFFF3E5F5),
+                                badgeColor = KonabPurple,
+                                containerColor = KonabPurple.copy(alpha = 0.14f),
                                 onClick = { onNavigate(KonabScreen.REPORTS) },
                                 modifier = Modifier.weight(1f)
                             )
@@ -653,8 +591,8 @@ fun DashboardScreen(
                                     value = CurrencyFormatter.formatFCFA(todayRevenue),
                                     subtitle = "Aujourd'hui",
                                     icon = Icons.AutoMirrored.Filled.TrendingUp,
-                                    iconColor = KonabGreen,
-                                    containerColor = KonabGreenLight,
+                                    iconColor = KonabBlue,
+                                    containerColor = KonabBlue.copy(alpha = 0.14f),
                                     modifier = Modifier
                                         .weight(1f)
                                         .testTag("kpi_revenue"),
@@ -666,8 +604,8 @@ fun DashboardScreen(
                                     value = "${todaySales.size}",
                                     subtitle = "Aujourd'hui",
                                     icon = Icons.AutoMirrored.Filled.ReceiptLong,
-                                    iconColor = Color(0xFF1E88E5),
-                                    containerColor = Color(0xFFE3F2FD),
+                                    iconColor = Color(0xFF0284C7),
+                                    containerColor = Color(0xFF0284C7).copy(alpha = 0.14f),
                                     modifier = Modifier
                                         .weight(1f)
                                         .testTag("kpi_sales"),
@@ -684,8 +622,8 @@ fun DashboardScreen(
                                     value = CurrencyFormatter.formatFCFA(maxOf(0L, totalCashBalance)),
                                     subtitle = if (activeCashSession != null) "Session ouverte" else "Caisse fermée",
                                     icon = Icons.Default.AccountBalanceWallet,
-                                    iconColor = KonabGoldDark,
-                                    containerColor = KonabGoldContainer,
+                                    iconColor = KonabOrange,
+                                    containerColor = KonabOrange.copy(alpha = 0.14f),
                                     modifier = Modifier
                                         .weight(1f)
                                         .testTag("kpi_cash"),
@@ -698,7 +636,7 @@ fun DashboardScreen(
                                     subtitle = "Aujourd'hui",
                                     icon = Icons.Default.Payment,
                                     iconColor = KonabRed,
-                                    containerColor = KonabRedContainer,
+                                    containerColor = KonabRed.copy(alpha = 0.14f),
                                     modifier = Modifier
                                         .weight(1f)
                                         .testTag("kpi_expenses"),
@@ -715,8 +653,8 @@ fun DashboardScreen(
                                     value = CurrencyFormatter.formatFCFA(todayRevenue),
                                     subtitle = "Aujourd'hui",
                                     icon = Icons.AutoMirrored.Filled.TrendingUp,
-                                    iconColor = KonabGreen,
-                                    containerColor = KonabGreenLight,
+                                    iconColor = KonabBlue,
+                                    containerColor = KonabBlue.copy(alpha = 0.14f),
                                     modifier = Modifier
                                         .weight(1f)
                                         .testTag("kpi_revenue"),
@@ -728,8 +666,8 @@ fun DashboardScreen(
                                     value = "${todaySales.size}",
                                     subtitle = "Aujourd'hui",
                                     icon = Icons.AutoMirrored.Filled.ReceiptLong,
-                                    iconColor = Color(0xFF1E88E5),
-                                    containerColor = Color(0xFFE3F2FD),
+                                    iconColor = Color(0xFF0284C7),
+                                    containerColor = Color(0xFF0284C7).copy(alpha = 0.14f),
                                     modifier = Modifier
                                         .weight(1f)
                                         .testTag("kpi_sales"),
@@ -741,8 +679,8 @@ fun DashboardScreen(
                                     value = CurrencyFormatter.formatFCFA(maxOf(0L, totalCashBalance)),
                                     subtitle = if (activeCashSession != null) "Session ouverte" else "Caisse fermée",
                                     icon = Icons.Default.AccountBalanceWallet,
-                                    iconColor = KonabGoldDark,
-                                    containerColor = KonabGoldContainer,
+                                    iconColor = KonabOrange,
+                                    containerColor = KonabOrange.copy(alpha = 0.14f),
                                     modifier = Modifier
                                         .weight(1f)
                                         .testTag("kpi_cash"),
@@ -755,7 +693,7 @@ fun DashboardScreen(
                                     subtitle = "Aujourd'hui",
                                     icon = Icons.Default.Payment,
                                     iconColor = KonabRed,
-                                    containerColor = KonabRedContainer,
+                                    containerColor = KonabRed.copy(alpha = 0.14f),
                                     modifier = Modifier
                                         .weight(1f)
                                         .testTag("kpi_expenses"),

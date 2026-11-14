@@ -628,6 +628,60 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
         return false
     }
 
+    fun activateSubscriptionWithSasPay(
+        tier: String,
+        durationDays: Int,
+        paymentId: String,
+        reference: String,
+        amountFcfa: Long,
+        channel: String
+    ): Boolean {
+        val profile = shopProfile.value ?: return false
+        val app = getApplication<Application>()
+        val now = System.currentTimeMillis()
+        val effectiveDays = if (tier.equals("Premium", ignoreCase = true)) 3650 else durationDays.coerceAtLeast(30)
+        val baseTime = maxOf(now, profile.subscriptionExpiresAt)
+        val newExpiry = baseTime + (effectiveDays.toLong() * 86_400_000L)
+
+        val updated = profile.copy(
+            subscriptionTier = tier,
+            subscriptionExpiresAt = newExpiry
+        )
+        updateShopProfile(updated)
+
+        try {
+            val durationCode = when (effectiveDays) {
+                30 -> "1M"
+                90 -> "3M"
+                180 -> "6M"
+                3650 -> "VIE"
+                else -> "1A"
+            }
+            val keyData = com.example.util.LicenseHelper.generateKey(
+                tier = tier,
+                durationCode = durationCode,
+                beneficiary = profile.name,
+                note = "Paiement SasPay $channel • ID: $paymentId • Réf: $reference ($amountFcfa FCFA)"
+            )
+            com.example.util.LicenseHelper.saveGeneratedLicense(app, keyData)
+        } catch (_: Exception) {}
+
+        viewModelScope.launch {
+            try {
+                repository.insertNotification(
+                    NotificationEntity(
+                        title = "Réabonnement SasPay activé ($tier)",
+                        message = "Paiement vérifié de $amountFcfa FCFA via $channel (Réf: $reference). Formule $tier prolongée de $effectiveDays jours.",
+                        type = "SUBSCRIPTION_RENEWED",
+                        priority = "HIGH",
+                        actionRoute = "subscription"
+                    )
+                )
+            } catch (_: Exception) {}
+        }
+        return true
+    }
+
     fun activateSubscriptionByAgent(
         tier: String,
         durationDays: Int,

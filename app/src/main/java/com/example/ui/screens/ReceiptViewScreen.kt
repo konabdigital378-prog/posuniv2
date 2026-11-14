@@ -34,6 +34,7 @@ import com.example.data.local.entity.SaleItemEntity
 import com.example.data.local.entity.ShopProfileEntity
 import androidx.compose.ui.graphics.asImageBitmap
 import com.example.ui.components.KonabEmptyState
+import com.example.ui.components.KonabScreenTopBar
 import com.example.ui.components.KonabStaggeredReveal
 import com.example.ui.components.ResponsiveMaxWidthBox
 import com.example.ui.components.konabPressScale
@@ -55,20 +56,17 @@ fun ReceiptViewScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Reçu de vente", fontWeight = FontWeight.Bold) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Retour")
-                    }
-                },
+            KonabScreenTopBar(
+                title = "Reçu de vente",
+                subtitle = sale?.transactionNumber?.let { "Ticket N° $it" },
+                onBack = onBack,
                 actions = {
                     if (shopProfile != null && sale != null) {
                         IconButton(
                             onClick = { showBluetoothPrinterModal = true },
                             modifier = Modifier.testTag("btn_receipt_bluetooth_printer")
                         ) {
-                            Icon(Icons.Default.Bluetooth, contentDescription = "Imprimante Bluetooth", tint = KonabGreen)
+                            Icon(Icons.Default.Bluetooth, contentDescription = "Imprimante Bluetooth", tint = KonabBlue)
                         }
                         IconButton(
                             onClick = {
@@ -85,11 +83,10 @@ fun ReceiptViewScreen(
                             },
                             modifier = Modifier.testTag("btn_receipt_print")
                         ) {
-                            Icon(Icons.Default.Print, contentDescription = "Imprimer PDF", tint = KonabGreen)
+                            Icon(Icons.Default.Print, contentDescription = "Imprimer PDF", tint = KonabBlue)
                         }
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
+                }
             )
         }
     ) { paddingValues ->

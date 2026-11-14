@@ -44,6 +44,7 @@ import com.example.R
 import com.example.ui.components.LaunchImageCarousel
 import com.example.ui.theme.*
 import com.example.util.BusinessTypePresets
+import com.example.util.SubscriptionPricingHelper
 
 @Composable
 fun OnboardingScreen(
@@ -452,10 +453,10 @@ private fun Step3BusinessChoice(
                     preset.description.contains(searchQuery, ignoreCase = true)
 
             val matchGroup = when (selectedGroup) {
-                "Commerce" -> type in listOf("Boutique", "Commerce général", "Kiosque", "Vendeur ambulant", "Bijouterie", "Librairie")
+                "Commerce" -> type in listOf("Boutique", "Commerce général", "Kiosque", "Vendeur ambulant", "Courtier", "Bijouterie", "Librairie")
                 "Alimentation" -> type in listOf("Restaurant", "Boulangerie", "Boucherie", "Poissonnerie", "Commerce général", "Kiosque")
                 "Artisanat & BTP" -> type in listOf("Maçonnerie", "Menuiserie", "Soudure", "Plomberie", "Électricité", "Quincaillerie", "Agro-pastoral")
-                "Services & Tech" -> type in listOf("Coiffure", "Couture", "Pressing", "Informatique", "Lavage Auto-Moto", "Mécanique", "Pharmacie")
+                "Services & Tech" -> type in listOf("Coiffure", "Couture", "Pressing", "Courtier", "Informatique", "Lavage Auto-Moto", "Mécanique", "Pharmacie")
                 else -> true
             }
             matchSearch && matchGroup
@@ -535,6 +536,7 @@ private fun Step3BusinessChoice(
         ) {
             items(filteredTypes) { type ->
                 val preset = BusinessTypePresets.getPreset(type)
+                val pricing = remember(type) { SubscriptionPricingHelper.getPricingProfile(type) }
                 val isSelected = selectedType.equals(type, ignoreCase = true)
 
                 val icon: ImageVector = when (type) {
@@ -542,6 +544,7 @@ private fun Step3BusinessChoice(
                     "Restaurant" -> Icons.Default.Restaurant
                     "Kiosque" -> Icons.Default.Storefront
                     "Vendeur ambulant" -> Icons.Default.DirectionsWalk
+                    "Courtier" -> Icons.Default.Handshake
                     "Pharmacie" -> Icons.Default.LocalPharmacy
                     "Quincaillerie" -> Icons.Default.Build
                     "Coiffure" -> Icons.Default.ContentCut
@@ -567,7 +570,7 @@ private fun Step3BusinessChoice(
                         containerColor = if (isSelected) KonabGreenLight else MaterialTheme.colorScheme.surface
                     ),
                     modifier = Modifier
-                        .height(125.dp)
+                        .height(142.dp)
                         .border(
                             width = if (isSelected) 2.dp else 1.dp,
                             color = if (isSelected) KonabGreen else KonabBorder,
@@ -585,16 +588,16 @@ private fun Step3BusinessChoice(
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(40.dp)
+                                .size(38.dp)
                                 .clip(CircleShape)
-                                .background(if (isSelected) KonabGreen else KonabGoldContainer),
+                                .background(if (isSelected) KonabGreen else Color(preset.accentColorHex).copy(alpha = 0.14f)),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 imageVector = icon,
                                 contentDescription = type,
-                                tint = if (isSelected) Color.White else KonabGoldDark,
-                                modifier = Modifier.size(22.dp)
+                                tint = if (isSelected) Color.White else Color(preset.accentColorHex),
+                                modifier = Modifier.size(20.dp)
                             )
                         }
                         Spacer(modifier = Modifier.height(6.dp))
@@ -615,6 +618,19 @@ private fun Step3BusinessChoice(
                             textAlign = TextAlign.Center,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = Color(pricing.category.accentColorHex).copy(alpha = 0.14f)
+                        ) {
+                            Text(
+                                text = "Dès ${SubscriptionPricingHelper.formatCompactPrice(pricing.standardMonthly, "/m")}",
+                                fontSize = 8.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(pricing.category.accentColorHex),
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
                     }
                 }
             }

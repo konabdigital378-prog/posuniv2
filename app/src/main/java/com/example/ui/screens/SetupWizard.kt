@@ -51,15 +51,32 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.ui.graphics.Brush
 import com.example.R
+import com.example.ui.components.AgentContactDirectoryModal
+import com.example.ui.components.AgentFieldHelper
+import com.example.ui.components.AgentIdCardModal
+import com.example.ui.components.AgentKpiSummaryStrip
+import com.example.ui.components.AgentPhotoAvatar
+import com.example.ui.components.AgentPhotoUploadRow
+import com.example.ui.components.ConapesCardReferenceVerifierModal
+import com.example.ui.components.EditAgentProfileDialog
+import com.example.ui.components.KonabCardShape
+import com.example.ui.components.KonabLivePulseDot
 import com.example.ui.components.LaunchImageCarousel
+import com.example.ui.components.ManagerPinEntryModal
+import com.example.ui.components.ResponsiveMaxWidthBox
+import com.example.ui.components.konabCardBorder
+import com.example.ui.components.konabHeroShimmer
+import com.example.ui.components.konabPressScale
 import com.example.ui.navigation.SetupWizardDestination
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.SetupViewModel
 import android.widget.Toast
 import androidx.compose.ui.platform.LocalContext
 import com.example.data.local.entity.ShopProfileEntity
+import com.example.util.AgentIdCardHelper
 import com.example.util.LicenseHelper
 import com.example.util.BusinessTypePresets
+import com.example.util.SubscriptionPricingHelper
 import androidx.compose.ui.graphics.toArgb
 import com.example.data.remote.supabase.AgentDeploymentRecord
 import com.example.data.remote.supabase.AgentDeploymentStorage
@@ -130,10 +147,12 @@ fun SetupWizard(
     val currentDestination = SetupWizardDestination.fromRoute(currentRoute)
     val allDestinations = SetupWizardDestination.allSteps
 
-    // Agent Mode & Plan Activation State
+    // Agent Mode & Entry Gate Modals State
     var activeAgent by remember { mutableStateOf<AgentUser?>(AgentDeploymentStorage.getSavedAgentSession(context)) }
     var agentModalInitialTab by remember { mutableStateOf(0) } // 0: Connexion, 1: Inscription
     var showAgentLoginDialog by remember { mutableStateOf(false) }
+    var showManagerPinModal by remember { mutableStateOf(false) }
+    var showAgentDirectoryModal by remember { mutableStateOf(false) }
     var showPlanActivationSuccessDialog by remember { mutableStateOf(false) }
     var activatedPlanInfo by remember { mutableStateOf<Triple<String, String, String>?>(null) } // tier, key, agentName
 
@@ -215,131 +234,149 @@ fun SetupWizard(
                     }
                 }
 
-                Surface(
-                    color = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 2.dp,
-                    shadowElevation = 2.dp
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 12.dp)
+                if (currentDestination !is SetupWizardDestination.Welcome) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.surface,
+                        tonalElevation = 1.dp
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(32.dp)
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(if (activeAgent != null) Color(0xFFFF7900) else KonabGreen),
-                                    contentAlignment = Alignment.Center
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                            ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(34.dp)
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(if (activeAgent != null) KonabOrange else KonabBlue),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = if (activeAgent != null) "A" else "K",
+                                            fontFamily = OutfitFontFamily,
+                                            color = Color.White,
+                                            fontWeight = FontWeight.Black,
+                                            fontSize = 18.sp
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column {
+                                        Text(
+                                            text = if (activeAgent != null) "Configuration Client (Agent)" else "Assistant Konab POS",
+                                            fontFamily = OutfitFontFamily,
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        if (activeAgent != null) {
+                                            Text(
+                                                text = "Déploiement : ${uiState.shopName.ifBlank { "Nouveau client" }}",
+                                                fontSize = 11.sp,
+                                                color = KonabOrange,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                        }
+                                    }
+                                }
+
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = if (activeAgent != null) KonabOrange.copy(alpha = 0.14f) else KonabBlue.copy(alpha = 0.12f)
                                 ) {
                                     Text(
-                                        text = if (activeAgent != null) "A" else "K",
-                                        color = Color.White,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        fontSize = 18.sp
+                                        text = "Étape ${currentDestination.stepNumber}/${allDestinations.size}",
+                                        color = if (activeAgent != null) KonabOrange else MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                                     )
                                 }
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Column {
-                                    Text(
-                                        text = if (activeAgent != null) "Configuration Client (Agent)" else "Assistant Konab POS",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = KonabTextPrimary
-                                    )
-                                    if (activeAgent != null) {
+                            }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            // Animated Progress Bar
+                            LinearProgressIndicator(
+                                progress = { currentDestination.stepNumber.toFloat() / allDestinations.size.toFloat() },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(6.dp)
+                                    .clip(RoundedCornerShape(3.dp)),
+                                color = if (activeAgent != null) KonabOrange else KonabBlue,
+                                trackColor = MaterialTheme.colorScheme.surfaceVariant
+                            )
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            // Breadcrumb step pills with Navigation Compose
+                            LazyRow(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                items(allDestinations) { dest ->
+                                    val isCompleted = dest.stepNumber < currentDestination.stepNumber
+                                    val isCurrent = dest == currentDestination
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(
+                                                when {
+                                                    isCurrent -> KonabBlue
+                                                    isCompleted -> KonabBlue.copy(alpha = 0.14f)
+                                                    else -> MaterialTheme.colorScheme.surfaceVariant
+                                                }
+                                            )
+                                            .clickable {
+                                                if (dest.stepNumber > 1 && activeAgent == null) {
+                                                    Toast.makeText(context, "Connectez un compte Agent Déployeur pour configurer une boutique.", Toast.LENGTH_SHORT).show()
+                                                    agentModalInitialTab = 0
+                                                    showAgentLoginDialog = true
+                                                } else if (dest.stepNumber > 1 && shopProfile != null && shopProfile.isConfigured) {
+                                                    Toast.makeText(context, "La boutique « ${shopProfile.name} » est déjà configurée sur cet appareil.", Toast.LENGTH_SHORT).show()
+                                                } else {
+                                                    navController.navigate(dest.route) {
+                                                        popUpTo(SetupWizardDestination.Welcome.route) {
+                                                            saveState = true
+                                                        }
+                                                        launchSingleTop = true
+                                                        restoreState = true
+                                                    }
+                                                }
+                                            }
+                                            .padding(horizontal = 9.dp, vertical = 4.dp)
+                                    ) {
                                         Text(
-                                            text = "Déploiement pour : ${uiState.shopName.ifBlank { "Nouveau client" }}",
-                                            fontSize = 11.sp,
-                                            color = Color(0xFFFF7900),
-                                            fontWeight = FontWeight.SemiBold
+                                            text = "${dest.stepNumber}. ${dest.title}",
+                                            fontSize = 10.5.sp,
+                                            fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Medium,
+                                            color = when {
+                                                isCurrent -> Color.White
+                                                isCompleted -> MaterialTheme.colorScheme.primary
+                                                else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                            }
                                         )
                                     }
                                 }
                             }
-
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = if (activeAgent != null) Color(0xFFFFF7ED) else KonabGreenLight
-                            ) {
-                                Text(
-                                    text = "Étape ${currentDestination.stepNumber} sur ${allDestinations.size}",
-                                    color = if (activeAgent != null) Color(0xFFFF7900) else KonabGreenDark,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 12.sp,
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                                )
                             }
-                        }
-
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                    // Animated Progress Bar
-                    LinearProgressIndicator(
-                        progress = { currentDestination.stepNumber.toFloat() / allDestinations.size.toFloat() },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(6.dp)
-                            .clip(RoundedCornerShape(3.dp)),
-                        color = KonabGreen,
-                        trackColor = KonabGreenLight
-                    )
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // Breadcrumb step pills with Navigation Compose
-                    LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        items(allDestinations) { dest ->
-                            val isCompleted = dest.stepNumber < currentDestination.stepNumber
-                            val isCurrent = dest == currentDestination
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(
-                                        when {
-                                            isCurrent -> KonabGreen
-                                            isCompleted -> KonabGreenLight
-                                            else -> MaterialTheme.colorScheme.surfaceVariant
-                                        }
-                                    )
-                                    .clickable {
-                                        navController.navigate(dest.route) {
-                                            popUpTo(SetupWizardDestination.Welcome.route) {
-                                                saveState = true
-                                            }
-                                            launchSingleTop = true
-                                            restoreState = true
-                                        }
-                                    }
-                                    .padding(horizontal = 8.dp, vertical = 3.dp)
-                            ) {
-                                Text(
-                                    text = "${dest.stepNumber}. ${dest.title}",
-                                    fontSize = 10.sp,
-                                    fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Medium,
-                                    color = when {
-                                        isCurrent -> Color.White
-                                        isCompleted -> KonabGreenDark
-                                        else -> MaterialTheme.colorScheme.onSurfaceVariant
-                                    }
-                                )
-                            }
+                            HorizontalDivider(
+                                thickness = 1.dp,
+                                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.45f)
+                            )
                         }
                     }
                 }
             }
-        }
     },
     bottomBar = {
+        if (currentDestination !is SetupWizardDestination.Welcome) {
             Surface(
                 color = MaterialTheme.colorScheme.surface,
                 tonalElevation = 6.dp,
@@ -375,7 +412,7 @@ fun SetupWizard(
                                     navController.navigate(SetupWizardDestination.BusinessInfo.route)
                                 }
                                 is SetupWizardDestination.BusinessInfo -> {
-                                    if (viewModel.validateBusinessInfo()) {
+                                    viewModel.validateBusinessInfoAndCheckUniqueness {
                                         navController.navigate(SetupWizardDestination.ActivityType.route)
                                     }
                                 }
@@ -450,7 +487,7 @@ fun SetupWizard(
                                 }
                             }
                         },
-                        enabled = !uiState.isSubmitting,
+                        enabled = !uiState.isSubmitting && !uiState.isCheckingName,
                         colors = ButtonDefaults.buttonColors(containerColor = KonabGreen),
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier
@@ -460,6 +497,7 @@ fun SetupWizard(
                         Text(
                             text = when (currentDestination) {
                                 is SetupWizardDestination.Welcome -> "Démarrer"
+                                is SetupWizardDestination.BusinessInfo -> if (uiState.isCheckingName) "Vérification..." else "Continuer"
                                 is SetupWizardDestination.Ready -> "Étape suivante (Enregistrement)"
                                 is SetupWizardDestination.RegisterShop -> if (uiState.isSubmitting) "Enregistrement..." else "Valider & Enregistrer"
                                 else -> "Continuer"
@@ -472,6 +510,7 @@ fun SetupWizard(
                     }
                 }
             }
+        }
         }
     ) { innerPadding ->
         NavHost(
@@ -511,9 +550,9 @@ fun SetupWizard(
                     activeAgent = activeAgent,
                     onEnterShopClick = {
                         if (shopProfile != null && shopProfile.isConfigured) {
-                            onEnterShop()
+                            showManagerPinModal = true
                         } else {
-                            navController.navigate(SetupWizardDestination.BusinessInfo.route)
+                            showAgentDirectoryModal = true
                         }
                     },
                     onRegisterAgentClick = {
@@ -525,7 +564,15 @@ fun SetupWizard(
                         showAgentLoginDialog = true
                     },
                     onConfigureShopAsAgent = {
-                        navController.navigate(SetupWizardDestination.BusinessInfo.route)
+                        if (shopProfile != null && shopProfile.isConfigured) {
+                            Toast.makeText(
+                                context,
+                                "La boutique « ${shopProfile.name} » est déjà configurée sur cet appareil.",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        } else {
+                            navController.navigate(SetupWizardDestination.BusinessInfo.route)
+                        }
                     },
                     onOpenAgentDeployments = {
                         agentModalInitialTab = 0
@@ -704,13 +751,42 @@ fun SetupWizard(
             AgentLoginModal(
                 initialAgent = activeAgent,
                 initialTab = agentModalInitialTab,
+                isShopAlreadyConfigured = shopProfile?.isConfigured == true,
+                onAgentUpdated = { updated -> activeAgent = updated },
                 onDismiss = { showAgentLoginDialog = false },
                 onLoginSuccess = { agent ->
                     activeAgent = agent
                     showAgentLoginDialog = false
-                    Toast.makeText(context, "Bienvenue ${agent.name} ! Mode déploiement client activé.", Toast.LENGTH_SHORT).show()
-                    navController.navigate(SetupWizardDestination.BusinessInfo.route)
+                    if (shopProfile != null && shopProfile.isConfigured) {
+                        Toast.makeText(
+                            context,
+                            "Boutique « ${shopProfile.name} » déjà configurée sur cet appareil.",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    } else {
+                        Toast.makeText(context, "Bienvenue ${agent.name} ! Mode déploiement client activé.", Toast.LENGTH_SHORT).show()
+                        navController.navigate(SetupWizardDestination.BusinessInfo.route)
+                    }
                 }
+            )
+        }
+
+        // Modal : Code de Confidentialité Gérant / Empreinte pour Entrer dans la Boutique
+        if (showManagerPinModal && shopProfile != null && shopProfile.isConfigured) {
+            ManagerPinEntryModal(
+                shopProfile = shopProfile,
+                onDismiss = { showManagerPinModal = false },
+                onPinVerified = {
+                    showManagerPinModal = false
+                    onEnterShop()
+                }
+            )
+        }
+
+        // Modal : Liste Publique des Agents Déployeurs (si la boutique n'est pas configurée)
+        if (showAgentDirectoryModal) {
+            AgentContactDirectoryModal(
+                onDismiss = { showAgentDirectoryModal = false }
             )
         }
 
@@ -764,398 +840,511 @@ private fun WizardStepWelcome(
         activeAgent?.let { AgentDeploymentStorage.getDeploymentsForAgent(context, it.id).size } ?: 0
     }
 
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(
-                brush = Brush.verticalGradient(
-                    colors = listOf(
-                        Color(0xFFD6E4FA),
-                        Color(0xFFC2DCF9),
-                        Color(0xFFB2D4F7)
-                    )
-                )
-            )
+            .background(MaterialTheme.colorScheme.background)
             .verticalScroll(rememberScrollState())
-            .padding(20.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
     ) {
-        Surface(
-            modifier = Modifier.size(90.dp),
-            shape = CircleShape,
-            color = Color.White,
-            shadowElevation = 6.dp,
-            border = BorderStroke(2.dp, KonabBlueContainer)
-        ) {
-            Image(
-                painter = painterResource(id = R.drawable.ic_konab_logo),
-                contentDescription = "Logo KONAB POS",
-                modifier = Modifier
-                    .padding(3.dp)
-                    .fillMaxSize(),
-                contentScale = ContentScale.Fit
-            )
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Text(
-            text = "KONAB POS",
-            style = MaterialTheme.typography.headlineLarge.copy(
-                fontWeight = FontWeight.Black,
-                color = KonabBlue,
-                letterSpacing = 1.sp
-            )
-        )
-
-        Text(
-            text = "Plus proche de vous",
-            style = MaterialTheme.typography.titleMedium.copy(
-                color = KonabOrange,
-                fontWeight = FontWeight.Bold
-            )
-        )
-
-        Spacer(modifier = Modifier.height(14.dp))
-
-        // Multiple scrolling images carousel for launch screen
-        LaunchImageCarousel(
-            modifier = Modifier.fillMaxWidth()
-        )
-
-        Spacer(modifier = Modifier.height(14.dp))
-
-        Row(
+        // Curved Royal Blue Executive Hero Backdrop matching Dashboard visual identity
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(KonabOrangeContainer, RoundedCornerShape(14.dp))
-                .border(1.dp, KonabOrange.copy(alpha = 0.25f), RoundedCornerShape(14.dp))
-                .padding(vertical = 10.dp, horizontal = 14.dp),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.ThumbUp, contentDescription = null, tint = KonabOrange, modifier = Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(4.dp))
-                Text("Simple", fontWeight = FontWeight.Bold, color = KonabOrangeDark, fontSize = 12.sp)
-            }
-            Text("•", color = KonabOrange)
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Bolt, contentDescription = null, tint = KonabOrange, modifier = Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(4.dp))
-                Text("Rapide", fontWeight = FontWeight.Bold, color = KonabOrangeDark, fontSize = 12.sp)
-            }
-            Text("•", color = KonabOrange)
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.CloudOff, contentDescription = null, tint = KonabOrange, modifier = Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(4.dp))
-                Text("Hors ligne", fontWeight = FontWeight.Bold, color = KonabOrangeDark, fontSize = 12.sp)
-            }
-        }
-
-        Spacer(modifier = Modifier.height(18.dp))
-
-        // =============================================================
-        // LES DEUX GRANDS BLOCS : BOUTIQUE CLIENTE & ESPACE AGENT
-        // =============================================================
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { onEnterShopClick() }
-                .testTag("btn_enter_my_shop"),
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF073B9A)),
-            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 15.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(46.dp)
-                        .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.22f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Storefront,
-                        contentDescription = "Boutique",
-                        tint = Color.White,
-                        modifier = Modifier.size(24.dp)
+                .height(258.dp)
+                .clip(RoundedCornerShape(bottomStart = 34.dp, bottomEnd = 34.dp))
+                .background(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(KonabBlueDeep, KonabBlueDark, KonabBlue)
                     )
-                }
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "Entrer dans ma boutique",
-                        fontWeight = FontWeight.Black,
-                        fontSize = 15.5.sp,
-                        color = Color.White
-                    )
-                    Text(
-                        text = if (shopProfile != null && shopProfile.isConfigured) {
-                            "Accéder directement à votre caisse (« ${shopProfile.name} »)"
-                        } else {
-                            "Démarrer la configuration de votre point de vente"
-                        },
-                        fontSize = 11.5.sp,
-                        color = Color(0xFFC5DAF4),
-                        lineHeight = 15.sp
-                    )
-                }
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(20.dp)
                 )
-            }
-        }
+                .konabHeroShimmer(maxAlpha = 0.08f)
+        )
 
-        Spacer(modifier = Modifier.height(12.dp))
-
-        // =============================================================
-        // CARTE AGENT DÉPLOYEUR : PROFIL CONNECTÉ OU CRÉATION / CONNEXION
-        // =============================================================
-        if (activeAgent != null) {
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("card_active_agent_welcome"),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF06245E)),
-                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+        ResponsiveMaxWidthBox(
+            maxWidth = 640.dp,
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 18.dp)
+        ) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                // Brand Emblem + Title Header inside the Royal Blue Arc
+                Spacer(modifier = Modifier.height(4.dp))
+
+                Surface(
+                    modifier = Modifier.size(82.dp),
+                    shape = CircleShape,
+                    color = Color.White,
+                    shadowElevation = 10.dp,
+                    border = BorderStroke(2.5.dp, KonabOrange.copy(alpha = 0.85f))
+                ) {
+                    Image(
+                        painter = painterResource(id = R.drawable.ic_konab_logo),
+                        contentDescription = "Logo KONAB POS",
+                        modifier = Modifier
+                            .padding(4.dp)
+                            .fillMaxSize(),
+                        contentScale = ContentScale.Fit
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Text(
+                    text = "KONAB POS",
+                    fontFamily = OutfitFontFamily,
+                    fontWeight = FontWeight.Black,
+                    fontSize = 28.sp,
+                    color = Color.White,
+                    letterSpacing = 1.2.sp
+                )
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = KonabOrange.copy(alpha = 0.22f),
+                    border = BorderStroke(1.dp, KonabOrangeLight.copy(alpha = 0.65f))
                 ) {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        KonabLivePulseDot(color = KonabOrangeLight, size = 6.dp)
+                        Text(
+                            text = "Plus proche de vous",
+                            fontSize = 12.5.sp,
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Overlapping Launch Showcase Carousel
+                LaunchImageCarousel(
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Sleek 3-Pillar Value Bar (Light & Dark theme adaptive)
+                Surface(
+                    shape = KonabCardShape,
+                    color = MaterialTheme.colorScheme.surface,
+                    border = konabCardBorder(),
+                    tonalElevation = 1.dp,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 10.dp, horizontal = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        LaunchValuePillar(
+                            icon = Icons.Default.ThumbUp,
+                            label = "Simple",
+                            tint = KonabBlue
+                        )
+                        VerticalDivider(
+                            modifier = Modifier.height(18.dp),
+                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f)
+                        )
+                        LaunchValuePillar(
+                            icon = Icons.Default.Bolt,
+                            label = "Rapide",
+                            tint = KonabOrange
+                        )
+                        VerticalDivider(
+                            modifier = Modifier.height(18.dp),
+                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f)
+                        )
+                        LaunchValuePillar(
+                            icon = Icons.Default.CloudOff,
+                            label = "Hors ligne",
+                            tint = KonabSuccess
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // =============================================================
+                // BLOC 1 : ENTRER DANS MA BOUTIQUE (Sécurisé / Annuaire Agents)
+                // =============================================================
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .konabPressScale(pressedScale = 0.985f)
+                        .clickable { onEnterShopClick() }
+                        .testTag("btn_enter_my_shop"),
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(
+                                brush = Brush.horizontalGradient(
+                                    colors = listOf(KonabBlue, KonabBlueDark)
+                                )
+                            )
+                            .konabHeroShimmer(maxAlpha = 0.08f)
+                            .padding(horizontal = 16.dp, vertical = 16.dp)
+                    ) {
                         Row(
+                            modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            horizontalArrangement = Arrangement.spacedBy(14.dp)
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(42.dp)
+                                    .size(48.dp)
                                     .clip(CircleShape)
-                                    .background(Color(0xFFFF7900)),
+                                    .background(Color.White.copy(alpha = 0.18f))
+                                    .border(1.dp, Color.White.copy(alpha = 0.25f), CircleShape),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Text(
-                                    text = activeAgent.name.take(1).uppercase(),
-                                    fontWeight = FontWeight.Black,
-                                    color = Color.White,
-                                    fontSize = 18.sp
+                                Icon(
+                                    imageVector = if (shopProfile != null && shopProfile.isConfigured) {
+                                        Icons.Default.LockOpen
+                                    } else {
+                                        Icons.Default.Storefront
+                                    },
+                                    contentDescription = "Boutique",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(24.dp)
                                 )
                             }
-                            Column {
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Text(
-                                        text = activeAgent.name,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.White,
-                                        fontSize = 15.sp
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Entrer dans ma boutique",
+                                    fontFamily = OutfitFontFamily,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 16.5.sp,
+                                    color = Color.White
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = if (shopProfile != null && shopProfile.isConfigured) {
+                                        "Accès protégé par code de confidentialité (« ${shopProfile.name} »)"
+                                    } else {
+                                        "Boutique non configurée • Contacter un agent de votre ville"
+                                    },
+                                    fontSize = 12.sp,
+                                    color = Color(0xFFD6E4FA),
+                                    lineHeight = 16.sp
+                                )
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .clip(CircleShape)
+                                    .background(KonabOrange),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // =============================================================
+                // BLOC 2 : CARTE AGENT DÉPLOYEUR (Connecté ou Inscription/Connexion)
+                // =============================================================
+                if (activeAgent != null) {
+                    val activeAgentPhoto = remember(activeAgent.id, activeAgent.photoUri) {
+                        AgentDeploymentStorage.getEffectivePhotoUri(context, activeAgent)
+                    }
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("card_active_agent_welcome"),
+                        shape = RoundedCornerShape(18.dp),
+                        colors = CardDefaults.cardColors(containerColor = KonabBlueDark),
+                        border = BorderStroke(1.5.dp, KonabOrangeLight.copy(alpha = 0.55f)),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 5.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onOpenAgentDeployments() },
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    AgentPhotoAvatar(
+                                        name = activeAgent.name,
+                                        photoUri = activeAgentPhoto,
+                                        size = 46.dp,
+                                        borderColor = KonabOrangeLight
                                     )
-                                    Surface(
-                                        shape = RoundedCornerShape(6.dp),
-                                        color = Color(0xFF16A34A)
-                                    ) {
+                                    Column {
+                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                            Text(
+                                                text = activeAgent.name,
+                                                fontFamily = OutfitFontFamily,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color.White,
+                                                fontSize = 15.sp
+                                            )
+                                            Surface(
+                                                shape = RoundedCornerShape(6.dp),
+                                                color = KonabSuccess
+                                            ) {
+                                                Text(
+                                                    text = "AGENT ACTIF",
+                                                    color = Color.White,
+                                                    fontSize = 9.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                )
+                                            }
+                                        }
                                         Text(
-                                            text = "AGENT ACTIF",
-                                            color = Color.White,
-                                            fontSize = 9.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                            text = "${AgentIdCardHelper.getConapesReferenceCode(activeAgent.id)} • ${activeAgent.zone}",
+                                            color = Color(0xFFCBD5E1),
+                                            fontSize = 11.5.sp
                                         )
                                     }
                                 }
-                                Text(
-                                    text = "Matricule: ${activeAgent.id} • ${activeAgent.zone}",
-                                    color = Color(0xFFCBD5E1),
-                                    fontSize = 11.5.sp
-                                )
-                            }
-                        }
 
-                        TextButton(
-                            onClick = onDisconnectAgent,
-                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
-                        ) {
-                            Text("Changer", color = Color(0xFFFFA43A), fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                        }
-                    }
-
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = Color.White.copy(alpha = 0.08f),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 12.dp, vertical = 8.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Icon(Icons.Default.CloudDone, contentDescription = null, tint = Color(0xFF4ADE80), modifier = Modifier.size(16.dp))
-                                Text(
-                                    text = "Synchronisé Supabase Cloud",
-                                    color = Color(0xFFE2E8F0),
-                                    fontSize = 11.sp
-                                )
-                            }
-                            Text(
-                                text = "$agentDeploymentsCount boutique(s) créée(s)",
-                                color = Color(0xFFFFA43A),
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 11.sp
-                            )
-                        }
-                    }
-
-                    Button(
-                        onClick = onConfigureShopAsAgent,
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF7900)),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(46.dp)
-                            .testTag("btn_agent_configure_shop")
-                    ) {
-                        Icon(Icons.Default.AddBusiness, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("⚡ Configurer une nouvelle boutique", fontWeight = FontWeight.Bold, fontSize = 13.5.sp)
-                    }
-
-                    OutlinedButton(
-                        onClick = onOpenAgentDeployments,
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
-                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.4f)),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(42.dp)
-                            .testTag("btn_agent_view_deployments")
-                    ) {
-                        Icon(Icons.Default.Store, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("📋 Voir mes boutiques créées & Profil", fontSize = 12.5.sp)
-                    }
-                }
-            }
-        } else {
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("btn_agent_mode_launch"),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.White),
-                border = BorderStroke(2.dp, Color(0xFFFF7900)),
-                elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(46.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xFFFFF7ED)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Badge,
-                                contentDescription = "Agent",
-                                tint = Color(0xFFFF7900),
-                                modifier = Modifier.size(24.dp)
-                            )
-                        }
-                        Column(modifier = Modifier.weight(1f)) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Text(
-                                    text = "Espace Agent Déployeur",
-                                    fontWeight = FontWeight.Black,
-                                    fontSize = 15.5.sp,
-                                    color = Color(0xFF17243B)
-                                )
-                                Surface(
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = Color(0xFFFF7900)
+                                TextButton(
+                                    onClick = onDisconnectAgent,
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                    modifier = Modifier.heightIn(min = 40.dp)
                                 ) {
+                                    Text("Changer", color = KonabOrangeLight, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = Color.White.copy(alpha = 0.08f),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        Icon(Icons.Default.CloudDone, contentDescription = null, tint = Color(0xFF4ADE80), modifier = Modifier.size(16.dp))
+                                        Text(
+                                            text = "Synchronisé Supabase Cloud",
+                                            color = Color(0xFFE2E8F0),
+                                            fontSize = 11.sp
+                                        )
+                                    }
                                     Text(
-                                        text = "PRO",
-                                        color = Color.White,
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                        text = "$agentDeploymentsCount boutique(s) créée(s)",
+                                        color = KonabOrangeLight,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 11.sp
                                     )
                                 }
                             }
-                            Text(
-                                text = "Créez votre profil agent ou connectez-vous pour déployer, configurer et synchroniser des boutiques avec Supabase",
-                                fontSize = 11.5.sp,
-                                color = Color(0xFF64748B),
-                                lineHeight = 15.sp
-                            )
+
+                            if (shopProfile == null || !shopProfile.isConfigured) {
+                                Button(
+                                    onClick = onConfigureShopAsAgent,
+                                    colors = ButtonDefaults.buttonColors(containerColor = KonabOrange),
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(min = 48.dp)
+                                        .konabPressScale()
+                                        .testTag("btn_agent_configure_shop")
+                                ) {
+                                    Icon(Icons.Default.AddBusiness, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("⚡ Configurer une nouvelle boutique", fontWeight = FontWeight.Bold, fontSize = 13.5.sp)
+                                }
+                            }
+
+                            OutlinedButton(
+                                onClick = onOpenAgentDeployments,
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.4f)),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 48.dp)
+                                    .testTag("btn_agent_view_deployments")
+                            ) {
+                                Icon(Icons.Default.Badge, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Mon Profil, Ma Carte & Boutiques", fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+                            }
                         }
                     }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                } else {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("btn_agent_mode_launch"),
+                        shape = RoundedCornerShape(18.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        border = BorderStroke(1.5.dp, KonabOrange.copy(alpha = 0.7f)),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
                     ) {
-                        Button(
-                            onClick = onRegisterAgentClick,
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF7900)),
-                            shape = RoundedCornerShape(10.dp),
+                        Column(
                             modifier = Modifier
-                                .weight(1.2f)
-                                .height(44.dp)
-                                .testTag("btn_welcome_register_agent")
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            Icon(Icons.Default.PersonAdd, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Créer mon profil", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                        }
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(46.dp)
+                                        .clip(CircleShape)
+                                        .background(KonabOrange.copy(alpha = 0.14f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Badge,
+                                        contentDescription = "Agent",
+                                        tint = KonabOrange,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Text(
+                                            text = "Espace Agent Déployeur",
+                                            fontFamily = OutfitFontFamily,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            fontSize = 15.5.sp,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Surface(
+                                            shape = RoundedCornerShape(6.dp),
+                                            color = KonabOrange
+                                        ) {
+                                            Text(
+                                                text = "PRO",
+                                                color = Color.White,
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = "Créez votre profil agent ou connectez-vous pour déployer, configurer et synchroniser des boutiques avec Supabase",
+                                        fontSize = 11.5.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        lineHeight = 15.sp
+                                    )
+                                }
+                            }
 
-                        OutlinedButton(
-                            onClick = onLoginAgentClick,
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(44.dp)
-                                .testTag("btn_welcome_login_agent")
-                        ) {
-                            Icon(Icons.Default.Login, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Se connecter", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Button(
+                                    onClick = onRegisterAgentClick,
+                                    colors = ButtonDefaults.buttonColors(containerColor = KonabOrange),
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier
+                                        .weight(1.2f)
+                                        .heightIn(min = 48.dp)
+                                        .konabPressScale()
+                                        .testTag("btn_welcome_register_agent")
+                                ) {
+                                    Icon(Icons.Default.PersonAdd, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Créer mon profil", fontWeight = FontWeight.Bold, fontSize = 12.5.sp)
+                                }
+
+                                OutlinedButton(
+                                    onClick = onLoginAgentClick,
+                                    shape = RoundedCornerShape(12.dp),
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .heightIn(min = 48.dp)
+                                        .konabPressScale()
+                                        .testTag("btn_welcome_login_agent")
+                                ) {
+                                    Icon(Icons.Default.Login, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Se connecter", fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
+                                }
+                            }
                         }
                     }
                 }
+
+                Spacer(modifier = Modifier.height(16.dp))
             }
         }
+    }
+}
+
+@Composable
+private fun LaunchValuePillar(
+    icon: ImageVector,
+    label: String,
+    tint: Color
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(24.dp)
+                .clip(CircleShape)
+                .background(tint.copy(alpha = 0.14f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = tint,
+                modifier = Modifier.size(13.dp)
+            )
+        }
+        Text(
+            text = label,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface,
+            fontSize = 12.sp
+        )
     }
 }
 
@@ -1466,10 +1655,10 @@ private fun WizardStepActivityType(
                     preset.description.contains(searchQuery, ignoreCase = true)
 
             val matchGroup = when (selectedGroup) {
-                "Commerce" -> type in listOf("Boutique", "Commerce général", "Kiosque", "Vendeur ambulant", "Bijouterie", "Librairie")
+                "Commerce" -> type in listOf("Boutique", "Commerce général", "Kiosque", "Vendeur ambulant", "Courtier", "Bijouterie", "Librairie")
                 "Alimentation" -> type in listOf("Restaurant", "Boulangerie", "Boucherie", "Poissonnerie", "Commerce général", "Kiosque")
                 "Artisanat & BTP" -> type in listOf("Maçonnerie", "Menuiserie", "Soudure", "Plomberie", "Électricité", "Quincaillerie", "Agro-pastoral")
-                "Services & Tech" -> type in listOf("Coiffure", "Couture", "Pressing", "Informatique", "Lavage Auto-Moto", "Mécanique", "Pharmacie")
+                "Services & Tech" -> type in listOf("Coiffure", "Couture", "Pressing", "Courtier", "Informatique", "Lavage Auto-Moto", "Mécanique", "Pharmacie")
                 else -> true
             }
             matchSearch && matchGroup
@@ -1543,6 +1732,7 @@ private fun WizardStepActivityType(
         ) {
             items(filteredTypes) { type ->
                 val preset = BusinessTypePresets.getPreset(type)
+                val pricingProfile = remember(type) { SubscriptionPricingHelper.getPricingProfile(type) }
                 val isSelected = selectedType.equals(type, ignoreCase = true)
 
                 val icon: ImageVector = when (type) {
@@ -1550,6 +1740,7 @@ private fun WizardStepActivityType(
                     "Restaurant" -> Icons.Default.Restaurant
                     "Kiosque" -> Icons.Default.Storefront
                     "Vendeur ambulant" -> Icons.Default.DirectionsWalk
+                    "Courtier" -> Icons.Default.Handshake
                     "Pharmacie" -> Icons.Default.LocalPharmacy
                     "Quincaillerie" -> Icons.Default.Build
                     "Coiffure" -> Icons.Default.ContentCut
@@ -1575,7 +1766,7 @@ private fun WizardStepActivityType(
                         containerColor = if (isSelected) KonabGreenLight else MaterialTheme.colorScheme.surface
                     ),
                     modifier = Modifier
-                        .height(138.dp)
+                        .height(152.dp)
                         .border(
                             width = if (isSelected) 2.dp else 1.dp,
                             color = if (isSelected) KonabGreen else KonabBorder,
@@ -1593,16 +1784,16 @@ private fun WizardStepActivityType(
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(42.dp)
+                                .size(38.dp)
                                 .clip(CircleShape)
-                                .background(if (isSelected) KonabGreen else KonabGoldContainer),
+                                .background(if (isSelected) KonabGreen else Color(preset.accentColorHex).copy(alpha = 0.14f)),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 imageVector = icon,
                                 contentDescription = type,
-                                tint = if (isSelected) Color.White else KonabGoldDark,
-                                modifier = Modifier.size(22.dp)
+                                tint = if (isSelected) Color.White else Color(preset.accentColorHex),
+                                modifier = Modifier.size(20.dp)
                             )
                         }
 
@@ -1626,6 +1817,21 @@ private fun WizardStepActivityType(
                             overflow = TextOverflow.Ellipsis,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = Color(pricingProfile.category.accentColorHex).copy(alpha = 0.14f)
+                        ) {
+                            Text(
+                                text = "Dès ${SubscriptionPricingHelper.formatCompactPrice(pricingProfile.standardMonthly, "/m")}",
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(pricingProfile.category.accentColorHex),
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
                     }
                 }
             }
@@ -2204,13 +2410,52 @@ private fun WizardStepRegisterShop(
             }
         }
 
+        Spacer(modifier = Modifier.height(8.dp))
+
+        val wizardPricingProfile = remember(uiState.selectedBusinessType) {
+            SubscriptionPricingHelper.getPricingProfile(uiState.selectedBusinessType)
+        }
+
+        Surface(
+            shape = RoundedCornerShape(10.dp),
+            color = Color(wizardPricingProfile.category.accentColorHex).copy(alpha = 0.10f),
+            border = BorderStroke(1.dp, Color(wizardPricingProfile.category.accentColorHex).copy(alpha = 0.35f)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                modifier = Modifier.padding(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.LocalOffer,
+                    contentDescription = null,
+                    tint = Color(wizardPricingProfile.category.accentColorHex),
+                    modifier = Modifier.size(18.dp)
+                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "${wizardPricingProfile.category.title} (${wizardPricingProfile.category.badgeLabel})",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp,
+                        color = Color(wizardPricingProfile.category.accentColorHex)
+                    )
+                    Text(
+                        text = wizardPricingProfile.category.description,
+                        fontSize = 10.5.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+
         Spacer(modifier = Modifier.height(10.dp))
 
         // 1. FORFAIT PROFESSIONNEL (Recommandé)
         PlanOfferCard(
             title = "Plan Professionnel (Recommandé)",
-            durationLabel = "Licence 1 An (365 jours)",
-            price = "35 000 FCFA / an",
+            durationLabel = "Licence 1 An (365 jours) • ${wizardPricingProfile.businessType}",
+            price = SubscriptionPricingHelper.formatCompactPrice(wizardPricingProfile.proAnnual, "/ an"),
             badge = "RECOMMANDÉ",
             accentColor = KonabGreen,
             features = listOf(
@@ -2230,8 +2475,8 @@ private fun WizardStepRegisterShop(
         // 2. FORFAIT PREMIUM PRO (Illimité)
         PlanOfferCard(
             title = "Plan Premium Pro Illimité",
-            durationLabel = "Licence Permanente (10 ans)",
-            price = "75 000 FCFA (À vie)",
+            durationLabel = "Licence Permanente (10 ans) • ${wizardPricingProfile.businessType}",
+            price = "${SubscriptionPricingHelper.formatCompactPrice(wizardPricingProfile.premiumLifetime)} (À vie)",
             badge = "VIP & CLOUD",
             accentColor = Color(0xFF073B9A),
             features = listOf(
@@ -2251,9 +2496,9 @@ private fun WizardStepRegisterShop(
         // 3. FORFAIT STANDARD (Mensuel)
         PlanOfferCard(
             title = "Plan Standard",
-            durationLabel = "Licence 1 Mois (30 jours)",
-            price = "5 000 FCFA / mois",
-            badge = null,
+            durationLabel = "Licence 1 Mois (30 jours) • ${wizardPricingProfile.businessType}",
+            price = SubscriptionPricingHelper.formatCompactPrice(wizardPricingProfile.standardMonthly, "/ mois"),
+            badge = wizardPricingProfile.category.badgeLabel,
             accentColor = Color(0xFF0284C7),
             features = listOf(
                 "Caisse tactile de base",
@@ -2475,6 +2720,8 @@ private fun ShopDetailRow(
 fun AgentLoginModal(
     initialAgent: AgentUser? = null,
     initialTab: Int = 0,
+    isShopAlreadyConfigured: Boolean = false,
+    onAgentUpdated: (AgentUser) -> Unit = {},
     onDismiss: () -> Unit,
     onLoginSuccess: (AgentUser) -> Unit
 ) {
@@ -2494,12 +2741,19 @@ fun AgentLoginModal(
     // Registration Form State
     var regNameInput by remember { mutableStateOf("") }
     var regPhoneInput by remember { mutableStateOf("") }
-    var regZoneInput by remember { mutableStateOf("Ouagadougou Centre") }
-    var regIdInput by remember { mutableStateOf("AGT-${(100..999).random()}") }
+    var regZoneInput by remember { mutableStateOf("Ouagadougou") }
+    var regPhotoUri by remember { mutableStateOf("") }
     var regPinInput by remember { mutableStateOf("") }
     var regPinConfirmInput by remember { mutableStateOf("") }
     var isRegistering by remember { mutableStateOf(false) }
     var regErrorMessage by remember { mutableStateOf("") }
+
+    // Profile & Card Modals State
+    var showIdCardModal by remember { mutableStateOf(false) }
+    var isFreshlyRegisteredCard by remember { mutableStateOf(false) }
+    var showEditProfileDialog by remember { mutableStateOf(false) }
+    var isSavingProfile by remember { mutableStateOf(false) }
+    var showCardVerifierModal by remember { mutableStateOf(false) }
 
     // Deployed shops state for current agent
     var agentDeployments by remember {
@@ -2530,19 +2784,29 @@ fun AgentLoginModal(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(42.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFFFFF7ED)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Badge,
-                        contentDescription = "Agent",
-                        tint = Color(0xFFFF7900),
-                        modifier = Modifier.size(24.dp)
+                val headerAgent = currentAgent
+                if (headerAgent != null) {
+                    AgentPhotoAvatar(
+                        name = headerAgent.name,
+                        photoUri = AgentDeploymentStorage.getEffectivePhotoUri(context, headerAgent),
+                        size = 42.dp,
+                        borderColor = Color(0xFFFF7900)
                     )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .size(42.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFFFFF7ED)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Badge,
+                            contentDescription = "Agent",
+                            tint = Color(0xFFFF7900),
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
                 }
                 Column {
                     Text(
@@ -2570,6 +2834,13 @@ fun AgentLoginModal(
                     // ==========================================
                     // VUE : PROFIL AGENT & BOUTIQUES ACTIVÉES
                     // ==========================================
+                    val effectivePhoto = remember(agent.id, agent.photoUri) {
+                        AgentDeploymentStorage.getEffectivePhotoUri(context, agent)
+                    }
+                    val portfolioStats = remember(agentDeployments) {
+                        AgentFieldHelper.calculatePortfolioStats(agentDeployments)
+                    }
+
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(14.dp),
@@ -2579,7 +2850,7 @@ fun AgentLoginModal(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(14.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -2588,34 +2859,36 @@ fun AgentLoginModal(
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    modifier = Modifier.weight(1f)
                                 ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(34.dp)
-                                            .clip(CircleShape)
-                                            .background(Color(0xFFFF7900)),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(
-                                            text = agent.name.take(1).uppercase(),
-                                            fontWeight = FontWeight.Black,
-                                            color = Color.White,
-                                            fontSize = 15.sp
-                                        )
-                                    }
+                                    AgentPhotoAvatar(
+                                        name = agent.name,
+                                        photoUri = effectivePhoto,
+                                        size = 48.dp,
+                                        borderColor = Color(0xFFFFA43A),
+                                        showEditBadge = true,
+                                        onClick = { showEditProfileDialog = true }
+                                    )
                                     Column {
                                         Text(
                                             text = agent.name,
                                             fontWeight = FontWeight.Bold,
                                             color = Color.White,
-                                            fontSize = 14.sp
+                                            fontSize = 14.5.sp
                                         )
                                         Text(
-                                            text = "Matricule: ${agent.id} • ${agent.zone}",
+                                            text = "${AgentIdCardHelper.getConapesReferenceCode(agent.id)} • ${agent.zone}",
                                             color = Color(0xFFCBD5E1),
                                             fontSize = 11.sp
                                         )
+                                        if (agent.phone.isNotBlank()) {
+                                            Text(
+                                                text = "Tél: ${agent.phone} • ${agent.role}",
+                                                fontSize = 10.5.sp,
+                                                color = Color(0xFFFFA43A)
+                                            )
+                                        }
                                     }
                                 }
 
@@ -2624,7 +2897,7 @@ fun AgentLoginModal(
                                     color = Color(0xFF16A34A)
                                 ) {
                                     Text(
-                                        text = "CLOUD ACTIF",
+                                        text = "AGRÉÉ",
                                         color = Color.White,
                                         fontSize = 9.sp,
                                         fontWeight = FontWeight.Bold,
@@ -2633,35 +2906,125 @@ fun AgentLoginModal(
                                 }
                             }
 
-                            if (agent.phone.isNotBlank()) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedButton(
+                                    onClick = {
+                                        isFreshlyRegisteredCard = false
+                                        showIdCardModal = true
+                                    },
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                                    border = BorderStroke(1.dp, Color(0xFFFFA43A)),
+                                    shape = RoundedCornerShape(10.dp),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(38.dp)
+                                        .testTag("btn_modal_agent_id_card")
+                                ) {
+                                    Icon(Icons.Default.QrCode2, contentDescription = null, modifier = Modifier.size(15.dp), tint = Color(0xFFFFA43A))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Ma Carte & QR", fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                                }
+
+                                OutlinedButton(
+                                    onClick = { showEditProfileDialog = true },
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.45f)),
+                                    shape = RoundedCornerShape(10.dp),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(38.dp)
+                                        .testTag("btn_modal_edit_agent_profile")
+                                ) {
+                                    Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(15.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Modifier Profil", fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                                }
+                            }
+                        }
+                    }
+
+                    AgentKpiSummaryStrip(
+                        totalDeployments = agentDeployments.size,
+                        syncedCount = portfolioStats.first,
+                        pendingCount = portfolioStats.second,
+                        estimatedCommissionLabel = portfolioStats.third,
+                        isSyncing = isRefreshingShops,
+                        onSyncClick = {
+                            coroutineScope.launch {
+                                isRefreshingShops = true
+                                try {
+                                    syncManager.syncAgentDeployments()
+                                    val res = syncManager.refreshDeploymentsForAgent(agent.id)
+                                    if (res.isSuccess) {
+                                        agentDeployments = res.getOrDefault(AgentDeploymentStorage.getDeploymentsForAgent(context, agent.id))
+                                    }
+                                    Toast.makeText(context, "Déploiements synchronisés !", Toast.LENGTH_SHORT).show()
+                                } catch (_: Exception) {}
+                                isRefreshingShops = false
+                            }
+                        }
+                    )
+
+                    if (!isShopAlreadyConfigured) {
+                        // GRAND BOUTON PRINCIPAL : ACTIVER UNE NOUVELLE BOUTIQUE
+                        Button(
+                            onClick = {
+                                onLoginSuccess(agent)
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(50.dp)
+                                .testTag("btn_activate_new_shop"),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF7900))
+                        ) {
+                            Icon(Icons.Default.AddBusiness, contentDescription = null, modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "⚡ Activer une nouvelle boutique",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp
+                            )
+                        }
+                    } else {
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = KonabBlue.copy(alpha = 0.08f),
+                            border = BorderStroke(1.dp, KonabBlue.copy(alpha = 0.25f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(Icons.Default.Storefront, contentDescription = null, tint = KonabBlue, modifier = Modifier.size(18.dp))
                                 Text(
-                                    text = "Téléphone: ${agent.phone} | Rôle: ${agent.role}",
-                                    fontSize = 11.sp,
-                                    color = Color(0xFF94A3B8)
+                                    text = "Une boutique est déjà configurée sur cet appareil.",
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = KonabBlueDark
                                 )
                             }
                         }
                     }
 
-                    // GRAND BOUTON PRINCIPAL : ACTIVER UNE NOUVELLE BOUTIQUE
-                    Button(
-                        onClick = {
-                            onLoginSuccess(agent)
-                        },
+                    OutlinedButton(
+                        onClick = { showCardVerifierModal = true },
+                        shape = RoundedCornerShape(10.dp),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(50.dp)
-                            .testTag("btn_activate_new_shop"),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF7900))
+                            .height(42.dp)
+                            .testTag("btn_modal_verify_agent_card")
                     ) {
-                        Icon(Icons.Default.AddBusiness, contentDescription = null, modifier = Modifier.size(20.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "⚡ Activer une nouvelle boutique",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp
-                        )
+                        Icon(Icons.Default.QrCodeScanner, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Vérifier / Scanner une Carte Agent", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                     }
 
                     // Section Liste des Boutiques Déployées
@@ -3022,9 +3385,16 @@ fun AgentLoginModal(
                         // FORMULAIRE : INSCRIPTION NOUVEL AGENT DÉPLOYEUR
                         // ------------------------------------------
                         Text(
-                            text = "Remplissez vos informations d'agent. Vos identifiants seront automatiquement synchronisés sur Supabase Cloud :",
+                            text = "Remplissez vos informations d'agent. Votre matricule officiel et votre carte QR seront générés automatiquement :",
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+
+                        AgentPhotoUploadRow(
+                            agentName = regNameInput,
+                            photoUri = regPhotoUri,
+                            onPhotoSelected = { regPhotoUri = it },
+                            agentKeyHint = "wizard_reg"
                         )
 
                         OutlinedTextField(
@@ -3055,14 +3425,25 @@ fun AgentLoginModal(
                             modifier = Modifier.fillMaxWidth().testTag("input_reg_agent_zone")
                         )
 
-                        OutlinedTextField(
-                            value = regIdInput,
-                            onValueChange = { regIdInput = it.uppercase(); regErrorMessage = "" },
-                            label = { Text("Identifiant Agent / Matricule souhaité *") },
-                            leadingIcon = { Icon(Icons.Default.Badge, contentDescription = null) },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth().testTag("input_reg_agent_id")
-                        )
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = KonabBlue.copy(alpha = 0.08f),
+                            border = BorderStroke(1.dp, KonabBlue.copy(alpha = 0.25f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(Icons.Default.Badge, contentDescription = null, tint = KonabBlue, modifier = Modifier.size(18.dp))
+                                Text(
+                                    text = "Matricule unique (ex: AGT-26-XXXX) attribué automatiquement lors de l'inscription.",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
 
                         OutlinedTextField(
                             value = regPinInput,
@@ -3097,7 +3478,7 @@ fun AgentLoginModal(
 
                         Button(
                             onClick = {
-                                if (regNameInput.isBlank() || regPhoneInput.isBlank() || regIdInput.isBlank() || regPinInput.isBlank()) {
+                                if (regNameInput.isBlank() || regPhoneInput.isBlank() || regPinInput.isBlank()) {
                                     regErrorMessage = "Tous les champs obligatoires (*) doivent être remplis."
                                     return@Button
                                 }
@@ -3112,28 +3493,29 @@ fun AgentLoginModal(
 
                                 isRegistering = true
                                 regErrorMessage = ""
-                                val newAgent = AgentUser(
-                                    id = regIdInput.trim().uppercase(),
-                                    name = regNameInput.trim(),
-                                    phone = regPhoneInput.trim(),
-                                    zone = regZoneInput.trim().ifBlank { "National" },
-                                    pin = regPinInput.trim(),
-                                    role = "Agent Déployeur"
-                                )
 
                                 coroutineScope.launch {
-                                    // 1. Sauvegarder la session locale immédiatement pour que les informations restent
-                                    AgentDeploymentStorage.registerLocalAgent(context, newAgent)
-                                    AgentDeploymentStorage.saveAgentSession(context, newAgent)
-                                    currentAgent = newAgent
-
-                                    // 2. Synchroniser directement avec Supabase Cloud (Super Papi)
-                                    val res = syncManager.registerAgentOnline(newAgent)
+                                    val res = syncManager.registerNewAgentWithAutoMatricule(
+                                        name = regNameInput,
+                                        phone = regPhoneInput,
+                                        zone = regZoneInput,
+                                        pin = regPinInput,
+                                        photoUri = regPhotoUri
+                                    )
                                     isRegistering = false
-                                    if (res.isSuccess) {
-                                        Toast.makeText(context, "Profil Agent créé et synchronisé sur Supabase !", Toast.LENGTH_LONG).show()
+                                    val createdAgent = res.getOrNull()
+                                    if (createdAgent != null) {
+                                        currentAgent = createdAgent
+                                        onAgentUpdated(createdAgent)
+                                        isFreshlyRegisteredCard = true
+                                        showIdCardModal = true
+                                        Toast.makeText(
+                                            context,
+                                            "Profil créé ! Matricule : ${createdAgent.id}",
+                                            Toast.LENGTH_LONG
+                                        ).show()
                                     } else {
-                                        Toast.makeText(context, "Profil Agent créé et enregistré en local !", Toast.LENGTH_SHORT).show()
+                                        regErrorMessage = "Impossible de créer le profil agent."
                                     }
                                 }
                             },
@@ -3148,11 +3530,11 @@ fun AgentLoginModal(
                             if (isRegistering) {
                                 CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text("Enregistrement sur Supabase...")
+                                Text("Attribution matricule & sync...")
                             } else {
                                 Icon(Icons.Default.CloudUpload, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text("S'inscrire & Synchroniser sur Supabase", fontWeight = FontWeight.Bold)
+                                Text("S'inscrire & Générer ma Carte", fontWeight = FontWeight.Bold)
                             }
                         }
                     }
@@ -3166,6 +3548,43 @@ fun AgentLoginModal(
             }
         }
     )
+
+    if (showIdCardModal && currentAgent != null) {
+        AgentIdCardModal(
+            agent = currentAgent!!,
+            isFreshlyRegistered = isFreshlyRegisteredCard,
+            onDismiss = { showIdCardModal = false }
+        )
+    }
+
+    if (showEditProfileDialog && currentAgent != null) {
+        EditAgentProfileDialog(
+            agent = currentAgent!!,
+            isSaving = isSavingProfile,
+            onDismiss = { showEditProfileDialog = false },
+            onSave = { updated ->
+                isSavingProfile = true
+                coroutineScope.launch {
+                    if (updated.photoUri.isNotBlank()) {
+                        AgentDeploymentStorage.saveAgentPhotoUri(context, updated.id, updated.photoUri)
+                    }
+                    syncManager.registerAgentOnline(updated)
+                    AgentDeploymentStorage.saveAgentSession(context, updated)
+                    currentAgent = updated
+                    onAgentUpdated(updated)
+                    isSavingProfile = false
+                    showEditProfileDialog = false
+                    Toast.makeText(context, "Profil agent mis à jour !", Toast.LENGTH_SHORT).show()
+                }
+            }
+        )
+    }
+
+    if (showCardVerifierModal) {
+        ConapesCardReferenceVerifierModal(
+            onDismiss = { showCardVerifierModal = false }
+        )
+    }
 }
 
 // -------------------------------------------------------------

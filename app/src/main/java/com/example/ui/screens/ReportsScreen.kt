@@ -44,6 +44,7 @@ import com.example.data.local.entity.ProductEntity
 import com.example.data.local.entity.SaleEntity
 import com.example.data.local.entity.SaleItemEntity
 import com.example.ui.components.KonabEmptyState
+import com.example.ui.components.KonabScreenTopBar
 import com.example.ui.components.KonabStaggeredReveal
 import com.example.ui.components.KonabWidthClass
 import com.example.ui.components.LocalKonabWidthClass
@@ -156,18 +157,10 @@ fun ReportsScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text("Rapports & Statistiques", fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                        Text("Analyses de performance financière", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Retour")
-                    }
-                },
+            KonabScreenTopBar(
+                title = "Rapports & Statistiques",
+                subtitle = "Analyses de performance financière",
+                onBack = onBack,
                 actions = {
                     IconButton(onClick = {
                         val reportText = StringBuilder()
@@ -198,8 +191,7 @@ fun ReportsScreen(
                     }) {
                         Icon(Icons.Default.Share, contentDescription = "Exporter le rapport", tint = KonabBlue)
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
+                }
             )
         }
     ) { paddingValues ->
@@ -357,7 +349,7 @@ fun ReportsScreen(
                                             .fillMaxWidth()
                                             .background(
                                                 Brush.verticalGradient(
-                                                    listOf(Color(0xFF0B4BD9), Color(0xFF071E54))
+                                                    listOf(KonabBlue, KonabBlueDark)
                                                 )
                                             )
                                             .konabHeroShimmer(maxAlpha = 0.09f)
@@ -515,7 +507,7 @@ fun ReportsScreen(
                                                     val barHeight = (maxHeight * ratio * chartGrow.value).coerceAtLeast(6.dp.toPx())
                                                     val y = maxHeight - barHeight
 
-                                                    val barColor = if (i == 5) Color(0xFF0B4BD9) else Color(0xFF93C5FD)
+                                                    val barColor = if (i == 5) KonabBlue else Color(0xFF93C5FD)
 
                                                     drawRoundRect(
                                                         color = barColor,

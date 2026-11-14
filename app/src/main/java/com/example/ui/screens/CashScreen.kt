@@ -34,6 +34,7 @@ import com.example.data.local.entity.CashMovementEntity
 import com.example.data.local.entity.CashSessionEntity
 import com.example.ui.components.KonabEmptyState
 import com.example.ui.components.KonabLivePulseDot
+import com.example.ui.components.KonabScreenTopBar
 import com.example.ui.components.KonabStaggeredReveal
 import com.example.ui.components.KonabWidthClass
 import com.example.ui.components.LocalKonabWidthClass
@@ -93,13 +94,10 @@ fun CashScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Caisse & Dépenses", fontWeight = FontWeight.Bold) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Retour")
-                    }
-                },
+            KonabScreenTopBar(
+                title = "Caisse & Dépenses",
+                subtitle = if (activeSession != null) "Session ouverte" else "Caisse actuellement fermée",
+                onBack = onBack,
                 actions = {
                     IconButton(
                         onClick = {
@@ -124,8 +122,7 @@ fun CashScreen(
                     ) {
                         Icon(Icons.Default.Share, contentDescription = "Partager le Z de caisse", tint = KonabBlue)
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
+                }
             )
         }
     ) { paddingValues ->
@@ -155,7 +152,7 @@ fun CashScreen(
                                 .fillMaxWidth()
                                 .background(
                                     brush = Brush.verticalGradient(
-                                        colors = listOf(Color(0xFF0B4BD9), Color(0xFF071E54))
+                                        colors = listOf(KonabBlue, KonabBlueDark)
                                     ),
                                     shape = RoundedCornerShape(22.dp)
                                 )
@@ -229,16 +226,16 @@ fun CashScreen(
                                     if (activeSession == null) {
                                         Button(
                                             onClick = { showOpenSessionDialog = true },
-                                            colors = ButtonDefaults.buttonColors(containerColor = KonabGold),
+                                            colors = ButtonDefaults.buttonColors(containerColor = KonabOrange, contentColor = Color.White),
                                             shape = RoundedCornerShape(12.dp),
                                             modifier = Modifier
                                                 .fillMaxWidth()
                                                 .heightIn(min = 48.dp)
                                                 .konabPressScale()
                                         ) {
-                                            Icon(Icons.Default.LockOpen, contentDescription = null, tint = Color.Black)
+                                            Icon(Icons.Default.LockOpen, contentDescription = null, tint = Color.White)
                                             Spacer(modifier = Modifier.width(6.dp))
-                                            Text("Ouvrir la caisse", color = Color.Black, fontWeight = FontWeight.Bold)
+                                            Text("Ouvrir la caisse", color = Color.White, fontWeight = FontWeight.Bold)
                                         }
                                     } else {
                                         Button(
@@ -250,9 +247,9 @@ fun CashScreen(
                                                 .heightIn(min = 48.dp)
                                                 .konabPressScale()
                                         ) {
-                                            Icon(Icons.Default.Lock, contentDescription = null, tint = KonabGreenDark)
+                                            Icon(Icons.Default.Lock, contentDescription = null, tint = KonabBlueDark)
                                             Spacer(modifier = Modifier.width(6.dp))
-                                            Text("Clôturer la caisse (Z de caisse)", color = KonabGreenDark, fontWeight = FontWeight.Bold)
+                                            Text("Clôturer la caisse (Z de caisse)", color = KonabBlueDark, fontWeight = FontWeight.Bold)
                                         }
                                     }
                                 }

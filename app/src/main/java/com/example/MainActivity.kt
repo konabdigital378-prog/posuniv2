@@ -207,6 +207,7 @@ class MainActivity : FragmentActivity() {
                                         onAddCustomAmount = { title, price, qty, unit, note ->
                                             viewModel.addCustomAmountToCart(title, price, qty, unit, note)
                                         },
+                                        onQuickSaveProduct = { viewModel.saveProduct(it) },
                                         onUpdateQuantity = { id, delta -> viewModel.updateCartQuantity(id, delta) },
                                         onUpdateItemNote = { id, note -> viewModel.updateCartItemNote(id, note) },
                                         onUpdateItemDiscount = { id, disc -> viewModel.updateCartItemDiscount(id, disc) },
@@ -351,6 +352,9 @@ class MainActivity : FragmentActivity() {
                                     SubscriptionScreen(
                                         shopProfile = shopProfile,
                                         onActivate = { code, tier -> viewModel.activateSubscription(code, tier) },
+                                        onActivateWithSasPay = { tier, days, paymentId, reference, amountFcfa, channel ->
+                                            viewModel.activateSubscriptionWithSasPay(tier, days, paymentId, reference, amountFcfa, channel)
+                                        },
                                         onNavigateToAgentPortal = { viewModel.navigateTo(KonabScreen.AGENT_PORTAL) },
                                         onBack = { viewModel.navigateBack() }
                                     )

@@ -31,8 +31,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.local.entity.CustomerEntity
 import com.example.data.local.entity.ProductEntity
+import com.example.ui.components.CoiffureServiceDialog
+import com.example.ui.components.CustomUnitSaleDialog
 import com.example.ui.components.ItemVariantCustomizerDialog
 import com.example.ui.components.KitchenOrderModal
+import com.example.ui.components.KonabCardShape
+import com.example.ui.components.KonabScreenTopBar
+import com.example.ui.components.KonabSearchField
 import com.example.ui.components.RealBarcodeScannerModal
 import com.example.ui.navigation.KonabScreen
 import com.example.ui.theme.*
@@ -53,6 +58,8 @@ fun PosScreen(
     totalAmount: Long,
     onAddToCart: (ProductEntity) -> Unit,
     onAddToCartWithVariant: (ProductEntity, String) -> Unit = { p, _ -> onAddToCart(p) },
+    onAddCustomAmount: (title: String, unitPrice: Long, quantity: Int, unit: String, variantNote: String) -> Unit = { _, _, _, _, _ -> },
+    onQuickSaveProduct: (ProductEntity) -> Unit = {},
     onUpdateQuantity: (productId: Long, delta: Int) -> Unit,
     onUpdateItemNote: (productId: Long, String) -> Unit = { _, _ -> },
     onUpdateItemDiscount: (productId: Long, Long) -> Unit = { _, _ -> },
@@ -72,16 +79,23 @@ fun PosScreen(
     var showScanDialog by remember { mutableStateOf(false) }
     var showProformaModal by remember { mutableStateOf(false) }
 
-    val sectorPreset = remember(shopProfile?.businessType) {
-        BusinessTypePresets.getPreset(shopProfile?.businessType ?: "Boutique")
+    val businessType = shopProfile?.businessType ?: "Boutique"
+    val sectorPreset = remember(businessType) {
+        BusinessTypePresets.getPreset(businessType)
     }
     val sectorFeatures = sectorPreset.sectorFeatures
+    val isCoiffure = businessType.equals("Coiffure", ignoreCase = true)
+    val isCourtier = businessType.equals("Courtier", ignoreCase = true)
 
     var selectedTable by remember { mutableStateOf("Table 1") }
     var selectedStylist by remember { mutableStateOf("Fatou") }
     var selectedNomadSpot by remember { mutableStateOf("Carrefour") }
     var selectedCraftMode by remember { mutableStateOf("Fourniture + Pose") }
+    var selectedBrokerAct by remember { mutableStateOf("Visite") }
     var showKitchenModal by remember { mutableStateOf(false) }
+    var showCoiffureDialog by remember { mutableStateOf(false) }
+    var showQuickAddProductDialog by remember { mutableStateOf(false) }
+    var showCustomUnitDialog by remember { mutableStateOf(false) }
     var productForCustomization by remember { mutableStateOf<ProductEntity?>(null) }
     var itemForCartNoteEdit by remember { mutableStateOf<CartItem?>(null) }
     var speedCashTender by remember { mutableStateOf<Long?>(null) }
@@ -104,34 +118,10 @@ fun PosScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text("Caisse", fontWeight = FontWeight.Bold)
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = KonabBlue.copy(alpha = 0.10f)
-                        ) {
-                            Text(
-                                text = "${sectorPreset.emoji} ${sectorPreset.title}",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = KonabBlue,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Retour")
-                    }
-                },
+            KonabScreenTopBar(
+                title = "Caisse",
+                subtitle = "${sectorPreset.emoji} ${sectorPreset.title}",
+                onBack = onBack,
                 actions = {
                     IconButton(
                         onClick = { showScanDialog = true },
@@ -158,8 +148,7 @@ fun PosScreen(
                             Icon(Icons.Default.DeleteSweep, contentDescription = "Vider panier", tint = KonabRed)
                         }
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
+                }
             )
         },
         bottomBar = {
@@ -351,22 +340,28 @@ fun PosScreen(
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(end = 6.dp)
                     ) {
-                        Surface(
-                            color = KonabGreen.copy(alpha = 0.15f),
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Text(
-                                text = "${sectorPreset.emoji} ${sectorPreset.label}",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = KonabGreenDark,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                            )
-                        }
 
-                        if (sectorFeatures.hasNomadMode) {
+                        if (isCourtier) {
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                items(listOf("Visite", "Commission", "Dossier", "Bail / Contrat")) { act ->
+                                    val isSel = selectedBrokerAct == act
+                                    FilterChip(
+                                        selected = isSel,
+                                        onClick = { selectedBrokerAct = act },
+                                        label = { Text(act, fontSize = 11.sp) },
+                                        modifier = Modifier.height(28.dp),
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = Color(0xFF0F766E),
+                                            selectedLabelColor = Color.White
+                                        )
+                                    )
+                                }
+                            }
+                        } else if (sectorFeatures.hasNomadMode) {
                             LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                 items(listOf("🚶 Carrefour", "🏪 Marché", "🚌 Arrêt", "🏠 Tournée", "🎪 Événement")) { spot ->
                                     val isSel = selectedNomadSpot == spot
@@ -433,119 +428,168 @@ fun PosScreen(
                         } else if (sectorFeatures.hasPrescriptionExpiry) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Text(
-                                    text = "💊 Mode Ordonnance & DCI",
+                                    text = "💊 Ordonnance & DCI",
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = Color(0xFF0284C7)
                                 )
                                 Surface(shape = RoundedCornerShape(6.dp), color = Color(0xFFE0F2FE)) {
-                                    Text("Posologie active", fontSize = 10.sp, color = Color(0xFF0369A1), modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                                    Text(sectorPreset.quickUnits.take(3).joinToString("/"), fontSize = 10.sp, color = Color(0xFF0369A1), modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
                                 }
                             }
                         } else if (sectorFeatures.hasVariations) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Text(
-                                    text = "👗 Rayon Prêt-à-Porter",
+                                    text = "${sectorPreset.emoji} Tailles & Couleurs",
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = KonabBlue
                                 )
                                 Surface(shape = RoundedCornerShape(6.dp), color = Color(0xFFEDE9FE)) {
-                                    Text("Tailles & Couleurs", fontSize = 10.sp, color = Color(0xFF6D28D9), modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                                    Text(sectorPreset.quickUnits.take(3).joinToString(" • "), fontSize = 10.sp, color = Color(0xFF6D28D9), modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
                                 }
                             }
                         } else if (sectorFeatures.hasFractionalUnits) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Text(
-                                    text = "🔨 Vente au détail & découpe",
+                                    text = "${sectorPreset.emoji} Unités :",
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = Color(0xFFB45309)
                                 )
                                 Surface(shape = RoundedCornerShape(6.dp), color = Color(0xFFFEF3C7)) {
-                                    Text("Mètre, Kg, Sac", fontSize = 10.sp, color = Color(0xFF92400E), modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                                    Text(sectorPreset.quickUnits.take(4).joinToString(" • "), fontSize = 10.sp, color = Color(0xFF92400E), modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
                                 }
                             }
+                        } else {
+                            Text(
+                                text = sectorPreset.quickUnits.take(3).joinToString(" • "),
+                                fontSize = 10.5.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
                     }
 
-                    if (sectorFeatures.hasNomadMode && cart.isNotEmpty()) {
-                        Button(
-                            onClick = onProceedToPayment,
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE11D48)),
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        FilledTonalButton(
+                            onClick = { showCustomUnitDialog = true },
                             shape = RoundedCornerShape(8.dp),
                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
                             modifier = Modifier
                                 .height(30.dp)
-                                .testTag("btn_nomad_cash_flash")
+                                .testTag("btn_custom_unit_sale")
                         ) {
-                            Icon(Icons.Default.Bolt, contentDescription = null, modifier = Modifier.size(13.dp))
+                            Icon(Icons.Default.Straighten, contentDescription = null, modifier = Modifier.size(13.dp))
                             Spacer(modifier = Modifier.width(3.dp))
-                            Text("Encaisser Flash", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Text("+ Unité", fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
                         }
-                    } else if (sectorFeatures.hasTables && cart.isNotEmpty()) {
-                        Button(
-                            onClick = { showKitchenModal = true },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEA580C)),
-                            shape = RoundedCornerShape(8.dp),
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                            modifier = Modifier
-                                .height(30.dp)
-                                .testTag("btn_kitchen_order")
-                        ) {
-                            Icon(Icons.Default.RestaurantMenu, contentDescription = null, modifier = Modifier.size(13.dp))
-                            Spacer(modifier = Modifier.width(3.dp))
-                            Text("Bon Cuisine", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                        }
-                    } else if (sectorFeatures.hasJobSiteQuotes && cart.isNotEmpty()) {
-                        Button(
-                            onClick = { showProformaModal = true },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0369A1)),
-                            shape = RoundedCornerShape(8.dp),
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                            modifier = Modifier
-                                .height(30.dp)
-                                .testTag("btn_jobsite_quote")
-                        ) {
-                            Icon(Icons.Default.ReceiptLong, contentDescription = null, modifier = Modifier.size(13.dp))
-                            Spacer(modifier = Modifier.width(3.dp))
-                            Text("Devis Chantier", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+
+                        if (sectorFeatures.hasNomadMode && cart.isNotEmpty()) {
+                            Button(
+                                onClick = onProceedToPayment,
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE11D48)),
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                modifier = Modifier
+                                    .height(30.dp)
+                                    .testTag("btn_nomad_cash_flash")
+                            ) {
+                                Icon(Icons.Default.Bolt, contentDescription = null, modifier = Modifier.size(13.dp))
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text("Encaisser", fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
+                            }
+                        } else if (sectorFeatures.hasTables && cart.isNotEmpty()) {
+                            Button(
+                                onClick = { showKitchenModal = true },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEA580C)),
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                modifier = Modifier
+                                    .height(30.dp)
+                                    .testTag("btn_kitchen_order")
+                            ) {
+                                Icon(Icons.Default.RestaurantMenu, contentDescription = null, modifier = Modifier.size(13.dp))
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text("Cuisine", fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
+                            }
+                        } else if (sectorFeatures.hasJobSiteQuotes && cart.isNotEmpty()) {
+                            Button(
+                                onClick = { showProformaModal = true },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0369A1)),
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                modifier = Modifier
+                                    .height(30.dp)
+                                    .testTag("btn_jobsite_quote")
+                            ) {
+                                Icon(Icons.Default.ReceiptLong, contentDescription = null, modifier = Modifier.size(13.dp))
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text("Devis", fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
+                            }
                         }
                     }
                 }
             }
 
+            // Barre dédiée au Salon de Coiffure (Faire une coiffure Homme/Femme + Ajouter produit)
+            if (isCoiffure) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(
+                        onClick = { showCoiffureDialog = true },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDB2777)),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .weight(1.2f)
+                            .height(48.dp)
+                            .testTag("btn_faire_coiffure")
+                    ) {
+                        Icon(Icons.Default.ContentCut, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Faire une coiffure (H/F)", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+
+                    OutlinedButton(
+                        onClick = { showQuickAddProductDialog = true },
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .weight(0.9f)
+                            .height(48.dp)
+                            .testTag("btn_coiffure_add_product")
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color(0xFFDB2777))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("+ Produit", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFFDB2777))
+                    }
+                }
+            }
+
             // Search Input
-            OutlinedTextField(
+            KonabSearchField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
-                placeholder = { Text("Rechercher un produit ou code...") },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                trailingIcon = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (searchQuery.isNotEmpty()) {
-                            IconButton(onClick = { searchQuery = "" }) {
-                                Icon(Icons.Default.Clear, contentDescription = "Effacer")
-                            }
-                        }
-                        IconButton(
-                            onClick = { showScanDialog = true },
-                            modifier = Modifier.testTag("btn_search_barcode_scan")
-                        ) {
-                            Icon(
-                                Icons.Default.QrCodeScanner,
-                                contentDescription = "Scanner code-barres",
-                                tint = KonabBlue
-                            )
-                        }
-                    }
-                },
-                singleLine = true,
-                shape = RoundedCornerShape(14.dp),
+                placeholder = "Rechercher un produit ou code...",
                 modifier = Modifier
-                    .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 8.dp)
-                    .testTag("input_search_product")
+                    .testTag("input_search_product"),
+                trailingExtra = {
+                    IconButton(
+                        onClick = { showScanDialog = true },
+                        modifier = Modifier.testTag("btn_search_barcode_scan")
+                    ) {
+                        Icon(
+                            Icons.Default.QrCodeScanner,
+                            contentDescription = "Scanner code-barres",
+                            tint = KonabBlue
+                        )
+                    }
+                }
             )
 
             // Category Filter Chips with dynamic counts
@@ -582,10 +626,25 @@ fun PosScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(Icons.Default.SearchOff, contentDescription = null, tint = KonabTextMuted, modifier = Modifier.size(48.dp))
+                        Icon(
+                            Icons.Default.SearchOff,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                            modifier = Modifier.size(48.dp)
+                        )
                         Spacer(modifier = Modifier.height(12.dp))
-                        Text("Aucun produit trouvé", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("Vérifiez le filtre ou ajoutez de nouveaux articles dans l'onglet Stock", fontSize = 12.sp, color = KonabTextMuted)
+                        Text(
+                            "Aucun produit trouvé",
+                            fontFamily = OutfitFontFamily,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            "Vérifiez le filtre ou ajoutez de nouveaux articles dans l'onglet Stock",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
             } else {
@@ -975,11 +1034,51 @@ fun PosScreen(
         ItemVariantCustomizerDialog(
             product = cartItem.product,
             initialNote = cartItem.variantNote,
-            businessType = shopProfile?.businessType ?: "Boutique",
+            businessType = businessType,
             onDismiss = { itemForCartNoteEdit = null },
             onConfirm = { customNote ->
                 onUpdateItemNote(cartItem.product.id, customNote)
                 itemForCartNoteEdit = null
+            }
+        )
+    }
+
+    if (showCoiffureDialog) {
+        CoiffureServiceDialog(
+            initialStylist = selectedStylist,
+            onDismiss = { showCoiffureDialog = false },
+            onConfirmCoiffure = { title, amount, note, saveToCatalogAs ->
+                if (saveToCatalogAs != null) {
+                    onQuickSaveProduct(saveToCatalogAs)
+                }
+                onAddCustomAmount(title, amount, 1, "service", note)
+            }
+        )
+    }
+
+    if (showCustomUnitDialog) {
+        CustomUnitSaleDialog(
+            sectorPreset = sectorPreset,
+            onDismiss = { showCustomUnitDialog = false },
+            onConfirm = { title, unitPrice, quantity, unit, note ->
+                val enrichedNote = if (isCourtier && selectedBrokerAct.isNotBlank()) {
+                    "Acte: $selectedBrokerAct • $note"
+                } else note
+                onAddCustomAmount(title, unitPrice, quantity, unit, enrichedNote)
+            }
+        )
+    }
+
+    if (showQuickAddProductDialog) {
+        ProductFormDialog(
+            initial = null,
+            quickUnits = sectorPreset.quickUnits,
+            businessType = businessType,
+            unitGuidance = sectorPreset.unitGuidance,
+            onDismiss = { showQuickAddProductDialog = false },
+            onSave = { newProd ->
+                onQuickSaveProduct(newProd)
+                showQuickAddProductDialog = false
             }
         )
     }
@@ -996,15 +1095,15 @@ private fun ProductGridItem(
     val isLow = product.stockQuantity in 1..product.minStockAlert
 
     Card(
-        shape = RoundedCornerShape(16.dp),
+        shape = KonabCardShape,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onAdd() }
             .border(
                 width = if (countInCart > 0) 2.dp else 1.dp,
-                color = if (countInCart > 0) KonabBlue else KonabBorder,
-                shape = RoundedCornerShape(16.dp)
+                color = if (countInCart > 0) KonabBlue else MaterialTheme.colorScheme.outline.copy(alpha = 0.55f),
+                shape = KonabCardShape
             )
             .testTag("product_card_${product.name}")
     ) {
@@ -1103,14 +1202,14 @@ private fun ProductGridItem(
 
             // Stock Pill Badge
             Surface(
-                color = if (isOut) KonabRedContainer else if (isLow) Color(0xFFFEF3C7) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                color = if (isOut) KonabRed.copy(alpha = 0.14f) else if (isLow) KonabOrange.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
                 shape = RoundedCornerShape(6.dp)
             ) {
                 Text(
                     text = if (isOut) "Épuisé" else if (isLow) "Faible (${product.stockQuantity})" else "Stock : ${product.stockQuantity} ${product.unit}",
                     fontSize = 10.sp,
                     fontWeight = FontWeight.SemiBold,
-                    color = if (isOut) KonabRed else if (isLow) Color(0xFFD97706) else MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = if (isOut) KonabRed else if (isLow) KonabOrange else MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                 )
             }
@@ -1122,13 +1221,24 @@ private fun ProductGridItem(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = CurrencyFormatter.formatFCFA(product.sellPrice),
-                    fontWeight = FontWeight.ExtraBold,
-                    fontFamily = OutfitFontFamily,
-                    color = KonabBlue,
-                    fontSize = 15.sp
-                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = CurrencyFormatter.formatFCFA(product.sellPrice),
+                        fontWeight = FontWeight.ExtraBold,
+                        fontFamily = OutfitFontFamily,
+                        color = KonabBlue,
+                        fontSize = 14.5.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = "par ${product.unit}",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1
+                    )
+                }
 
                 Row(
                     verticalAlignment = Alignment.CenterVertically,

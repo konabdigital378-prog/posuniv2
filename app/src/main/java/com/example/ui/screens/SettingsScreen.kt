@@ -55,7 +55,9 @@ import androidx.compose.ui.unit.sp
 import com.example.data.local.entity.ShopProfileEntity
 import com.example.data.remote.supabase.AgentDeploymentStorage
 import com.example.ui.components.AgentPhotoAvatar
+import com.example.ui.components.DifferentiatedPricingComparisonBlock
 import com.example.ui.components.KonabLivePulseDot
+import com.example.ui.components.KonabScreenTopBar
 import com.example.ui.components.KonabStaggeredReveal
 import com.example.ui.components.KonabWidthClass
 import com.example.ui.components.LocalKonabWidthClass
@@ -68,6 +70,8 @@ import com.example.util.ApkShareHelper
 import com.example.util.BackupRestoreHelper
 import com.example.util.BiometricAvailability
 import com.example.util.BiometricSecurityHelper
+import com.example.util.BusinessTypePresets
+import com.example.util.SubscriptionPricingHelper
 import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -158,32 +162,11 @@ fun SettingsScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text(
-                            text = "Configuration & Paramètres",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 18.sp
-                        )
-                        Text(
-                            text = "Gestion globale du point de vente",
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                },
-                navigationIcon = {
-                    IconButton(
-                        onClick = onBack,
-                        modifier = Modifier.testTag("btn_back_settings")
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Retour"
-                        )
-                    }
-                },
+            KonabScreenTopBar(
+                title = "Configuration & Paramètres",
+                subtitle = "Gestion globale du point de vente",
+                onBack = onBack,
+                backTestTag = "btn_back_settings",
                 actions = {
                     IconButton(
                         onClick = onShareApkWhatsApp,
@@ -205,10 +188,7 @@ fun SettingsScreen(
                             tint = MaterialTheme.colorScheme.primary
                         )
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
+                }
             )
         }
     ) { paddingValues ->
@@ -257,9 +237,8 @@ fun SettingsScreen(
                                     .background(
                                         brush = Brush.horizontalGradient(
                                             colors = listOf(
-                                                KonabGreen,
-                                                Color(0xFF047857),
-                                                Color(0xFF065F46)
+                                                KonabBlue,
+                                                KonabBlueDark
                                             )
                                         )
                                     )
@@ -469,13 +448,22 @@ fun SettingsScreen(
 
                 HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
 
+                val currentSectorPreset = remember(shopProfile?.businessType) {
+                    BusinessTypePresets.getPreset(shopProfile?.businessType ?: "Boutique")
+                }
+                val currentPricingProfile = remember(shopProfile?.businessType) {
+                    SubscriptionPricingHelper.getPricingProfile(shopProfile?.businessType)
+                }
+
                 SettingsModernRow(
                     icon = Icons.Default.Category,
-                    iconTint = Color(0xFF0284C7),
-                    iconBg = Color(0xFFE0F2FE),
-                    title = "Secteur d'activité & Outils Métier",
-                    subtitle = "Adapter l'application à votre secteur (Bar, Pharmacie, Mode...)",
+                    iconTint = Color(currentSectorPreset.accentColorHex),
+                    iconBg = Color(currentSectorPreset.accentColorHex).copy(alpha = 0.14f),
+                    title = "Secteur d'activité & Unités Métier",
+                    subtitle = "${currentSectorPreset.emoji} ${currentSectorPreset.unitGuidance}",
                     trailingValue = shopProfile?.businessType ?: "Boutique",
+                    badgeText = currentPricingProfile.category.badgeLabel,
+                    badgeColor = Color(currentPricingProfile.category.accentColorHex),
                     onClick = { showSectorDialog = true },
                     testTag = "row_activity_type"
                 )
@@ -858,17 +846,35 @@ fun SettingsScreen(
             // SECTION 5 : ABONNEMENT, AIDE & SUPPORT
             // ==========================================
             SettingsSectionCard(title = "Abonnement & Assistance", icon = Icons.Default.WorkspacePremium) {
+                val activePricingProfile = remember(shopProfile?.businessType) {
+                    SubscriptionPricingHelper.getPricingProfile(shopProfile?.businessType)
+                }
+                val activeCategoryColor = Color(activePricingProfile.category.accentColorHex)
+
                 SettingsModernRow(
                     icon = Icons.Default.WorkspacePremium,
-                    iconTint = KonabGoldDark,
-                    iconBg = KonabGoldContainer,
-                    title = "Formule & Licence Pro",
-                    subtitle = "Abonnement Premium • Dépôt au 65413799",
-                    trailingValue = shopProfile?.subscriptionTier ?: "Premium",
-                    badgeText = "ACTIF",
-                    badgeColor = KonabGoldDark,
+                    iconTint = activeCategoryColor,
+                    iconBg = activeCategoryColor.copy(alpha = 0.12f),
+                    title = "Formule & Tarification par Activité",
+                    subtitle = "${activePricingProfile.category.title} • Standard ${
+                        SubscriptionPricingHelper.formatCompactPrice(activePricingProfile.standardMonthly, "/mois")
+                    } • Pro ${
+                        SubscriptionPricingHelper.formatCompactPrice(activePricingProfile.proAnnual, "/an")
+                    }",
+                    trailingValue = shopProfile?.subscriptionTier ?: "Gratuit",
+                    badgeText = activePricingProfile.category.badgeLabel,
+                    badgeColor = activeCategoryColor,
                     onClick = { onNavigate(KonabScreen.SUBSCRIPTION) },
                     testTag = "row_subscription"
+                )
+
+                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+                DifferentiatedPricingComparisonBlock(
+                    currentBusinessType = shopProfile?.businessType,
+                    currentTier = shopProfile?.subscriptionTier,
+                    onOpenSubscription = { onNavigate(KonabScreen.SUBSCRIPTION) },
+                    onChangeSector = { showSectorDialog = true }
                 )
 
                 HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))

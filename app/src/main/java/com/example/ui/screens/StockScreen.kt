@@ -36,7 +36,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 import com.example.data.local.entity.ProductEntity
+import com.example.ui.components.KonabCardShape
+import com.example.ui.components.KonabScreenTopBar
+import com.example.ui.components.KonabSearchField
 import com.example.ui.components.RealBarcodeScannerModal
+import com.example.ui.components.konabCardBorder
 import com.example.ui.theme.*
 import com.example.util.CurrencyFormatter
 import com.example.util.ProductImageHelper
@@ -54,9 +58,15 @@ fun StockScreen(
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
 
+    val sectorPreset = remember(shopProfile?.businessType) {
+        com.example.util.BusinessTypePresets.getPreset(shopProfile?.businessType ?: "Boutique")
+    }
+    val isCoiffure = (shopProfile?.businessType ?: "").equals("Coiffure", ignoreCase = true)
+
     var searchQuery by remember { mutableStateOf("") }
     var selectedFilter by remember { mutableStateOf("Tous") } // Tous, En stock, Faible, Rupture
     var selectedCategory by remember { mutableStateOf("Tous") }
+    var selectedUnitFilter by remember { mutableStateOf("Toutes") }
     var showProductDialog by remember { mutableStateOf(false) }
     var showStockScanDialog by remember { mutableStateOf(false) }
     var editingProduct by remember { mutableStateOf<ProductEntity?>(null) }
@@ -66,12 +76,16 @@ fun StockScreen(
     val stockCategories = remember(products) {
         listOf("Tous") + products.map { it.category }.distinct().filter { it.isNotBlank() }
     }
+    val unitFilters = remember(products, sectorPreset) {
+        listOf("Toutes") + (products.map { it.unit }.filter { it.isNotBlank() } + sectorPreset.quickUnits).distinct()
+    }
 
-    val filteredProducts = remember(products, searchQuery, selectedFilter, selectedCategory) {
+    val filteredProducts = remember(products, searchQuery, selectedFilter, selectedCategory, selectedUnitFilter) {
         products.filter { p ->
             val matchQuery = searchQuery.isBlank() ||
                     p.name.contains(searchQuery, ignoreCase = true) ||
                     p.category.contains(searchQuery, ignoreCase = true) ||
+                    p.unit.contains(searchQuery, ignoreCase = true) ||
                     p.barcode.contains(searchQuery, ignoreCase = true)
             val matchFilter = when (selectedFilter) {
                 "En stock" -> p.stockQuantity > p.minStockAlert
@@ -80,7 +94,8 @@ fun StockScreen(
                 else -> true
             }
             val matchCategory = selectedCategory == "Tous" || p.category.equals(selectedCategory, ignoreCase = true)
-            matchQuery && matchFilter && matchCategory
+            val matchUnit = selectedUnitFilter == "Toutes" || p.unit.equals(selectedUnitFilter, ignoreCase = true)
+            matchQuery && matchFilter && matchCategory && matchUnit
         }
     }
 
@@ -95,19 +110,10 @@ fun StockScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text("Stock & Produits", fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                        Text("${products.size} références au catalogue", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Retour")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
+            KonabScreenTopBar(
+                title = "Stock & Produits",
+                subtitle = "${products.size} référence(s) au catalogue",
+                onBack = onBack
             )
         },
         floatingActionButton = {
@@ -132,35 +138,24 @@ fun StockScreen(
                 .background(MaterialTheme.colorScheme.background)
         ) {
             // Search Bar
-            OutlinedTextField(
+            KonabSearchField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
-                placeholder = { Text("Rechercher un nom, catégorie ou code...") },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                trailingIcon = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (searchQuery.isNotEmpty()) {
-                            IconButton(onClick = { searchQuery = "" }) {
-                                Icon(Icons.Default.Clear, contentDescription = "Effacer")
-                            }
-                        }
-                        IconButton(
-                            onClick = { showStockScanDialog = true },
-                            modifier = Modifier.testTag("btn_stock_search_barcode_scan")
-                        ) {
-                            Icon(
-                                Icons.Default.QrCodeScanner,
-                                contentDescription = "Scanner code-barres produit",
-                                tint = KonabBlue
-                            )
-                        }
+                placeholder = "Rechercher un nom, catégorie ou code...",
+                trailingExtra = {
+                    IconButton(
+                        onClick = { showStockScanDialog = true },
+                        modifier = Modifier.testTag("btn_stock_search_barcode_scan")
+                    ) {
+                        Icon(
+                            Icons.Default.QrCodeScanner,
+                            contentDescription = "Scanner code-barres produit",
+                            tint = KonabBlue
+                        )
                     }
                 },
-                singleLine = true,
-                shape = RoundedCornerShape(14.dp),
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .padding(horizontal = 16.dp, vertical = 10.dp)
                     .testTag("input_search_stock")
             )
 
@@ -198,31 +193,119 @@ fun StockScreen(
                 }
             }
 
-            // Category Filter Chips
-            LazyRow(
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            var showUnitAndCategoryFilters by remember { mutableStateOf(selectedCategory != "Tous" || selectedUnitFilter != "Toutes") }
+
+            // Compact Sector & Units Strip + Filter Toggle
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.surface,
+                border = konabCardBorder(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 2.dp)
+                    .clickable { showUnitAndCategoryFilters = !showUnitAndCategoryFilters }
+                    .testTag("banner_stock_sector_units")
             ) {
-                items(stockCategories) { cat ->
-                    val isCatSel = selectedCategory == cat
-                    val catCount = if (cat == "Tous") products.size else products.count { it.category.equals(cat, ignoreCase = true) }
-                    FilterChip(
-                        selected = isCatSel,
-                        onClick = { selectedCategory = cat },
-                        label = { Text(if (cat == "Tous") "Tous ($catCount)" else "$cat ($catCount)", fontSize = 11.sp, fontWeight = if (isCatSel) FontWeight.Bold else FontWeight.Normal) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = KonabBlue,
-                            selectedLabelColor = Color.White
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(text = sectorPreset.emoji, fontSize = 14.sp)
+                        Text(
+                            text = "${sectorPreset.label} • Unités : ${sectorPreset.quickUnits.take(3).joinToString(", ")}",
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 11.5.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1
                         )
-                    )
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        if (isCoiffure) {
+                            Text(
+                                text = "+ Tarif H/F",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = KonabBlue,
+                                modifier = Modifier
+                                    .clickable {
+                                        editingProduct = null
+                                        showProductDialog = true
+                                    }
+                                    .padding(horizontal = 4.dp)
+                                    .testTag("btn_stock_coiffure_add")
+                            )
+                        }
+                        Icon(
+                            imageVector = if (showUnitAndCategoryFilters) Icons.Default.ExpandLess else Icons.Default.FilterList,
+                            contentDescription = "Filtres catégories et unités",
+                            tint = KonabBlue,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+            }
+
+            if (showUnitAndCategoryFilters) {
+                // Category Filter Chips
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    items(stockCategories) { cat ->
+                        val isCatSel = selectedCategory == cat
+                        val catCount = if (cat == "Tous") products.size else products.count { it.category.equals(cat, ignoreCase = true) }
+                        FilterChip(
+                            selected = isCatSel,
+                            onClick = { selectedCategory = cat },
+                            label = { Text(if (cat == "Tous") "Tous ($catCount)" else "$cat ($catCount)", fontSize = 11.sp, fontWeight = if (isCatSel) FontWeight.Bold else FontWeight.Normal) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = KonabBlue,
+                                selectedLabelColor = Color.White
+                            )
+                        )
+                    }
+                }
+
+                // Unit Filter Chips
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    items(unitFilters) { u ->
+                        val isUnitSel = selectedUnitFilter.equals(u, ignoreCase = true)
+                        val unitCount = if (u == "Toutes") products.size else products.count { it.unit.equals(u, ignoreCase = true) }
+                        FilterChip(
+                            selected = isUnitSel,
+                            onClick = { selectedUnitFilter = u },
+                            label = {
+                                Text(
+                                    text = if (u == "Toutes") "Toutes unités" else "$u ($unitCount)",
+                                    fontSize = 10.5.sp,
+                                    fontWeight = if (isUnitSel) FontWeight.Bold else FontWeight.Normal
+                                )
+                            },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = KonabOrange,
+                                selectedLabelColor = Color.White
+                            ),
+                            modifier = Modifier.testTag("chip_unit_filter_$u")
+                        )
+                    }
                 }
             }
 
             // Valuation Summary Card
             Card(
-                shape = RoundedCornerShape(18.dp),
+                shape = KonabCardShape,
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                border = androidx.compose.foundation.BorderStroke(1.dp, KonabBorder),
+                border = konabCardBorder(),
+                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 8.dp)
@@ -240,7 +323,7 @@ fun StockScreen(
                                 fontWeight = FontWeight.ExtraBold,
                                 fontFamily = OutfitFontFamily,
                                 fontSize = 20.sp,
-                                color = KonabBlue
+                                color = MaterialTheme.colorScheme.primary
                             )
                         }
 
@@ -256,7 +339,7 @@ fun StockScreen(
                     }
 
                     Spacer(modifier = Modifier.height(10.dp))
-                    HorizontalDivider(color = KonabBorder)
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
                     Spacer(modifier = Modifier.height(10.dp))
 
                     Row(
@@ -316,15 +399,13 @@ fun StockScreen(
         }
     }
 
-    val sectorPreset = remember(shopProfile?.businessType) {
-        com.example.util.BusinessTypePresets.getPreset(shopProfile?.businessType ?: "Boutique")
-    }
-
     // Add / Edit Product Dialog
     if (showProductDialog) {
         ProductFormDialog(
             initial = editingProduct,
             quickUnits = sectorPreset.quickUnits,
+            businessType = shopProfile?.businessType ?: "Boutique",
+            unitGuidance = sectorPreset.unitGuidance,
             onDismiss = { showProductDialog = false },
             onSave = {
                 onSaveProduct(it)
@@ -372,9 +453,10 @@ private fun ProductStockItem(
     val marginPct = if (product.buyPrice > 0) ((margin.toDouble() / product.buyPrice.toDouble()) * 100).toInt() else 0
 
     Card(
-        shape = RoundedCornerShape(14.dp),
+        shape = KonabCardShape,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = androidx.compose.foundation.BorderStroke(1.dp, KonabBorder),
+        border = konabCardBorder(),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onEdit() }
@@ -438,7 +520,7 @@ private fun ProductStockItem(
                         fontSize = 14.sp
                     )
                     Text(
-                        text = "${product.category} • Vente : ${CurrencyFormatter.formatFCFA(product.sellPrice)}",
+                        text = "${product.category} • Vente : ${CurrencyFormatter.formatFCFA(product.sellPrice)} / ${product.unit}",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -521,20 +603,37 @@ private fun ProductStockItem(
 }
 
 @Composable
-private fun ProductFormDialog(
+fun ProductFormDialog(
     initial: ProductEntity?,
     quickUnits: List<String> = emptyList(),
+    businessType: String = "Boutique",
+    unitGuidance: String = "",
     onDismiss: () -> Unit,
     onSave: (ProductEntity) -> Unit
 ) {
+    val isCoiffure = businessType.equals("Coiffure", ignoreCase = true)
+    val defaultUnit = initial?.unit ?: quickUnits.firstOrNull() ?: "pièce"
+    var coiffureItemMode by remember {
+        mutableStateOf(
+            when {
+                initial?.category?.contains("Homme", ignoreCase = true) == true -> "COIFFURE_HOMME"
+                initial?.category?.contains("Femme", ignoreCase = true) == true -> "COIFFURE_FEMME"
+                else -> "PRODUIT"
+            }
+        )
+    }
     var name by remember { mutableStateOf(initial?.name ?: "") }
-    var category by remember { mutableStateOf(initial?.category ?: "Général") }
+    var category by remember {
+        mutableStateOf(
+            initial?.category ?: if (isCoiffure) "Produits cosmétiques" else "Général"
+        )
+    }
     var barcode by remember { mutableStateOf(initial?.barcode ?: "") }
     var buyPriceStr by remember { mutableStateOf(initial?.buyPrice?.toString() ?: "") }
     var sellPriceStr by remember { mutableStateOf(initial?.sellPrice?.toString() ?: "") }
     var stockStr by remember { mutableStateOf(initial?.stockQuantity?.toString() ?: "10") }
     var minStockStr by remember { mutableStateOf(initial?.minStockAlert?.toString() ?: "5") }
-    var unit by remember { mutableStateOf(initial?.unit ?: "pièce") }
+    var unit by remember { mutableStateOf(defaultUnit) }
     var imageUri by remember { mutableStateOf(initial?.imageUri ?: "") }
     var galleryImages by remember {
         mutableStateOf(
@@ -587,6 +686,44 @@ private fun ProductFormDialog(
                     .verticalScroll(androidx.compose.foundation.rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                if (isCoiffure) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            text = "Type d'élément (Coiffure) :",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp
+                        )
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            items(
+                                listOf(
+                                    Triple("PRODUIT", "🧴 Produit Salon", "Produits cosmétiques" to "pot"),
+                                    Triple("COIFFURE_HOMME", "👨 Coiffure Homme", "Coupes Hommes" to "service"),
+                                    Triple("COIFFURE_FEMME", "👩 Coiffure Femme", "Prestations Femmes" to "service")
+                                )
+                            ) { (mode, label, defaults) ->
+                                val isSel = coiffureItemMode == mode
+                                FilterChip(
+                                    selected = isSel,
+                                    onClick = {
+                                        coiffureItemMode = mode
+                                        category = defaults.first
+                                        unit = defaults.second
+                                        if (mode != "PRODUIT") {
+                                            if (buyPriceStr.isBlank()) buyPriceStr = "0"
+                                            if (stockStr == "10" || stockStr.isBlank()) stockStr = "99"
+                                        }
+                                    },
+                                    label = { Text(label, fontSize = 11.sp, fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal) },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = Color(0xFFDB2777),
+                                        selectedLabelColor = Color.White
+                                    )
+                                )
+                            }
+                        }
+                    }
+                }
+
                 // -------------------------------------------------------------
                 // CHAMP UPLOAD IMAGE (TÉLÉVERSEMENT IMAGE PRODUIT)
                 // -------------------------------------------------------------
@@ -1138,7 +1275,7 @@ private fun ProductFormDialog(
                 if (quickUnits.isNotEmpty()) {
                     Column(modifier = Modifier.fillMaxWidth().padding(top = 2.dp)) {
                         Text(
-                            text = "Unités suggérées pour votre secteur :",
+                            text = if (unitGuidance.isNotBlank()) "Unités ($businessType) : $unitGuidance" else "Unités suggérées pour votre secteur :",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Medium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant

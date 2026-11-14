@@ -29,11 +29,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.local.entity.ShopProfileEntity
+import com.example.ui.components.KonabCardShape
 import com.example.ui.components.KonabLivePulseDot
+import com.example.ui.components.KonabScreenTopBar
 import com.example.ui.components.KonabStaggeredReveal
 import com.example.ui.components.KonabWidthClass
 import com.example.ui.components.LocalKonabWidthClass
 import com.example.ui.components.ResponsiveMaxWidthBox
+import com.example.ui.components.konabCardBorder
 import com.example.ui.components.konabHeroShimmer
 import com.example.ui.components.konabPressScale
 import com.example.ui.theme.*
@@ -43,6 +46,7 @@ import com.example.ui.theme.*
 fun SubscriptionScreen(
     shopProfile: ShopProfileEntity?,
     onActivate: (code: String, tier: String) -> Boolean,
+    onActivateWithSasPay: (tier: String, durationDays: Int, paymentId: String, reference: String, amountFcfa: Long, channel: String) -> Boolean = { _, _, _, _, _, _ -> false },
     onNavigateToAgentPortal: (() -> Unit)? = null,
     onBack: () -> Unit
 ) {
@@ -50,6 +54,7 @@ fun SubscriptionScreen(
     var selectedTier by remember { mutableStateOf(shopProfile?.subscriptionTier ?: "Premium") }
     var activationCodeInput by remember { mutableStateOf("") }
     var showActivationDialog by remember { mutableStateOf(false) }
+    var showSasPayDialog by remember { mutableStateOf(false) }
 
     val businessType = shopProfile?.businessType ?: "Boutique"
     val sectorPreset = remember(businessType) {
@@ -88,21 +93,17 @@ fun SubscriptionScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Abonnements Konab", fontWeight = FontWeight.Bold) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Retour")
-                    }
-                },
+            KonabScreenTopBar(
+                title = "Abonnements Konab",
+                subtitle = "Tarifs adaptés à votre secteur d'activité",
+                onBack = onBack,
                 actions = {
                     if (onNavigateToAgentPortal != null) {
                         IconButton(onClick = onNavigateToAgentPortal) {
                             Icon(Icons.Default.Badge, contentDescription = "Portail Agent", tint = KonabOrange)
                         }
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
+                }
             )
         }
     ) { paddingValues ->
@@ -186,11 +187,13 @@ fun SubscriptionScreen(
                 // Official Konab Deposit Notice
                 KonabStaggeredReveal(index = 0) {
                     Card(
-                        shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(containerColor = KonabGoldContainer),
+                        shape = KonabCardShape,
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        border = konabCardBorder(KonabOrange.copy(alpha = 0.5f)),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .konabHeroShimmer(maxAlpha = 0.14f)
+                            .konabHeroShimmer(maxAlpha = 0.08f)
                     ) {
                         Row(
                             modifier = Modifier.padding(16.dp),
@@ -200,16 +203,16 @@ fun SubscriptionScreen(
                                 modifier = Modifier
                                     .size(44.dp)
                                     .clip(CircleShape)
-                                    .background(KonabGoldDark),
+                                    .background(KonabOrange),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(Icons.Default.PhoneAndroid, contentDescription = null, tint = Color.White)
                             }
                             Spacer(modifier = Modifier.width(14.dp))
                             Column {
-                                Text("Numéro officiel de dépôt Konab :", fontSize = 11.sp, color = Color(0xFF475569))
-                                Text("65413799", fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, color = KonabGoldDark)
-                                Text("Pour toute activation ou renouvellement de licence.", fontSize = 11.sp, color = Color(0xFF475569))
+                                Text("Numéro officiel de dépôt Konab :", fontSize = 11.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("65413799", fontFamily = OutfitFontFamily, fontWeight = FontWeight.ExtraBold, fontSize = 21.sp, color = KonabOrange)
+                                Text("Pour toute activation ou renouvellement de licence.", fontSize = 11.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                     }
@@ -330,12 +333,12 @@ fun SubscriptionScreen(
                                 val isCurrent = (shopProfile?.subscriptionTier ?: "Premium") == name
                                 val isSelected = selectedTier == name
                                 val cardBg by animateColorAsState(
-                                    targetValue = if (isSelected) KonabGreenLight else MaterialTheme.colorScheme.surface,
+                                    targetValue = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
                                     animationSpec = tween(220),
                                     label = "tier_bg_$name"
                                 )
                                 val borderColor by animateColorAsState(
-                                    targetValue = if (isSelected) KonabGreen else outlineColor,
+                                    targetValue = if (isSelected) KonabBlue else outlineColor,
                                     animationSpec = tween(220),
                                     label = "tier_border_$name"
                                 )
@@ -344,14 +347,14 @@ fun SubscriptionScreen(
                                     modifier = Modifier.weight(1f)
                                 ) {
                                     Card(
-                                        shape = RoundedCornerShape(16.dp),
+                                        shape = KonabCardShape,
                                         colors = CardDefaults.cardColors(containerColor = cardBg),
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .border(
                                                 width = if (isSelected) 2.dp else 1.dp,
                                                 color = borderColor,
-                                                shape = RoundedCornerShape(16.dp)
+                                                shape = KonabCardShape
                                             )
                                             .konabPressScale()
                                             .clickable { selectedTier = name }
@@ -362,17 +365,27 @@ fun SubscriptionScreen(
                                                 horizontalArrangement = Arrangement.SpaceBetween,
                                                 verticalAlignment = Alignment.CenterVertically
                                             ) {
-                                                Text(name, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = if (isSelected) KonabGreenDark else MaterialTheme.colorScheme.onSurface)
+                                                Text(
+                                                    name,
+                                                    fontFamily = OutfitFontFamily,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 16.sp,
+                                                    color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                                                )
                                                 if (isCurrent) {
-                                                    Surface(color = KonabGreen, shape = RoundedCornerShape(6.dp)) {
+                                                    Surface(color = KonabBlue, shape = RoundedCornerShape(6.dp)) {
                                                         Text("Actif", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
                                                     }
                                                 }
                                             }
                                             Spacer(modifier = Modifier.height(4.dp))
-                                            Text(price, fontWeight = FontWeight.ExtraBold, fontSize = 15.sp, color = KonabGreen)
+                                            Text(price, fontFamily = OutfitFontFamily, fontWeight = FontWeight.ExtraBold, fontSize = 15.sp, color = MaterialTheme.colorScheme.primary)
                                             Spacer(modifier = Modifier.height(6.dp))
-                                            Text(desc, fontSize = 12.sp, color = if (isSelected) Color(0xFF334155) else MaterialTheme.colorScheme.onSurfaceVariant)
+                                            Text(
+                                                desc,
+                                                fontSize = 12.sp,
+                                                color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f) else MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
                                         }
                                     }
                                 }
@@ -384,26 +397,26 @@ fun SubscriptionScreen(
                         val isCurrent = (shopProfile?.subscriptionTier ?: "Premium") == name
                         val isSelected = selectedTier == name
                         val cardBg by animateColorAsState(
-                            targetValue = if (isSelected) KonabGreenLight else MaterialTheme.colorScheme.surface,
+                            targetValue = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
                             animationSpec = tween(220),
                             label = "tier_bg_$name"
                         )
                         val borderColor by animateColorAsState(
-                            targetValue = if (isSelected) KonabGreen else outlineColor,
+                            targetValue = if (isSelected) KonabBlue else outlineColor,
                             animationSpec = tween(220),
                             label = "tier_border_$name"
                         )
 
                         KonabStaggeredReveal(index = idx) {
                             Card(
-                                shape = RoundedCornerShape(16.dp),
+                                shape = KonabCardShape,
                                 colors = CardDefaults.cardColors(containerColor = cardBg),
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .border(
                                         width = if (isSelected) 2.dp else 1.dp,
                                         color = borderColor,
-                                        shape = RoundedCornerShape(16.dp)
+                                        shape = KonabCardShape
                                     )
                                     .konabPressScale()
                                     .clickable { selectedTier = name }
@@ -414,11 +427,17 @@ fun SubscriptionScreen(
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Text(name, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = if (isSelected) KonabGreenDark else MaterialTheme.colorScheme.onSurface)
+                                        Text(
+                                            name,
+                                            fontFamily = OutfitFontFamily,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 16.sp,
+                                            color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                                        )
 
                                         if (isCurrent) {
                                             Surface(
-                                                color = KonabGreen,
+                                                color = KonabBlue,
                                                 shape = RoundedCornerShape(6.dp)
                                             ) {
                                                 Text("Actif sur cet appareil", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
@@ -427,9 +446,13 @@ fun SubscriptionScreen(
                                     }
 
                                     Spacer(modifier = Modifier.height(4.dp))
-                                    Text(price, fontWeight = FontWeight.ExtraBold, fontSize = 15.sp, color = KonabGreen)
+                                    Text(price, fontFamily = OutfitFontFamily, fontWeight = FontWeight.ExtraBold, fontSize = 15.sp, color = MaterialTheme.colorScheme.primary)
                                     Spacer(modifier = Modifier.height(6.dp))
-                                    Text(desc, fontSize = 12.sp, color = if (isSelected) Color(0xFF334155) else MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(
+                                        desc,
+                                        fontSize = 12.sp,
+                                        color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f) else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
                                 }
                             }
                         }
@@ -438,7 +461,7 @@ fun SubscriptionScreen(
 
                 Spacer(modifier = Modifier.height(6.dp))
 
-                // Super Admin Manual Activation Section
+                // Renewal via SasPay & Super Admin Activation Section
                 Card(
                     shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
@@ -446,9 +469,9 @@ fun SubscriptionScreen(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
-                        Text("Espace Super Administrateur Konab", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Text("Réabonnement en ligne (SasPay)", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                         Text(
-                            "L'activation des formules est manuelle et réservée au Super Administrateur Konab après validation effective du dépôt au 65413799.",
+                            "Réglez votre formule ($selectedTier) en temps réel par Mobile Money ou Carte bancaire via SasPay, ou utilisez une clé fournie après dépôt au 65413799.",
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -456,18 +479,35 @@ fun SubscriptionScreen(
                         Spacer(modifier = Modifier.height(12.dp))
 
                         Button(
-                            onClick = { showActivationDialog = true },
+                            onClick = { showSasPayDialog = true },
                             colors = ButtonDefaults.buttonColors(containerColor = KonabGreen),
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .heightIn(min = 48.dp)
                                 .konabPressScale()
+                                .testTag("btn_open_saspay_renewal")
+                        ) {
+                            Icon(Icons.Default.Bolt, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Se réabonner via SasPay", fontWeight = FontWeight.Bold)
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        OutlinedButton(
+                            onClick = { showActivationDialog = true },
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, KonabGreen),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 48.dp)
+                                .konabPressScale()
                                 .testTag("btn_super_admin_activate")
                         ) {
-                            Icon(Icons.Default.Key, contentDescription = null)
+                            Icon(Icons.Default.Key, contentDescription = null, tint = KonabGreenDark)
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Activer avec une clé de licence", fontWeight = FontWeight.Bold)
+                            Text("Activer avec une clé de licence", fontWeight = FontWeight.Bold, color = KonabGreenDark)
                         }
                     }
                 }
@@ -513,6 +553,22 @@ fun SubscriptionScreen(
             dismissButton = {
                 TextButton(onClick = { showActivationDialog = false }) {
                     Text("Annuler")
+                }
+            }
+        )
+    }
+
+    if (showSasPayDialog) {
+        com.example.ui.components.SasPayPaymentDialog(
+            shopProfile = shopProfile,
+            initialTier = selectedTier,
+            isPosCollectionMode = false,
+            onDismiss = { showSasPayDialog = false },
+            onPaymentVerified = { tier, durationDays, paymentId, reference, amountFcfa, channel ->
+                val ok = onActivateWithSasPay(tier, durationDays, paymentId, reference, amountFcfa, channel)
+                if (ok) {
+                    selectedTier = tier
+                    Toast.makeText(context, "Réabonnement SasPay activé : $tier ($durationDays j) !", Toast.LENGTH_LONG).show()
                 }
             }
         )

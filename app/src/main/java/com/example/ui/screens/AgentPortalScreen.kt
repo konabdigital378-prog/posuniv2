@@ -48,7 +48,15 @@ import com.example.data.local.entity.ShopProfileEntity
 import com.example.data.remote.supabase.AgentDeploymentRecord
 import com.example.data.remote.supabase.AgentDeploymentStorage
 import com.example.data.remote.supabase.SupabaseSyncManager
+import com.example.ui.components.AgentFieldHelper
+import com.example.ui.components.AgentIdCardModal
+import com.example.ui.components.AgentKpiSummaryStrip
+import com.example.ui.components.AgentPhotoAvatar
+import com.example.ui.components.AgentPhotoUploadRow
+import com.example.ui.components.ConapesCardReferenceVerifierModal
+import com.example.ui.components.EditAgentProfileDialog
 import com.example.ui.theme.*
+import com.example.util.AgentIdCardHelper
 import com.example.util.BusinessTypePresets
 import com.example.util.LicenseHelper
 import com.example.util.ShopLogoAvatar
@@ -128,12 +136,19 @@ fun AgentPortalScreen(
     var regNameInput by remember { mutableStateOf("") }
     var regPhoneInput by remember { mutableStateOf("") }
     var regZoneInput by remember { mutableStateOf("Ouagadougou") }
-    var regIdInput by remember { mutableStateOf("AGT-${(100..999).random()}") }
+    var regPhotoUri by remember { mutableStateOf("") }
     var regPinInput by remember { mutableStateOf("") }
     var regPinConfirmInput by remember { mutableStateOf("") }
     var showRegPin by remember { mutableStateOf(false) }
     var regError by remember { mutableStateOf("") }
     var isRegistering by remember { mutableStateOf(false) }
+
+    // Agent Profile & Card Modals
+    var showIdCardModal by remember { mutableStateOf(false) }
+    var isFreshlyRegisteredCard by remember { mutableStateOf(false) }
+    var showEditProfileDialog by remember { mutableStateOf(false) }
+    var isSavingProfile by remember { mutableStateOf(false) }
+    var showCardVerifierModal by remember { mutableStateOf(false) }
 
     // Tabs inside Agent Portal when logged in
     var selectedPortalTab by remember { mutableStateOf(0) }
@@ -197,82 +212,92 @@ fun AgentPortalScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Surface(
-                            shape = CircleShape,
-                            color = Color(0xFFFF7900),
-                            modifier = Modifier.size(28.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Default.Badge,
-                                    contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            }
-                        }
-                        Column {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Text(
-                                    text = "Espace Agent Déployeur",
-                                    fontWeight = FontWeight.ExtraBold,
-                                    fontSize = 16.sp
-                                )
+            Surface(color = MaterialTheme.colorScheme.surface) {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    TopAppBar(
+                        title = {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
                                 Surface(
-                                    color = Color(0xFF06245E),
-                                    shape = RoundedCornerShape(4.dp)
+                                    shape = CircleShape,
+                                    color = KonabOrange,
+                                    modifier = Modifier.size(30.dp)
                                 ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = Icons.Default.Badge,
+                                            contentDescription = null,
+                                            tint = Color.White,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+                                Column {
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        Text(
+                                            text = "Espace Agent Déployeur",
+                                            fontFamily = OutfitFontFamily,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 17.sp,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Surface(
+                                            color = KonabBlueDark,
+                                            shape = RoundedCornerShape(4.dp)
+                                        ) {
+                                            Text(
+                                                text = "OFFICIEL",
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Black,
+                                                color = KonabOrangeLight,
+                                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.5.dp)
+                                            )
+                                        }
+                                    }
                                     Text(
-                                        text = "OFFICIEL",
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.Black,
-                                        color = Color(0xFFFFA43A),
-                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.5.dp)
+                                        text = if (currentAgent != null) "${currentAgent?.name} • ${currentAgent?.zone}" else "Portail d'authentification et de configuration",
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
                             }
-                            Text(
-                                text = if (currentAgent != null) "${currentAgent?.name} • ${currentAgent?.zone}" else "Portail d'authentification et de configuration",
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack, modifier = Modifier.testTag("btn_back_agent_portal")) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Retour")
-                    }
-                },
-                actions = {
-                    if (currentAgent != null) {
-                        IconButton(
-                            onClick = {
-                                AgentDeploymentStorage.clearAgentSession(context)
-                                currentAgent = null
-                                Toast.makeText(context, "Session agent fermée avec succès", Toast.LENGTH_SHORT).show()
-                            },
-                            modifier = Modifier.testTag("btn_logout_agent")
-                        ) {
-                            Icon(
-                                Icons.Default.Logout,
-                                contentDescription = "Déconnexion",
-                                tint = MaterialTheme.colorScheme.error
-                            )
-                        }
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    titleContentColor = MaterialTheme.colorScheme.onSurface
-                )
-            )
+                        },
+                        navigationIcon = {
+                            IconButton(onClick = onBack, modifier = Modifier.testTag("btn_back_agent_portal")) {
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Retour")
+                            }
+                        },
+                        actions = {
+                            if (currentAgent != null) {
+                                IconButton(
+                                    onClick = {
+                                        AgentDeploymentStorage.clearAgentSession(context)
+                                        currentAgent = null
+                                        Toast.makeText(context, "Session agent fermée avec succès", Toast.LENGTH_SHORT).show()
+                                    },
+                                    modifier = Modifier.testTag("btn_logout_agent")
+                                ) {
+                                    Icon(
+                                        Icons.Default.Logout,
+                                        contentDescription = "Déconnexion",
+                                        tint = MaterialTheme.colorScheme.error
+                                    )
+                                }
+                            }
+                        },
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = MaterialTheme.colorScheme.surface,
+                            titleContentColor = MaterialTheme.colorScheme.onSurface
+                        )
+                    )
+                    HorizontalDivider(
+                        thickness = 1.dp,
+                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.45f)
+                    )
+                }
+            }
         }
     ) { innerPadding ->
         Box(
@@ -598,10 +623,17 @@ fun AgentPortalScreen(
                                 }
 
                                 Text(
-                                    text = "Renseignez vos coordonnées professionnelles. Votre profil sera sauvegardé en local et synchronisé automatiquement avec Supabase Cloud.",
+                                    text = "Renseignez vos coordonnées professionnelles. Votre matricule officiel (AGT-YY-XXXX) et votre carte QR KONAB POS seront générés automatiquement.",
                                     fontSize = 11.5.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     lineHeight = 16.sp
+                                )
+
+                                AgentPhotoUploadRow(
+                                    agentName = regNameInput,
+                                    photoUri = regPhotoUri,
+                                    onPhotoSelected = { regPhotoUri = it },
+                                    agentKeyHint = "portal_reg"
                                 )
 
                                 OutlinedTextField(
@@ -716,21 +748,25 @@ fun AgentPortalScreen(
                                         isRegistering = true
                                         regError = ""
                                         coroutineScope.launch {
-                                            val newAgent = AgentUser(
-                                                id = regIdInput.trim().uppercase(),
-                                                name = regNameInput.trim(),
-                                                phone = regPhoneInput.trim(),
-                                                zone = regZoneInput.trim().ifBlank { "National" },
-                                                pin = regPinInput.trim(),
-                                                role = "Agent Déployeur"
+                                            val regResult = syncManager.registerNewAgentWithAutoMatricule(
+                                                name = regNameInput,
+                                                phone = regPhoneInput,
+                                                zone = regZoneInput,
+                                                pin = regPinInput,
+                                                photoUri = regPhotoUri
                                             )
-                                            val regResult = syncManager.registerAgentOnline(newAgent)
                                             isRegistering = false
-                                            if (regResult.isSuccess) {
-                                                currentAgent = newAgent
-                                                AgentDeploymentStorage.saveAgentSession(context, newAgent)
-                                                portalDeployments = AgentDeploymentStorage.getDeploymentsForAgent(context, newAgent.id)
-                                                Toast.makeText(context, "Profil créé avec succès ! Bienvenue ${newAgent.name}.", Toast.LENGTH_LONG).show()
+                                            val createdAgent = regResult.getOrNull()
+                                            if (createdAgent != null) {
+                                                currentAgent = createdAgent
+                                                portalDeployments = AgentDeploymentStorage.getDeploymentsForAgent(context, createdAgent.id)
+                                                isFreshlyRegisteredCard = true
+                                                showIdCardModal = true
+                                                Toast.makeText(
+                                                    context,
+                                                    "Profil créé ! Matricule : ${createdAgent.id}",
+                                                    Toast.LENGTH_LONG
+                                                ).show()
                                             } else {
                                                 regError = "Erreur lors de l'enregistrement. Veuillez réessayer."
                                             }
@@ -786,11 +822,14 @@ fun AgentPortalScreen(
                 // ==========================================
                 Column(modifier = Modifier.fillMaxSize()) {
                     // Agent Executive Banner
+                    val effectivePortalPhoto = remember(agent.id, agent.photoUri) {
+                        AgentDeploymentStorage.getEffectivePhotoUri(context, agent)
+                    }
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
                         color = Color(0xFF06245E)
                     ) {
-                        Box(
+                        Column(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .background(
@@ -801,7 +840,8 @@ fun AgentPortalScreen(
                                         )
                                     )
                                 )
-                                .padding(horizontal = 16.dp, vertical = 14.dp)
+                                .padding(horizontal = 16.dp, vertical = 14.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -810,30 +850,26 @@ fun AgentPortalScreen(
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    modifier = Modifier.weight(1f)
                                 ) {
-                                    Surface(
-                                        modifier = Modifier.size(46.dp),
-                                        shape = CircleShape,
-                                        color = Color(0xFFFF7900),
-                                        border = BorderStroke(2.dp, Color(0xFFFFA43A))
-                                    ) {
-                                        Box(contentAlignment = Alignment.Center) {
-                                            Text(
-                                                text = agent.name.take(1).uppercase(),
-                                                fontWeight = FontWeight.Black,
-                                                color = Color.White,
-                                                fontSize = 18.sp
-                                            )
-                                        }
-                                    }
+                                    AgentPhotoAvatar(
+                                        name = agent.name,
+                                        photoUri = effectivePortalPhoto,
+                                        size = 50.dp,
+                                        borderColor = Color(0xFFFFA43A),
+                                        showEditBadge = true,
+                                        onClick = { showEditProfileDialog = true }
+                                    )
                                     Column {
                                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                             Text(
                                                 text = agent.name,
                                                 fontWeight = FontWeight.ExtraBold,
                                                 fontSize = 15.sp,
-                                                color = Color.White
+                                                color = Color.White,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
                                             )
                                             Surface(
                                                 shape = RoundedCornerShape(4.dp),
@@ -849,7 +885,7 @@ fun AgentPortalScreen(
                                             }
                                         }
                                         Text(
-                                            text = "Matricule: ${agent.id} • ${agent.zone}",
+                                            text = "${AgentIdCardHelper.getConapesReferenceCode(agent.id)} • ${agent.zone}",
                                             fontSize = 11.5.sp,
                                             color = Color(0xFFE2E8F0)
                                         )
@@ -895,6 +931,62 @@ fun AgentPortalScreen(
                                     )
                                 }
                             }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedButton(
+                                    onClick = {
+                                        isFreshlyRegisteredCard = false
+                                        showIdCardModal = true
+                                    },
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                                    border = BorderStroke(1.dp, Color(0xFFFFA43A)),
+                                    shape = RoundedCornerShape(10.dp),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(36.dp)
+                                        .testTag("btn_portal_id_card")
+                                ) {
+                                    Icon(Icons.Default.QrCode2, contentDescription = null, modifier = Modifier.size(14.dp), tint = Color(0xFFFFA43A))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Ma Carte ID", fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                                }
+
+                                OutlinedButton(
+                                    onClick = { showEditProfileDialog = true },
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.45f)),
+                                    shape = RoundedCornerShape(10.dp),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(36.dp)
+                                        .testTag("btn_portal_edit_profile")
+                                ) {
+                                    Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(14.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Profil", fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                                }
+
+                                OutlinedButton(
+                                    onClick = { showCardVerifierModal = true },
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.45f)),
+                                    shape = RoundedCornerShape(10.dp),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(36.dp)
+                                        .testTag("btn_portal_verify_card")
+                                ) {
+                                    Icon(Icons.Default.QrCodeScanner, contentDescription = null, modifier = Modifier.size(14.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Vérifier", fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                                }
+                            }
                         }
                     }
 
@@ -931,6 +1023,9 @@ fun AgentPortalScreen(
                     }
 
                     // Scrollable Tab Content
+                    val portalStats = remember(portalDeployments) {
+                        AgentFieldHelper.calculatePortfolioStats(portalDeployments)
+                    }
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
@@ -938,6 +1033,28 @@ fun AgentPortalScreen(
                             .padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
+                        AgentKpiSummaryStrip(
+                            totalDeployments = portalDeployments.size,
+                            syncedCount = portalStats.first,
+                            pendingCount = portalStats.second,
+                            estimatedCommissionLabel = portalStats.third,
+                            isSyncing = isSyncingPortalDeployments,
+                            onSyncClick = {
+                                coroutineScope.launch {
+                                    isSyncingPortalDeployments = true
+                                    try {
+                                        syncManager.syncAgentDeployments()
+                                        val res = syncManager.refreshDeploymentsForAgent(agent.id)
+                                        if (res.isSuccess) {
+                                            portalDeployments = res.getOrDefault(portalDeployments)
+                                        }
+                                        Toast.makeText(context, "Déploiements synchronisés !", Toast.LENGTH_SHORT).show()
+                                    } catch (_: Exception) {}
+                                    isSyncingPortalDeployments = false
+                                }
+                            }
+                        )
+
                         // Quick Context: Current Shop Status Bar
                         Card(
                             modifier = Modifier.fillMaxWidth(),
@@ -1979,6 +2096,42 @@ fun AgentPortalScreen(
                     Text("Fermer")
                 }
             }
+        )
+    }
+
+    if (showIdCardModal && currentAgent != null) {
+        AgentIdCardModal(
+            agent = currentAgent!!,
+            isFreshlyRegistered = isFreshlyRegisteredCard,
+            onDismiss = { showIdCardModal = false }
+        )
+    }
+
+    if (showEditProfileDialog && currentAgent != null) {
+        EditAgentProfileDialog(
+            agent = currentAgent!!,
+            isSaving = isSavingProfile,
+            onDismiss = { showEditProfileDialog = false },
+            onSave = { updated ->
+                isSavingProfile = true
+                coroutineScope.launch {
+                    if (updated.photoUri.isNotBlank()) {
+                        AgentDeploymentStorage.saveAgentPhotoUri(context, updated.id, updated.photoUri)
+                    }
+                    syncManager.registerAgentOnline(updated)
+                    AgentDeploymentStorage.saveAgentSession(context, updated)
+                    currentAgent = updated
+                    isSavingProfile = false
+                    showEditProfileDialog = false
+                    Toast.makeText(context, "Profil agent mis à jour !", Toast.LENGTH_SHORT).show()
+                }
+            }
+        )
+    }
+
+    if (showCardVerifierModal) {
+        ConapesCardReferenceVerifierModal(
+            onDismiss = { showCardVerifierModal = false }
         )
     }
 }

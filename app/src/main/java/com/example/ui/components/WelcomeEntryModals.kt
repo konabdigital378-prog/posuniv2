@@ -6,6 +6,7 @@ import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -350,6 +351,7 @@ fun AgentContactDirectoryModal(
     var cloudRevision by remember { mutableStateOf(0) }
     var expandedMessagePhone by remember { mutableStateOf<String?>(null) }
     var showConapesVerifier by remember { mutableStateOf(false) }
+    var selectedAgentProfile by remember { mutableStateOf<AgentUser?>(null) }
 
     LaunchedEffect(Unit) {
         isRefreshing = true
@@ -623,6 +625,7 @@ fun AgentContactDirectoryModal(
                                         agent = agent,
                                         index = index,
                                         isMessageExpanded = isMessageOpen,
+                                        onViewProfile = { selectedAgentProfile = agent },
                                         onToggleMessage = {
                                             expandedMessagePhone = if (isMessageOpen) null else agent.phone
                                         },
@@ -713,6 +716,88 @@ fun AgentContactDirectoryModal(
             onDismiss = { showConapesVerifier = false }
         )
     }
+
+    selectedAgentProfile?.let { profileAgent ->
+        AlertDialog(
+            onDismissRequest = { selectedAgentProfile = null },
+            title = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(Icons.Default.Badge, contentDescription = null, tint = KonabBlue)
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Profil Agent Déployeur",
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 16.sp
+                        )
+                        Text(
+                            text = "${profileAgent.zone.ifBlank { "Burkina Faso" }} • ${profileAgent.phone}",
+                            fontSize = 11.5.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    ConapesAgentIdCard(agent = profileAgent)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                val cleanDial = profileAgent.phone.filter { it.isDigit() || it == '+' }
+                                try {
+                                    context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:$cleanDial")))
+                                } catch (_: Exception) {
+                                    Toast.makeText(context, "Numéro : ${profileAgent.phone}", Toast.LENGTH_LONG).show()
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = KonabGreen),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.weight(1f).height(46.dp)
+                        ) {
+                            Icon(Icons.Default.Call, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Appeler", fontWeight = FontWeight.Bold, fontSize = 12.5.sp)
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                val waPhone = formatInternationalWaPhone(profileAgent.phone)
+                                val msg = "Bonjour ${profileAgent.name}, je souhaite créer et activer ma boutique sur KONAB POS."
+                                try {
+                                    context.startActivity(
+                                        Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/$waPhone?text=${Uri.encode(msg)}"))
+                                    )
+                                } catch (_: Exception) {
+                                    Toast.makeText(context, "WhatsApp : ${profileAgent.phone}", Toast.LENGTH_LONG).show()
+                                }
+                            },
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.weight(1f).height(46.dp)
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("WhatsApp", fontWeight = FontWeight.Bold, fontSize = 12.5.sp)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { selectedAgentProfile = null }) {
+                    Text("Fermer", fontWeight = FontWeight.Bold)
+                }
+            }
+        )
+    }
 }
 
 @Composable
@@ -720,6 +805,7 @@ private fun AgentContactCard(
     agent: AgentUser,
     index: Int,
     isMessageExpanded: Boolean,
+    onViewProfile: () -> Unit,
     onToggleMessage: () -> Unit,
     onCallClick: () -> Unit,
     onSendSmsClick: (String) -> Unit,
@@ -730,7 +816,7 @@ private fun AgentContactCard(
     }
     var customMessage by remember(agent.phone) { mutableStateOf(defaultMsg) }
 
-    Card(
+        Card(
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         border = BorderStroke(
@@ -740,7 +826,9 @@ private fun AgentContactCard(
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         modifier = Modifier
             .fillMaxWidth()
+            .clickable { onViewProfile() }
             .konabPressScale(pressedScale = 0.985f)
+            .testTag("card_public_agent_$index")
     ) {
         Column(
             modifier = Modifier
@@ -817,6 +905,13 @@ private fun AgentContactCard(
                             fontSize = 13.sp,
                             fontWeight = FontWeight.ExtraBold,
                             color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.weight(1f))
+                        Text(
+                            text = "Voir profil →",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = KonabBlue
                         )
                     }
                 }

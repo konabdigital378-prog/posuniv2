@@ -37,6 +37,7 @@ import com.example.data.local.entity.CustomerEntity
 import com.example.data.local.entity.SaleEntity
 import com.example.data.local.entity.SaleItemEntity
 import com.example.data.local.entity.ShopProfileEntity
+import com.example.ui.components.KonabScreenTopBar
 import com.example.ui.components.KonabWidthClass
 import com.example.ui.components.LocalKonabWidthClass
 import com.example.ui.components.ResponsiveMaxWidthBox
@@ -71,16 +72,10 @@ fun PaymentScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text(if (isSaleCompleted) "Reçu & Confirmation" else "Paiement", fontWeight = FontWeight.Bold) },
-                navigationIcon = {
-                    if (!isSaleCompleted) {
-                        IconButton(onClick = onBack) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Retour")
-                        }
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
+            KonabScreenTopBar(
+                title = if (isSaleCompleted) "Reçu & Confirmation" else "Paiement",
+                subtitle = if (isSaleCompleted) "Encaissement enregistré" else "Finalisation de la vente",
+                onBack = if (!isSaleCompleted) onBack else null
             )
         }
     ) { paddingValues ->
@@ -464,7 +459,7 @@ fun PaymentScreen(
                                 Icon(Icons.Default.Info, contentDescription = null, tint = KonabGoldDark)
                                 Spacer(modifier = Modifier.width(10.dp))
                                 Text(
-                                    text = "Paiement direct $paymentMethod sans simulation. Confirmez après notification USSD / SMS client.",
+                                    text = "Transaction caisse locale ($paymentMethod). Validez la vente après confirmation avec votre client.",
                                     fontSize = 12.sp,
                                     color = MaterialTheme.colorScheme.onSurface
                                 )

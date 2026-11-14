@@ -114,9 +114,9 @@ fun LaunchImageCarousel(
 
     val widthClass = LocalKonabWidthClass.current
     val carouselHeight = when (widthClass) {
-        KonabWidthClass.COMPACT -> 230.dp
-        KonabWidthClass.MEDIUM -> 255.dp
-        KonabWidthClass.EXPANDED -> 285.dp
+        KonabWidthClass.COMPACT -> 226.dp
+        KonabWidthClass.MEDIUM -> 252.dp
+        KonabWidthClass.EXPANDED -> 282.dp
     }
 
     Column(
@@ -125,8 +125,9 @@ fun LaunchImageCarousel(
     ) {
         // Main Carousel Card with HorizontalPager
         Card(
-            shape = RoundedCornerShape(22.dp),
-            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+            shape = RoundedCornerShape(24.dp),
+            border = BorderStroke(1.5.dp, Color.White.copy(alpha = 0.85f)),
+            elevation = CardDefaults.cardElevation(defaultElevation = 10.dp),
             modifier = Modifier
                 .fillMaxWidth()
                 .height(carouselHeight)
@@ -154,9 +155,9 @@ fun LaunchImageCarousel(
                                 .background(
                                     Brush.verticalGradient(
                                         colors = listOf(
-                                            Color.Black.copy(alpha = 0.25f),
+                                            KonabBlueDeep.copy(alpha = 0.28f),
                                             Color.Transparent,
-                                            Color.Black.copy(alpha = 0.85f)
+                                            KonabBlueDeep.copy(alpha = 0.90f)
                                         )
                                     )
                                 )
@@ -164,9 +165,9 @@ fun LaunchImageCarousel(
 
                         // Top Tag / Badge
                         Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = Color(0xDD06245E),
-                            border = BorderStroke(1.dp, slide.accentColor.copy(alpha = 0.6f)),
+                            shape = RoundedCornerShape(10.dp),
+                            color = KonabBlueDark.copy(alpha = 0.88f),
+                            border = BorderStroke(1.dp, slide.accentColor.copy(alpha = 0.75f)),
                             modifier = Modifier
                                 .align(Alignment.TopStart)
                                 .padding(12.dp)
@@ -193,8 +194,9 @@ fun LaunchImageCarousel(
 
                         // Top-Right Slide Counter Pill
                         Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = Color(0x99000000),
+                            shape = RoundedCornerShape(10.dp),
+                            color = Color.Black.copy(alpha = 0.55f),
+                            border = BorderStroke(0.8.dp, Color.White.copy(alpha = 0.2f)),
                             modifier = Modifier
                                 .align(Alignment.TopEnd)
                                 .padding(12.dp)
@@ -204,7 +206,7 @@ fun LaunchImageCarousel(
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp)
                             )
                         }
 
@@ -217,18 +219,19 @@ fun LaunchImageCarousel(
                         ) {
                             Text(
                                 text = slide.title,
-                                fontSize = 16.sp,
+                                fontFamily = OutfitFontFamily,
+                                fontSize = 17.sp,
                                 fontWeight = FontWeight.ExtraBold,
                                 color = Color.White,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
-                            Spacer(modifier = Modifier.height(4.dp))
+                            Spacer(modifier = Modifier.height(3.dp))
                             Text(
                                 text = slide.description,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Medium,
-                                color = Color(0xFFF1F5F9),
+                                color = Color(0xFFE2E8F0),
                                 lineHeight = 16.sp,
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis
@@ -247,9 +250,10 @@ fun LaunchImageCarousel(
                         },
                         modifier = Modifier
                             .align(Alignment.CenterStart)
-                            .padding(start = 6.dp)
+                            .padding(start = 8.dp)
                             .size(36.dp)
-                            .background(Color(0x88000000), CircleShape)
+                            .background(Color.Black.copy(alpha = 0.50f), CircleShape)
+                            .border(0.8.dp, Color.White.copy(alpha = 0.25f), CircleShape)
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
@@ -269,9 +273,10 @@ fun LaunchImageCarousel(
                         },
                         modifier = Modifier
                             .align(Alignment.CenterEnd)
-                            .padding(end = 6.dp)
+                            .padding(end = 8.dp)
                             .size(36.dp)
-                            .background(Color(0x88000000), CircleShape)
+                            .background(Color.Black.copy(alpha = 0.50f), CircleShape)
+                            .border(0.8.dp, Color.White.copy(alpha = 0.25f), CircleShape)
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowForward,
@@ -284,7 +289,7 @@ fun LaunchImageCarousel(
             }
         }
 
-        Spacer(modifier = Modifier.height(14.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
         // Animated Page Indicator Dots / Pills
         Row(
@@ -297,11 +302,11 @@ fun LaunchImageCarousel(
             slides.indices.forEach { index ->
                 val isSelected = pagerState.currentPage == index
                 val width by animateDpAsState(
-                    targetValue = if (isSelected) 26.dp else 8.dp,
+                    targetValue = if (isSelected) 28.dp else 8.dp,
                     animationSpec = tween(durationMillis = 300),
                     label = "indicator_width"
                 )
-                val color = if (isSelected) KonabGreen else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                val color = if (isSelected) KonabOrange else MaterialTheme.colorScheme.outline.copy(alpha = 0.7f)
 
                 Box(
                     modifier = Modifier

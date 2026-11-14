@@ -52,6 +52,10 @@ fun ItemVariantCustomizerDialog(
     var selectedTechDiagnostic by remember { mutableStateOf("") }
     var selectedJewelryMetal by remember { mutableStateOf("") }
     var selectedWashFinish by remember { mutableStateOf("") }
+    var selectedUnitChoice by remember { mutableStateOf("") }
+    var selectedBrokerService by remember { mutableStateOf("") }
+    var selectedCoiffureGender by remember { mutableStateOf("") }
+    var selectedStylist by remember { mutableStateOf("") }
     var freeTextNote by remember { mutableStateOf(initialNote) }
 
     val sizes = listOf("XS", "S", "M", "L", "XL", "XXL", "Sur-mesure")
@@ -68,9 +72,16 @@ fun ItemVariantCustomizerDialog(
     val techDiagnostics = listOf("Écran fissuré", "Batterie HS", "Connecteur de charge", "Système bloqué / Déblocage", "Sauvegarde données", "Garantie 3 mois")
     val jewelryMetals = listOf("Or jaune 18k", "Or blanc 18k", "Argent massif 925", "Plaqué or 24k", "Perles de culture", "Gravure offerte")
     val washFinishes = listOf("Mousse active karcher", "Lustrage carrosserie", "Brillant pneus", "Sent-bon vanille", "Shampooing sièges")
+    val brokerServices = listOf("Frais de visite", "Commission courtage", "Frais de dossier", "Contrat / Bail", "Acompte réservation")
+    val coiffureGenders = listOf("Homme", "Femme")
+    val stylists = listOf("Fatou", "Moussa", "Sarah", "Ibrahim")
 
     val buildFinalNote: () -> String = {
         val parts = mutableListOf<String>()
+        if (selectedUnitChoice.isNotBlank()) parts.add("Unité: $selectedUnitChoice")
+        if (selectedCoiffureGender.isNotBlank()) parts.add("Client: $selectedCoiffureGender")
+        if (selectedStylist.isNotBlank()) parts.add("Coiffeur: $selectedStylist")
+        if (selectedBrokerService.isNotBlank()) parts.add("Acte: $selectedBrokerService")
         if (selectedSize.isNotBlank()) parts.add("Taille: $selectedSize")
         if (selectedColor.isNotBlank()) parts.add("Couleur: $selectedColor")
         if (selectedPosology.isNotBlank()) parts.add("Posologie: $selectedPosology")
@@ -113,6 +124,98 @@ fun ItemVariantCustomizerDialog(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                // Unités du secteur
+                if (sectorPreset.quickUnits.size > 1) {
+                    Text(
+                        text = "Unité / Conditionnement (${product.unit}) :",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        items(sectorPreset.quickUnits) { u ->
+                            val isSel = selectedUnitChoice == u
+                            FilterChip(
+                                selected = isSel,
+                                onClick = { selectedUnitChoice = if (isSel) "" else u },
+                                label = { Text(u, fontSize = 11.sp, fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = Color(sectorPreset.accentColorHex),
+                                    selectedLabelColor = Color.White
+                                )
+                            )
+                        }
+                    }
+                }
+
+                // Coiffure (Homme / Femme + Coiffeur)
+                if (businessType.equals("Coiffure", ignoreCase = true) || features.hasOperatorStylist) {
+                    Text(
+                        text = "Clientèle Coiffure (Homme / Femme) :",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        items(coiffureGenders) { gender ->
+                            val isSel = selectedCoiffureGender == gender
+                            FilterChip(
+                                selected = isSel,
+                                onClick = { selectedCoiffureGender = if (isSel) "" else gender },
+                                label = { Text(if (gender == "Homme") "👨 Homme" else "👩 Femme", fontSize = 11.sp) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = Color(0xFFDB2777),
+                                    selectedLabelColor = Color.White
+                                )
+                            )
+                        }
+                    }
+                    Text(
+                        text = "Praticien / Coiffeur :",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        items(stylists) { st ->
+                            val isSel = selectedStylist == st
+                            FilterChip(
+                                selected = isSel,
+                                onClick = { selectedStylist = if (isSel) "" else st },
+                                label = { Text(st, fontSize = 11.sp) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = Color(0xFF9333EA),
+                                    selectedLabelColor = Color.White
+                                )
+                            )
+                        }
+                    }
+                }
+
+                // Courtier / Démarcheur
+                if (businessType.contains("Courtier", ignoreCase = true)) {
+                    Text(
+                        text = "Type d'acte / Courtage :",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        items(brokerServices) { act ->
+                            val isSel = selectedBrokerService == act
+                            FilterChip(
+                                selected = isSel,
+                                onClick = { selectedBrokerService = if (isSel) "" else act },
+                                label = { Text(act, fontSize = 11.sp) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = Color(0xFF0F766E),
+                                    selectedLabelColor = Color.White
+                                )
+                            )
+                        }
+                    }
+                }
+
                 // Fashion / Clothing Size & Color
                 if (features.hasVariations) {
                     Text(

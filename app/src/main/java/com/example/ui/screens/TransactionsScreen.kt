@@ -40,11 +40,15 @@ import androidx.compose.ui.unit.sp
 import com.example.data.local.entity.SaleEntity
 import com.example.data.local.entity.SaleItemEntity
 import com.example.data.local.entity.ShopProfileEntity
+import com.example.ui.components.KonabCardShape
 import com.example.ui.components.KonabEmptyState
+import com.example.ui.components.KonabScreenTopBar
+import com.example.ui.components.KonabSearchField
 import com.example.ui.components.KonabStaggeredReveal
 import com.example.ui.components.KonabWidthClass
 import com.example.ui.components.LocalKonabWidthClass
 import com.example.ui.components.ResponsiveMaxWidthBox
+import com.example.ui.components.konabCardBorder
 import com.example.ui.components.konabPressScale
 import com.example.ui.theme.*
 import com.example.util.BluetoothPrinterHelper
@@ -174,27 +178,10 @@ fun TransactionsScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text(
-                            text = "Historique des transactions",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 18.sp
-                        )
-                        Text(
-                            text = "${filteredSales.size} vente(s) trouvée(s)",
-                            fontSize = 12.sp,
-                            color = KonabTextSecondary
-                        )
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Retour")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
+            KonabScreenTopBar(
+                title = "Historique des transactions",
+                subtitle = "${filteredSales.size} vente(s) trouvée(s)",
+                onBack = onBack
             )
         }
     ) { innerPadding ->
@@ -211,29 +198,13 @@ fun TransactionsScreen(
             ) {
                 Column(modifier = Modifier.fillMaxSize()) {
             // Search Input
-            OutlinedTextField(
+            KonabSearchField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
+                placeholder = "N° ticket, nom du client, caissier...",
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 6.dp)
-                    .testTag("input_search_transactions"),
-                placeholder = { Text("N° ticket, nom du client, caissier...", fontSize = 13.sp) },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Rechercher", tint = KonabGreen) },
-                trailingIcon = {
-                    if (searchQuery.isNotEmpty()) {
-                        IconButton(onClick = { searchQuery = "" }) {
-                            Icon(Icons.Default.Clear, contentDescription = "Effacer")
-                        }
-                    }
-                },
-                singleLine = true,
-                shape = RoundedCornerShape(12.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = KonabGreen,
-                    unfocusedContainerColor = MaterialTheme.colorScheme.surface,
-                    focusedContainerColor = MaterialTheme.colorScheme.surface
-                )
+                    .padding(horizontal = 16.dp, vertical = 10.dp)
+                    .testTag("input_search_transactions")
             )
 
             // Date Filters Row
@@ -297,9 +268,10 @@ fun TransactionsScreen(
 
             // Financial Metrics Summary Card
             Card(
-                shape = RoundedCornerShape(14.dp),
+                shape = KonabCardShape,
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                border = BorderStroke(1.dp, KonabBorder),
+                border = konabCardBorder(),
+                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 6.dp)
@@ -307,33 +279,35 @@ fun TransactionsScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(12.dp),
+                        .padding(14.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column {
-                        Text("Chiffre Net Validé", fontSize = 11.sp, color = KonabTextSecondary)
+                        Text("Chiffre Net Validé", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(
                             CurrencyFormatter.formatFCFA(totalRevenue),
+                            fontFamily = OutfitFontFamily,
                             fontWeight = FontWeight.Bold,
-                            fontSize = 16.sp,
-                            color = KonabGreen
+                            fontSize = 17.sp,
+                            color = MaterialTheme.colorScheme.primary
                         )
                         Text(
                             "${activeSales.size} vente(s) active(s)",
                             fontSize = 11.sp,
-                            color = KonabTextMuted
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
 
                     VerticalDivider(modifier = Modifier.height(34.dp))
 
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("Panier Moyen", fontSize = 11.sp, color = KonabTextSecondary)
+                        Text("Panier Moyen", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(
                             CurrencyFormatter.formatFCFA(averageTicket),
+                            fontFamily = OutfitFontFamily,
                             fontWeight = FontWeight.SemiBold,
-                            fontSize = 14.sp
+                            fontSize = 15.sp
                         )
                     }
 
@@ -619,9 +593,9 @@ fun TransactionCard(
     }
 
     Card(
-        shape = RoundedCornerShape(14.dp),
+        shape = KonabCardShape,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = BorderStroke(1.dp, if (sale.isCancelled) KonabRed.copy(alpha = 0.4f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.65f)),
+        border = BorderStroke(1.dp, if (sale.isCancelled) KonabRed.copy(alpha = 0.45f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.55f)),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         modifier = Modifier
             .fillMaxWidth()
@@ -709,9 +683,9 @@ fun TransactionCard(
 
                 // Payment Method Badge
                 Surface(
-                    color = KonabBackground,
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
                     shape = RoundedCornerShape(6.dp),
-                    border = BorderStroke(0.5.dp, KonabBorder)
+                    border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.6f))
                 ) {
                     Row(
                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
@@ -726,12 +700,12 @@ fun TransactionCard(
                             },
                             contentDescription = null,
                             modifier = Modifier.size(12.dp),
-                            tint = KonabTextSecondary
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Text(
                             text = sale.paymentMethod,
                             fontSize = 11.sp,
-                            color = KonabTextSecondary
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }

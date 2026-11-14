@@ -2,6 +2,7 @@ package com.example.ui.screens
 
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -28,11 +29,15 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.local.entity.CustomerEntity
+import com.example.ui.components.KonabCardShape
 import com.example.ui.components.KonabEmptyState
+import com.example.ui.components.KonabScreenTopBar
+import com.example.ui.components.KonabSearchField
 import com.example.ui.components.KonabStaggeredReveal
 import com.example.ui.components.KonabWidthClass
 import com.example.ui.components.LocalKonabWidthClass
 import com.example.ui.components.ResponsiveMaxWidthBox
+import com.example.ui.components.konabCardBorder
 import com.example.ui.components.konabPressScale
 import com.example.ui.theme.*
 import com.example.util.CurrencyFormatter
@@ -65,20 +70,16 @@ fun CustomersScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Clients", fontWeight = FontWeight.Bold) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Retour")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
+            KonabScreenTopBar(
+                title = "Clients & Crédits",
+                subtitle = "${customers.size} client(s) enregistré(s)",
+                onBack = onBack
             )
         },
         floatingActionButton = {
             FloatingActionButton(
                 onClick = { showAddDialog = true },
-                containerColor = KonabGreen,
+                containerColor = KonabBlue,
                 contentColor = Color.White,
                 shape = CircleShape,
                 modifier = Modifier
@@ -102,26 +103,26 @@ fun CustomersScreen(
             ) {
                 Column(modifier = Modifier.fillMaxSize()) {
             // Search Input
-            OutlinedTextField(
+            KonabSearchField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
-                placeholder = { Text("Rechercher un client...") },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                singleLine = true,
-                shape = RoundedCornerShape(14.dp),
+                placeholder = "Rechercher un client par nom ou téléphone...",
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .padding(horizontal = 16.dp, vertical = 10.dp)
                     .testTag("input_search_customer")
             )
 
             // Debt Summary Card
+            val hasDebt = totalDebtReceivable > 0
+            val summaryTint = if (hasDebt) KonabRed else KonabSuccess
             Card(
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = if (totalDebtReceivable > 0) KonabRedContainer else KonabGreenLight),
+                shape = KonabCardShape,
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                border = konabCardBorder(summaryTint.copy(alpha = 0.45f)),
+                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 6.dp)
+                    .padding(horizontal = 16.dp, vertical = 4.dp)
             ) {
                 Row(
                     modifier = Modifier
@@ -133,35 +134,42 @@ fun CustomersScreen(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(
                             modifier = Modifier
-                                .size(36.dp)
-                                .background(if (totalDebtReceivable > 0) KonabRed.copy(alpha = 0.2f) else KonabGreen.copy(alpha = 0.2f), CircleShape),
+                                .size(40.dp)
+                                .background(summaryTint.copy(alpha = 0.14f), CircleShape),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 Icons.Default.Receipt,
                                 contentDescription = null,
-                                tint = if (totalDebtReceivable > 0) KonabRed else KonabGreen,
+                                tint = summaryTint,
                                 modifier = Modifier.size(20.dp)
                             )
                         }
                         Spacer(modifier = Modifier.width(12.dp))
                         Column {
-                            Text("Total des crédits en cours", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("Total des crédits en cours", fontSize = 11.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Text(
                                 text = CurrencyFormatter.formatFCFA(totalDebtReceivable),
+                                fontFamily = OutfitFontFamily,
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 15.sp,
-                                color = if (totalDebtReceivable > 0) KonabRed else KonabGreenDark
+                                fontSize = 17.sp,
+                                color = summaryTint
                             )
                         }
                     }
 
-                    Text(
-                        text = "${customers.count { it.debtAmount > 0 }} client(s) débiteur(s)",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = summaryTint.copy(alpha = 0.12f)
+                    ) {
+                        Text(
+                            text = "${customers.count { it.debtAmount > 0 }} débiteur(s)",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = summaryTint,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
                 }
             }
 
@@ -199,8 +207,10 @@ fun CustomersScreen(
                     itemsIndexed(filteredCustomers, key = { _, c -> c.id }) { idx, customer ->
                         KonabStaggeredReveal(index = idx) {
                             Card(
-                                shape = RoundedCornerShape(14.dp),
+                                shape = KonabCardShape,
                                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                border = konabCardBorder(),
+                                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .konabPressScale(pressedScale = 0.985f)
