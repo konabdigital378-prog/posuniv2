@@ -365,7 +365,8 @@ fun KonabNavigationRail(
     isRestaurantMode: Boolean = false,
     openRestaurantOrdersCount: Int = 0,
     isCoutureMode: Boolean = false,
-    openCoutureOrdersCount: Int = 0
+    openCoutureOrdersCount: Int = 0,
+    currentRole: String = "ADMIN"
 ) {
     var showMoreMenu by remember { mutableStateOf(false) }
 
@@ -516,6 +517,29 @@ fun KonabNavigationRail(
                             expanded = showMoreMenu,
                             onDismissRequest = { showMoreMenu = false }
                         ) {
+                            DropdownMenuItem(
+                                text = {
+                                    val roleLabel = when (currentRole.uppercase()) {
+                                        "MANAGER", "ADMIN" -> "Gérant"
+                                        "CASHIER" -> "Caissier"
+                                        "WAITER" -> "Serveur"
+                                        "KITCHEN" -> "Cuisine"
+                                        else -> currentRole
+                                    }
+                                    Text(
+                                        text = "Profil actif : $roleLabel",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp,
+                                        color = KonabBlue
+                                    )
+                                },
+                                onClick = {
+                                    showMoreMenu = false
+                                    onNavigate(if (isRestaurantMode) KonabScreen.RESTAURANT else KonabScreen.DASHBOARD)
+                                },
+                                leadingIcon = { Icon(Icons.Default.Badge, contentDescription = null, tint = KonabBlue) }
+                            )
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outline)
                             if (isRestaurantMode) {
                                 DropdownMenuItem(
                                     text = {

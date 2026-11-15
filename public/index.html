@@ -1344,13 +1344,38 @@
                 business_type: 'Superette & Alimentation',
                 receipt_footer: 'Merci de votre fidélité ! À très bientôt.'
             },
+            allShops: [],
+            selectedShopId: localStorage.getItem('konab_selected_shop_id') || localStorage.getItem('konab_cloud_shop_id') || null,
             products: [],
             sales: [],
             saleItems: [],
             customers: [],
             suppliers: [],
+            purchases: [],
             cashSessions: [],
-            cashMovements: []
+            cashMovements: [],
+            restaurantStaff: [],
+            restaurantTables: [],
+            restaurantOrders: [],
+            restaurantMenuDay: [],
+            restaurantMenuItems: [],
+            cloudRaw: {
+                shops: [],
+                products: [],
+                sales: [],
+                saleItems: [],
+                customers: [],
+                suppliers: [],
+                purchases: [],
+                cashSessions: [],
+                cashMovements: [],
+                restaurantStaff: [],
+                restaurantTables: [],
+                restaurantOrders: [],
+                restaurantMenuDay: [],
+                restaurantMenuItems: [],
+                notifications: []
+            }
         };
 
         // Charts instances
@@ -1484,10 +1509,17 @@
             localStorage.setItem('konab_demo_cleared', 'true');
             dataStore.products = [];
             dataStore.sales = [];
+            dataStore.saleItems = [];
             dataStore.customers = [];
             dataStore.suppliers = [];
+            dataStore.purchases = [];
             dataStore.cashSessions = [];
             dataStore.cashMovements = [];
+            dataStore.restaurantStaff = [];
+            dataStore.restaurantTables = [];
+            dataStore.restaurantOrders = [];
+            dataStore.restaurantMenuDay = [];
+            dataStore.restaurantMenuItems = [];
             updateSyncStatus('Base Vierge / Données Démo Effacées', true);
             renderAll();
             updateCharts();
@@ -1640,26 +1672,417 @@
             }, 25000);
         }
 
+        function isCashInType(type) {
+            const t = String(type || '').toUpperCase();
+            return t === 'IN' || t === 'SALE' || t === 'CASH_IN' || t === 'DEBT_PAYMENT';
+        }
+
+        function isCashOutType(type) {
+            const t = String(type || '').toUpperCase();
+            return t === 'OUT' || t === 'EXPENSE' || t === 'CASH_OUT' || t === 'SUPPLIER_PAYMENT';
+        }
+
+        function isCashPaymentMethod(method) {
+            const m = String(method || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+            return m === 'ESPECES' || m === 'CASH';
+        }
+
+        function isPaidStatus(status) {
+            const s = String(status || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+            return s === 'PAYE' || s === 'PAID';
+        }
+
+        function parseJsonSafe(raw, fallback = null) {
+            if (!raw) return fallback;
+            if (typeof raw !== 'string') return raw;
+            try { return JSON.parse(raw); } catch (e) { return fallback; }
+        }
+
+        function normalizeProductRecord(p, shopsById = {}) {
+            if (!p || typeof p !== 'object') return p;
+            const parsedGallery = parseJsonSafe(p.gallery_images_json, []);
+            const parsedImages = parseJsonSafe(p.images, []);
+            let images = [];
+            if (Array.isArray(parsedImages) && parsedImages.length > 0) {
+                images = parsedImages.filter(Boolean);
+            } else if (Array.isArray(parsedGallery) && parsedGallery.length > 0) {
+                images = parsedGallery.filter(Boolean);
+            } else if (p.image_uri || p.image || p.imageUrl) {
+                images = [p.image_uri || p.image || p.imageUrl];
+            }
+            const primaryUri = (p.image_uri && String(p.image_uri).trim()) || images[0] || '';
+            const shop = shopsById[String(p.shop_id)] || null;
+            return {
+                ...p,
+                image_uri: primaryUri,
+                images,
+                shop,
+                shop_name: shop?.name || p.shop_name || ''
+            };
+        }
+
+        async function fetchTableSafe(client, tableName, orderCol = null, ascending = false, limitCount = 1000) {
+            if (!client) return { data: [], error: null, missing: true };
+            try {
+                let query = client.from(tableName).select('*');
+                if (orderCol) query = query.order(orderCol, { ascending });
+                if (limitCount) query = query.limit(limitCount);
+                let res = await query;
+
+                if (res.error && orderCol && (
+                    res.error.code === '42703' ||
+                    res.error.code === 'PGRST204' ||
+                    String(res.error.message || '').toLowerCase().includes('column')
+                )) {
+                    res = await client.from(tableName).select('*').limit(limitCount);
+                }
+
+                if (res.error) {
+                    const msg = String(res.error.message || '').toLowerCase();
+                    const isMissing = res.error.code === '42P01' ||
+                        res.error.code === 'PGRST205' ||
+                        res.status === 404 ||
+                        msg.includes('could not find the table') ||
+                        msg.includes('does not exist');
+                    if (isMissing) {
+                        console.info(`Note: table optionnelle ${tableName} absente ou en fallback.`);
+                        return { data: [], error: null, missing: true };
+                    }
+                    console.warn(`Avertissement lecture table ${tableName}:`, res.error.message || res.error);
+                    return { data: [], error: res.error, missing: false };
+                }
+
+                return { data: Array.isArray(res.data) ? res.data : [], error: null, missing: false };
+            } catch (err) {
+                console.warn(`Exception lecture table ${tableName}:`, err);
+                return { data: [], error: err, missing: false };
+            }
+        }
+
+        function extractMirrorRecords(notifications, markerType) {
+            return (notifications || [])
+                .filter(n => n && n.type === markerType)
+                .map(n => parseJsonSafe(n.message, null))
+                .filter(Boolean);
+        }
+
+        function rowBelongsToShop(row, activeShopId, totalShopsCount, primaryShopId = null) {
+            if (!activeShopId) return true;
+            const rowShopId = row?.shop_id;
+            if (rowShopId == null || Number(rowShopId) === 0) {
+                return totalShopsCount <= 1 || (primaryShopId && String(activeShopId) === String(primaryShopId));
+            }
+            if (String(rowShopId) === String(activeShopId)) return true;
+            // Fallback legacy single-shop rows (shop_id == 1) when only one shop exists
+            return Number(rowShopId) === 1 && totalShopsCount <= 1;
+        }
+
+        function applyActiveShopScope(preferredShopId = null) {
+            const raw = dataStore.cloudRaw;
+            const shops = raw.shops || [];
+            dataStore.allShops = shops;
+
+            let chosenShopId = preferredShopId || dataStore.selectedShopId || localStorage.getItem('konab_selected_shop_id') || localStorage.getItem('konab_cloud_shop_id');
+            let activeShop = shops.find(s => String(s.id) === String(chosenShopId)) || shops[0] || null;
+            if (activeShop) {
+                chosenShopId = String(activeShop.id);
+                dataStore.selectedShopId = chosenShopId;
+                dataStore.shop = activeShop;
+                try {
+                    localStorage.setItem('konab_selected_shop_id', chosenShopId);
+                    localStorage.setItem('konab_cloud_shop_id', chosenShopId);
+                } catch (e) {}
+            }
+
+            const totalShops = shops.length;
+            const primaryShopId = shops[0]?.id || null;
+            const filterRows = (arr) => (arr || []).filter(r => rowBelongsToShop(r, activeShop?.id, totalShops, primaryShopId));
+
+            const shopsById = {};
+            shops.forEach(s => { shopsById[String(s.id)] = s; });
+
+            const scopedProducts = filterRows(raw.products).map(p => normalizeProductRecord(p, shopsById));
+            const productsById = {};
+            scopedProducts.forEach(p => { productsById[String(p.id)] = p; });
+
+            const scopedSales = filterRows(raw.sales);
+            const scopedSaleIds = new Set(scopedSales.map(s => String(s.id)));
+
+            const scopedSaleItems = (raw.saleItems || [])
+                .filter(it => {
+                    if (scopedSaleIds.size > 0 && it.sale_id != null && scopedSaleIds.has(String(it.sale_id))) return true;
+                    return rowBelongsToShop(it, activeShop?.id, totalShops, primaryShopId);
+                })
+                .map(it => ({
+                    ...it,
+                    product: productsById[String(it.product_id)] || null
+                }));
+
+            const itemsBySaleId = {};
+            scopedSaleItems.forEach(it => {
+                const k = String(it.sale_id);
+                if (!itemsBySaleId[k]) itemsBySaleId[k] = [];
+                itemsBySaleId[k].push(it);
+            });
+
+            const menuIdsForShop = new Set();
+            const scopedMenuDay = filterRows(raw.restaurantMenuDay || []).map(row => {
+                const parsedIds = extractMenuDayProductIds(row);
+                parsedIds.forEach(pid => menuIdsForShop.add(String(pid)));
+                const linkedItems = Array.isArray(row.linked_items) && row.linked_items.length > 0
+                    ? row.linked_items.map(it => normalizeProductRecord(it, shopsById))
+                    : parsedIds.map(pid => productsById[String(pid)]).filter(Boolean);
+                return {
+                    ...row,
+                    product_ids: parsedIds,
+                    linked_items: linkedItems
+                };
+            });
+
+            const hydratedProducts = scopedProducts.map(p => ({
+                ...p,
+                is_menu_of_day: menuIdsForShop.has(String(p.id))
+            }));
+
+            let scopedMenuItems = [];
+            if (menuIdsForShop.size > 0) {
+                scopedMenuItems = hydratedProducts.filter(p => menuIdsForShop.has(String(p.id)));
+                // Inclure également les éléments liés directement si absents de scopedProducts
+                scopedMenuDay.forEach(entry => {
+                    (entry.linked_items || []).forEach(li => {
+                        if (li && li.id != null && !scopedMenuItems.some(existing => String(existing.id) === String(li.id))) {
+                            scopedMenuItems.push({ ...li, is_menu_of_day: true });
+                        }
+                    });
+                });
+            } else {
+                const isRestoShop = String(activeShop?.business_type || '').toLowerCase().includes('restaur');
+                scopedMenuItems = isRestoShop
+                    ? hydratedProducts.filter(p => p.is_available !== false)
+                    : [];
+            }
+
+            dataStore.products = hydratedProducts;
+            dataStore.saleItems = scopedSaleItems;
+            dataStore.sales = scopedSales.map(s => ({
+                ...s,
+                shop: shopsById[String(s.shop_id)] || activeShop || null,
+                items: itemsBySaleId[String(s.id)] || (Array.isArray(s.items) ? s.items : [])
+            }));
+            dataStore.customers = filterRows(raw.customers);
+            dataStore.suppliers = filterRows(raw.suppliers);
+            dataStore.purchases = filterRows(raw.purchases);
+            dataStore.cashSessions = filterRows(raw.cashSessions);
+            dataStore.cashMovements = filterRows(raw.cashMovements);
+            dataStore.restaurantStaff = filterRows(raw.restaurantStaff);
+            dataStore.restaurantTables = filterRows(raw.restaurantTables);
+            dataStore.restaurantOrders = filterRows(raw.restaurantOrders);
+            dataStore.restaurantMenuDay = scopedMenuDay;
+            dataStore.restaurantMenuItems = scopedMenuItems;
+        }
+
+        function extractMenuDayProductIds(row) {
+            if (!row || typeof row !== 'object') return [];
+            const ids = [];
+            const pushId = (val) => {
+                if (val == null || val === '') return;
+                const key = String(val);
+                if (!ids.includes(key)) ids.push(key);
+            };
+            const rawIds = parseJsonSafe(row.product_ids_json, null) ??
+                parseJsonSafe(row.menu_item_ids, null) ??
+                parseJsonSafe(row.dish_ids, null);
+            if (Array.isArray(rawIds)) {
+                rawIds.forEach(item => {
+                    if (item && typeof item === 'object') pushId(item.id ?? item.product_id);
+                    else pushId(item);
+                });
+            }
+            if (row.product_id != null) pushId(row.product_id);
+            if (row.menu_item_id != null) pushId(row.menu_item_id);
+            if (Array.isArray(row.products)) {
+                row.products.forEach(p => { if (p && p.id != null) pushId(p.id); });
+            } else if (row.products && typeof row.products === 'object' && row.products.id != null) {
+                pushId(row.products.id);
+            }
+            if (Array.isArray(row.menu_items)) {
+                row.menu_items.forEach(p => { if (p && (p.product_id != null || p.id != null)) pushId(p.product_id ?? p.id); });
+            }
+            return ids;
+        }
+
+        async function fetchRestaurantData(client = supabaseClient, existingNotifications = null, preloadedProducts = null, preloadedShops = null) {
+            if (!client) {
+                return { staff: [], tables: [], orders: [], menuDay: [], linkedMenuItems: [], products: [] };
+            }
+
+            // Requête explicite sur restaurant_menu_day (avec tentative de jointure relationnelle vers products, repli select('*'))
+            const fetchMenuDayExplicit = async () => {
+                try {
+                    const relRes = await client.from('restaurant_menu_day').select('*, products(*)').limit(1000);
+                    if (!relRes.error && Array.isArray(relRes.data)) {
+                        return relRes.data;
+                    }
+                } catch (e) {}
+                const plainRes = await fetchTableSafe(client, 'restaurant_menu_day', 'updated_at', false, 1000);
+                return plainRes.data || [];
+            };
+
+            const [
+                menuDayNative,
+                resStaff,
+                resTables,
+                resOrders,
+                resNotifs,
+                resMenuItemsTable
+            ] = await Promise.all([
+                fetchMenuDayExplicit(),
+                fetchTableSafe(client, 'restaurant_staff', 'updated_at', false, 1000),
+                fetchTableSafe(client, 'restaurant_tables', 'updated_at', false, 1000),
+                fetchTableSafe(client, 'restaurant_orders', 'created_at', false, 1000),
+                existingNotifications ? Promise.resolve({ data: existingNotifications }) : fetchTableSafe(client, 'app_notifications', 'timestamp', false, 2000),
+                fetchTableSafe(client, 'restaurant_menu_items', 'id', false, 1000)
+            ]);
+
+            const notifs = resNotifs.data || existingNotifications || [];
+            const staff = (resStaff.data && resStaff.data.length > 0)
+                ? resStaff.data
+                : extractMirrorRecords(notifs, '__CLOUD_RESTO_STAFF__');
+            const tables = (resTables.data && resTables.data.length > 0)
+                ? resTables.data
+                : extractMirrorRecords(notifs, '__CLOUD_RESTO_TABLE__');
+            const orders = (resOrders.data && resOrders.data.length > 0)
+                ? resOrders.data
+                : extractMirrorRecords(notifs, '__CLOUD_RESTO_ORDER__');
+            const rawMenuDay = (menuDayNative && menuDayNative.length > 0)
+                ? menuDayNative
+                : extractMirrorRecords(notifs, '__CLOUD_RESTO_MENU_DAY__');
+
+            // Résoudre le catalogue complet de produits liés à restaurant_menu_day
+            let catalogProducts = Array.isArray(preloadedProducts) ? [...preloadedProducts] : [];
+            if (catalogProducts.length === 0) {
+                const resAllProd = await fetchTableSafe(client, 'products', 'id', false, 2000);
+                catalogProducts = resAllProd.data || [];
+            }
+
+            const shopsMap = {};
+            (preloadedShops || dataStore.cloudRaw?.shops || dataStore.allShops || []).forEach(s => {
+                if (s && s.id != null) shopsMap[String(s.id)] = s;
+            });
+
+            const productsById = {};
+            catalogProducts.forEach(p => {
+                if (p && p.id != null) productsById[String(p.id)] = normalizeProductRecord(p, shopsMap);
+            });
+
+            // Collecter les IDs référencés dans restaurant_menu_day & restaurant_menu_items et charger ceux qui manqueraient encore
+            const referencedIds = new Set();
+            rawMenuDay.forEach(entry => {
+                extractMenuDayProductIds(entry).forEach(pid => referencedIds.add(String(pid)));
+                const nested = Array.isArray(entry?.products) ? entry.products : (entry?.products ? [entry.products] : []);
+                nested.forEach(np => {
+                    if (np && np.id != null) {
+                        productsById[String(np.id)] = normalizeProductRecord(np, shopsMap);
+                        referencedIds.add(String(np.id));
+                    }
+                });
+            });
+            (resMenuItemsTable.data || []).forEach(mi => {
+                if (mi && mi.product_id != null) referencedIds.add(String(mi.product_id));
+                else if (mi && mi.id != null && mi.name) {
+                    productsById[String(mi.id)] = normalizeProductRecord(mi, shopsMap);
+                    referencedIds.add(String(mi.id));
+                }
+            });
+
+            const missingIds = Array.from(referencedIds).filter(pid => !productsById[pid] && !Number.isNaN(Number(pid)));
+            if (missingIds.length > 0) {
+                try {
+                    const numericIds = missingIds.map(id => Number(id));
+                    const { data: extraProds, error: extraErr } = await client.from('products').select('*').in('id', numericIds);
+                    if (!extraErr && Array.isArray(extraProds)) {
+                        extraProds.forEach(ep => {
+                            if (ep && ep.id != null) {
+                                const norm = normalizeProductRecord(ep, shopsMap);
+                                productsById[String(ep.id)] = norm;
+                                if (!catalogProducts.some(cp => String(cp.id) === String(ep.id))) {
+                                    catalogProducts.push(ep);
+                                }
+                            }
+                        });
+                    }
+                } catch (err) {
+                    console.warn('Note lecture produits liés restaurant_menu_day:', err);
+                }
+            }
+
+            const linkedMenuItems = [];
+            const seenMenuItemIds = new Set();
+            const hydratedMenuDay = rawMenuDay.map(entry => {
+                const pids = extractMenuDayProductIds(entry);
+                const linkedItems = pids
+                    .map(pid => productsById[String(pid)])
+                    .filter(Boolean)
+                    .map(item => ({ ...item, is_menu_of_day: true }));
+                linkedItems.forEach(item => {
+                    const key = `${item.shop_id || entry.shop_id || '0'}:${item.id}`;
+                    if (!seenMenuItemIds.has(key)) {
+                        seenMenuItemIds.add(key);
+                        linkedMenuItems.push(item);
+                    }
+                });
+                return {
+                    ...entry,
+                    product_ids: pids,
+                    linked_items: linkedItems
+                };
+            });
+
+            return {
+                staff,
+                tables,
+                orders,
+                menuDay: hydratedMenuDay,
+                linkedMenuItems,
+                products: catalogProducts,
+                notifications: notifs
+            };
+        }
+
+        function selectActiveShop(shopId) {
+            if (!shopId) return;
+            applyActiveShopScope(String(shopId));
+            renderAll();
+            updateCharts();
+            showAutoSyncToast(`Boutique active : ${dataStore.shop?.name || '#' + shopId}`);
+        }
+
         // Connect to Supabase
         async function connectSupabase(url, key) {
             try {
+                if (!window.supabase || typeof window.supabase.createClient !== 'function') {
+                    throw new Error('Client Supabase JS non chargé.');
+                }
                 updateSyncStatus('Connexion en cours...', false);
                 const client = window.supabase.createClient(url, key);
-                
-                // Ping test on shop_profile or products
-                const { data, error } = await client.from('shop_profile').select('*').limit(1);
-                if (error && error.code !== 'PGRST116') {
-                    throw error;
+
+                // Vérifier l'accès principal sur shop_profile (et products en secours)
+                const pingShop = await client.from('shop_profile').select('*').limit(1);
+                if (pingShop.error && pingShop.error.code !== 'PGRST116') {
+                    const pingProd = await client.from('products').select('id').limit(1);
+                    if (pingProd.error && pingProd.error.code !== 'PGRST116') {
+                        throw pingShop.error;
+                    }
                 }
 
                 supabaseClient = client;
                 isCloudMode = true;
                 updateSyncStatus('Supabase Auto-Sync Actif (Temps Réel)', true);
 
-                // Fetch real data
-                await fetchCloudData();
+                // Fetch all tables and relations immediately on startup
+                await fetchCloudData(false);
 
-                // Démarrer l écoute temps réel et l intervalle d auto-synchro
+                // Démarrer l'écoute temps réel et l'intervalle d'auto-synchro
                 setupRealtimeSync();
             } catch (err) {
                 console.error('Supabase error:', err);
@@ -1676,40 +2099,63 @@
                     updateSyncStatus('Synchronisation en cours...', true);
                 }
 
-                // Products
-                const resProd = await supabaseClient.from('products').select('*');
-                if (resProd.data && resProd.data.length > 0) dataStore.products = resProd.data;
+                // 1) Charger shop_profile en priorité pour résoudre la hiérarchie multi-boutiques & multi-utilisateurs
+                const resShops = await fetchTableSafe(supabaseClient, 'shop_profile', 'updated_at', false, 1000);
 
-                // Sales
-                const resSales = await supabaseClient.from('sales').select('*').order('timestamp', { ascending: false });
-                if (resSales.data && resSales.data.length > 0) dataStore.sales = resSales.data;
+                // 2) Charger toutes les tables métier & relations en parallèle (y compris cash_sessions, sale_items, purchases, app_notifications)
+                const [
+                    resProd,
+                    resSales,
+                    resItems,
+                    resCust,
+                    resSupp,
+                    resPurch,
+                    resSessions,
+                    resCashMovs,
+                    resNotifs
+                ] = await Promise.all([
+                    fetchTableSafe(supabaseClient, 'products', 'id', false, 2000),
+                    fetchTableSafe(supabaseClient, 'sales', 'timestamp', false, 2000),
+                    fetchTableSafe(supabaseClient, 'sale_items', 'id', false, 5000),
+                    fetchTableSafe(supabaseClient, 'customers', 'id', false, 2000),
+                    fetchTableSafe(supabaseClient, 'suppliers', 'id', false, 1000),
+                    fetchTableSafe(supabaseClient, 'purchases', 'timestamp', false, 2000),
+                    fetchTableSafe(supabaseClient, 'cash_sessions', 'opened_at', false, 1000),
+                    fetchTableSafe(supabaseClient, 'cash_movements', 'timestamp', false, 3000),
+                    fetchTableSafe(supabaseClient, 'app_notifications', 'timestamp', false, 2000)
+                ]);
 
-                // Sale Items (articles vendus)
-                try {
-                    const resItems = await supabaseClient.from('sale_items').select('*');
-                    if (resItems.data && resItems.data.length > 0) dataStore.saleItems = resItems.data;
-                } catch (itemErr) {
-                    console.log('Note: table sale_items non disponible ou vide:', itemErr);
-                }
+                const notifs = resNotifs.data || [];
+                const shopsList = resShops.data || [];
 
-                // Customers
-                const resCust = await supabaseClient.from('customers').select('*');
-                if (resCust.data && resCust.data.length > 0) dataStore.customers = resCust.data;
+                // 3) Charger explicitement restaurant_menu_day et les plats/articles liés au restaurant au démarrage
+                const restaurantData = await fetchRestaurantData(
+                    supabaseClient,
+                    notifs,
+                    resProd.data || [],
+                    shopsList
+                );
 
-                // Suppliers
-                const resSupp = await supabaseClient.from('suppliers').select('*');
-                if (resSupp.data && resSupp.data.length > 0) dataStore.suppliers = resSupp.data;
+                dataStore.cloudRaw = {
+                    shops: shopsList,
+                    products: restaurantData.products.length > 0 ? restaurantData.products : (resProd.data || []),
+                    sales: resSales.data || [],
+                    saleItems: resItems.data || [],
+                    customers: resCust.data || [],
+                    suppliers: resSupp.data || [],
+                    purchases: resPurch.data || [],
+                    cashSessions: resSessions.data || [],
+                    cashMovements: resCashMovs.data || [],
+                    restaurantStaff: restaurantData.staff,
+                    restaurantTables: restaurantData.tables,
+                    restaurantOrders: restaurantData.orders,
+                    restaurantMenuDay: restaurantData.menuDay,
+                    restaurantMenuItems: restaurantData.linkedMenuItems,
+                    notifications: notifs
+                };
 
-                // Cash Movements
-                const resCash = await supabaseClient.from('cash_movements').select('*').order('timestamp', { ascending: false });
-                if (resCash.data && resCash.data.length > 0) dataStore.cashMovements = resCash.data;
-
-                // Shop Profile (Tous les commerces enregistrés)
-                const resShops = await supabaseClient.from('shop_profile').select('*').order('updated_at', { ascending: false });
-                if (resShops.data && resShops.data.length > 0) {
-                    dataStore.allShops = resShops.data;
-                    dataStore.shop = resShops.data[0];
-                }
+                // Appliquer le filtrage relationnel de la boutique active et relier produits/ventes/caisse/menus
+                applyActiveShopScope();
 
                 lastAutoSyncDate = new Date();
                 updateLastSyncLabel();
@@ -1795,16 +2241,17 @@
             const profitEst = Math.round(totalSales * 0.28);
             document.getElementById('kpi-profit-est').textContent = formatMoney(profitEst);
 
-            // Solde de caisse espèces
-            const opening = (dataStore.cashSessions[0]?.opening_balance) || 35000;
+            // Solde de caisse espèces (session ouverte en priorité, sans valeur factice si cloud)
+            const activeSession = dataStore.cashSessions.find(s => String(s.status || '').toUpperCase() === 'OPEN') || dataStore.cashSessions[0];
+            const opening = activeSession ? (Number(activeSession.opening_balance) || 0) : (isCloudMode ? 0 : 35000);
             const cashSales = dataStore.sales
-                .filter(s => s.payment_method === 'ESPECES')
+                .filter(s => !s.is_cancelled && isCashPaymentMethod(s.payment_method))
                 .reduce((sum, s) => sum + (Number(s.total_amount) || 0), 0);
             const inMovs = dataStore.cashMovements
-                .filter(m => m.type === 'IN')
+                .filter(m => isCashInType(m.type) && String(m.type || '').toUpperCase() !== 'SALE')
                 .reduce((sum, m) => sum + (Number(m.amount) || 0), 0);
             const outMovs = dataStore.cashMovements
-                .filter(m => m.type === 'OUT')
+                .filter(m => isCashOutType(m.type))
                 .reduce((sum, m) => sum + (Number(m.amount) || 0), 0);
 
             const currentCash = opening + cashSales + inMovs - outMovs;
@@ -1899,8 +2346,8 @@
                     <td class="py-3 px-4 text-slate-900 font-semibold">${s.customer_name || 'Client comptant'}</td>
                     <td class="py-3 px-4"><span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700">${s.payment_method}</span></td>
                     <td class="py-3 px-4">
-                        <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${s.payment_status === 'PAYE' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}">
-                            ${s.payment_status === 'PAYE' ? 'RÉGLÉ' : 'CRÉDIT'}
+                        <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${isPaidStatus(s.payment_status) ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}">
+                            ${isPaidStatus(s.payment_status) ? 'RÉGLÉ' : 'CRÉDIT'}
                         </span>
                     </td>
                     <td class="py-3 px-4 text-slate-500">${s.cashier_name || 'Gérant'}</td>
@@ -2053,11 +2500,12 @@
             if (!tbody) return;
             tbody.innerHTML = '';
 
-            const opening = (dataStore.cashSessions[0]?.opening_balance) || (dataStore.sales.length > 0 ? 35000 : 0);
-            const inMovs = dataStore.cashMovements.filter(m => m.type === 'IN').reduce((sum, m) => sum + (Number(m.amount) || 0), 0);
-            const outMovs = dataStore.cashMovements.filter(m => m.type === 'OUT').reduce((sum, m) => sum + (Number(m.amount) || 0), 0);
+            const activeSession = dataStore.cashSessions.find(s => String(s.status || '').toUpperCase() === 'OPEN') || dataStore.cashSessions[0];
+            const opening = activeSession ? (Number(activeSession.opening_balance) || 0) : (!isCloudMode && dataStore.sales.length > 0 ? 35000 : 0);
+            const inMovs = dataStore.cashMovements.filter(m => isCashInType(m.type) && String(m.type || '').toUpperCase() !== 'SALE').reduce((sum, m) => sum + (Number(m.amount) || 0), 0);
+            const outMovs = dataStore.cashMovements.filter(m => isCashOutType(m.type)).reduce((sum, m) => sum + (Number(m.amount) || 0), 0);
 
-            const cashSales = dataStore.sales.filter(s => s.payment_method === 'ESPECES').reduce((sum, s) => sum + (Number(s.total_amount) || 0), 0);
+            const cashSales = dataStore.sales.filter(s => !s.is_cancelled && isCashPaymentMethod(s.payment_method)).reduce((sum, s) => sum + (Number(s.total_amount) || 0), 0);
             const expected = opening + cashSales + inMovs - outMovs;
 
             document.getElementById('cash-session-total-sales').textContent = formatMoney(cashSales);
@@ -2072,7 +2520,7 @@
                 dataStore.cashMovements.forEach(m => {
                     const d = new Date(m.timestamp || Date.now());
                     const dateStr = d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
-                    const isIn = m.type === 'IN';
+                    const isIn = isCashInType(m.type);
                     const tr = document.createElement('tr');
                     tr.innerHTML = `
                         <td class="py-3 px-4 text-slate-500">${dateStr}</td>
@@ -2264,8 +2712,8 @@
                     <td class="py-3 px-4 text-slate-900 font-semibold">${s.customer_name || 'Client comptant'}</td>
                     <td class="py-3 px-4"><span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700">${s.payment_method}</span></td>
                     <td class="py-3 px-4">
-                        <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${s.payment_status === 'PAYE' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}">
-                            ${s.payment_status === 'PAYE' ? 'RÉGLÉ' : 'CRÉDIT'}
+                        <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${isPaidStatus(s.payment_status) ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}">
+                            ${isPaidStatus(s.payment_status) ? 'RÉGLÉ' : 'CRÉDIT'}
                         </span>
                     </td>
                     <td class="py-3 px-4 text-slate-500">${s.cashier_name || 'Gérant'}</td>
@@ -2923,6 +3371,7 @@
                 : (primaryImg ? [primaryImg] : []);
 
             const newProd = {
+                shop_id: Number(dataStore.shop?.id || 1),
                 name: document.getElementById('prod-name').value.trim(),
                 category: document.getElementById('prod-category').value.trim() || 'Général',
                 barcode: document.getElementById('prod-barcode').value.trim() || null,
@@ -2933,8 +3382,33 @@
                 unit: 'pièce',
                 is_available: true,
                 image_uri: primaryImg,
+                gallery_images_json: JSON.stringify(galleryArray),
                 images: galleryArray // Tableau d'images au lieu d'une seule
             };
+
+            async function persistProductSafe(mode, payload, prodId) {
+                let candidate = { ...payload };
+                const optionalCols = ['images', 'gallery_images_json', 'image_uri', 'shop_id'];
+                for (let attempt = 0; attempt <= optionalCols.length; attempt++) {
+                    const query = mode === 'update'
+                        ? supabaseClient.from('products').update(candidate).eq('id', prodId)
+                        : supabaseClient.from('products').insert([candidate]);
+                    const { error } = await query;
+                    if (!error) return;
+                    const errMsg = String(error.message || '');
+                    const isSchemaMismatch = error.code === 'PGRST204' || error.code === '42703' || errMsg.includes('column') || errMsg.includes('image');
+                    if (!isSchemaMismatch || attempt === optionalCols.length) {
+                        console.warn('Erreur sauvegarde produit Supabase:', error);
+                        return;
+                    }
+                    const missingCol = optionalCols.find(c => errMsg.includes(c));
+                    if (missingCol) {
+                        delete candidate[missingCol];
+                    } else {
+                        delete candidate[optionalCols[attempt]];
+                    }
+                }
+            }
 
             if (id) {
                 // Update
@@ -2943,12 +3417,7 @@
                     dataStore.products[idx] = { ...dataStore.products[idx], ...newProd };
                     if (supabaseClient && isCloudMode) {
                         try {
-                            const { error } = await supabaseClient.from('products').update(newProd).eq('id', id);
-                            if (error && (error.message?.includes('image') || error.code === 'PGRST204' || error.code === '42703')) {
-                                console.warn("Supabase products table lacks image columns, saving base product without image fields:", error.message);
-                                const { image_uri, images, ...baseProd } = newProd;
-                                await supabaseClient.from('products').update(baseProd).eq('id', id);
-                            }
+                            await persistProductSafe('update', newProd, id);
                         } catch (err) {
                             console.warn("Erreur mise à jour produit Supabase:", err);
                         }
@@ -2961,12 +3430,7 @@
                 dataStore.products.unshift(prodToAdd);
                 if (supabaseClient && isCloudMode) {
                     try {
-                        const { error } = await supabaseClient.from('products').insert([prodToAdd]);
-                        if (error && (error.message?.includes('image') || error.code === 'PGRST204' || error.code === '42703')) {
-                            console.warn("Supabase products table lacks image columns, inserting base product without image fields:", error.message);
-                            const { image_uri, images, ...baseProd } = prodToAdd;
-                            await supabaseClient.from('products').insert([baseProd]);
-                        }
+                        await persistProductSafe('insert', prodToAdd, genId);
                     } catch (err) {
                         console.warn("Erreur insertion produit Supabase:", err);
                     }
@@ -3062,8 +3526,9 @@
             
             const statusEl = document.getElementById('modal-sale-status');
             if (statusEl) {
-                statusEl.textContent = sale.payment_status === 'PAYE' ? 'RÉGLÉ' : 'À CRÉDIT';
-                statusEl.className = sale.payment_status === 'PAYE' ? 'font-bold text-emerald-600 text-xs' : 'font-bold text-rose-600 text-xs';
+                const paid = isPaidStatus(sale.payment_status);
+                statusEl.textContent = paid ? 'RÉGLÉ' : 'À CRÉDIT';
+                statusEl.className = paid ? 'font-bold text-emerald-600 text-xs' : 'font-bold text-rose-600 text-xs';
             }
 
             document.getElementById('modal-sale-subtotal').textContent = formatMoney(sale.subtotal || sale.total_amount);
@@ -3185,8 +3650,9 @@
             doc.text(sale.cashier_name || "Gérant", 112, 60);
             doc.setFont("helvetica", "normal");
             doc.setFontSize(8);
-            doc.setTextColor(sale.payment_status === 'PAYE' ? 5 : 225, sale.payment_status === 'PAYE' ? 150 : 29, sale.payment_status === 'PAYE' ? 105 : 72);
-            doc.text("Statut : " + (sale.payment_status === 'PAYE' ? 'RÉGLÉ' : 'À CRÉDIT'), 112, 65);
+            const saleIsPaid = isPaidStatus(sale.payment_status);
+            doc.setTextColor(saleIsPaid ? 5 : 225, saleIsPaid ? 150 : 29, saleIsPaid ? 105 : 72);
+            doc.text("Statut : " + (saleIsPaid ? 'RÉGLÉ' : 'À CRÉDIT'), 112, 65);
 
             // Tableau des articles avec AutoTable
             const items = getSaleItems(sale);
@@ -3654,6 +4120,7 @@
             const badge = document.getElementById('shops-count-badge');
             if (!tbody) return;
             const shops = dataStore.allShops || (dataStore.shop ? [dataStore.shop] : []);
+            const activeId = String(dataStore.shop?.id || '');
             if (badge) badge.textContent = `${shops.length} boutique(s) enregistrée(s)`;
             if (shops.length === 0) {
                 tbody.innerHTML = `<tr><td colspan="6" class="py-4 text-center text-slate-400">Aucune boutique configurée pour le moment.</td></tr>`;
@@ -3661,10 +4128,14 @@
             }
             tbody.innerHTML = shops.map(s => {
                 const dateStr = s.updated_at ? new Date(s.updated_at).toLocaleString('fr-FR') : '—';
+                const isSelected = String(s.id) === activeId;
                 return `
-                    <tr class="hover:bg-slate-50 transition-colors">
+                    <tr onclick="selectActiveShop('${s.id}')" class="cursor-pointer transition-colors ${isSelected ? 'bg-konab-50/70 font-semibold' : 'hover:bg-slate-50'}">
                         <td class="py-2.5 px-3 font-mono text-slate-500 text-[11px] font-bold">#${s.id}</td>
-                        <td class="py-2.5 px-3 font-bold text-slate-800">${escapeHtml(s.name || 'Sans nom')}</td>
+                        <td class="py-2.5 px-3 font-bold text-slate-800">
+                            ${escapeHtml(s.name || 'Sans nom')}
+                            ${isSelected ? '<span class="ml-2 px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 text-[10px] font-black">ACTIVE</span>' : ''}
+                        </td>
                         <td class="py-2.5 px-3 text-slate-600">${escapeHtml(s.business_type || 'Général')}</td>
                         <td class="py-2.5 px-3 font-medium text-slate-700">${escapeHtml(s.phone || '—')}</td>
                         <td class="py-2.5 px-3 text-slate-600">${escapeHtml(s.city || '—')}</td>

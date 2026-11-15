@@ -119,38 +119,128 @@ class SupabaseApiClient(
 
     // --- HELPERS MULTIBOUTIQUE ---
 
+    private fun extractMissingColumnName(errorBody: String): String? {
+        val pgRegex = Regex("""column\s+(?:[a-zA-Z0-9_]+\.)?([a-zA-Z0-9_]+)\s+does\s+not\s+exist""", RegexOption.IGNORE_CASE)
+        pgRegex.find(errorBody)?.groupValues?.getOrNull(1)?.let { if (it.isNotBlank()) return it }
+        val pgrstRegex = Regex("""Could\s+not\s+find\s+the\s+'([a-zA-Z0-9_]+)'\s+column""", RegexOption.IGNORE_CASE)
+        pgrstRegex.find(errorBody)?.groupValues?.getOrNull(1)?.let { if (it.isNotBlank()) return it }
+        return null
+    }
+
+    private fun stripColumnFromJsonArray(jsonArrayStr: String, column: String): String? {
+        return try {
+            val arr = JSONArray(jsonArrayStr)
+            var removed = false
+            for (i in 0 until arr.length()) {
+                val obj = arr.optJSONObject(i) ?: continue
+                if (obj.has(column)) {
+                    obj.remove(column)
+                    removed = true
+                }
+            }
+            if (removed) arr.toString() else null
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun isMissingTableError(code: Int, body: String): Boolean {
+        return code == 404 ||
+            body.contains("PGRST205", ignoreCase = true) ||
+            body.contains("Could not find the table", ignoreCase = true) ||
+            (body.contains("relation", ignoreCase = true) && body.contains("does not exist", ignoreCase = true))
+    }
+
+    private fun mirrorNotificationId(shopId: Long, markerType: String, key: String): Long {
+        return try {
+            val md = java.security.MessageDigest.getInstance("SHA-256")
+            val digest = md.digest("$shopId|$markerType|$key".toByteArray(Charsets.UTF_8))
+            var v = 0L
+            for (i in 0 until 7) {
+                v = (v shl 8) or (digest[i].toLong() and 0xFFL)
+            }
+            (v and 0x00FFFFFFFFFFFFFFL).coerceAtLeast(100_000_000L)
+        } catch (_: Exception) {
+            kotlin.math.abs("$shopId|$markerType|$key".hashCode().toLong()) + 100_000_000L
+        }
+    }
+
+    private fun mergeImageUriIntoGalleryJson(imageUri: String, existingGalleryJson: String): String {
+        val cleanUri = imageUri.trim()
+        val list = mutableListOf<String>()
+        try {
+            val arr = JSONArray(existingGalleryJson.ifBlank { "[]" })
+            for (i in 0 until arr.length()) {
+                val entry = arr.optString(i, "").trim()
+                if (entry.isNotBlank() && entry !in list) list.add(entry)
+            }
+        } catch (_: Exception) {}
+        if (cleanUri.isNotBlank() && cleanUri !in list) {
+            list.add(0, cleanUri)
+        }
+        return JSONArray(list).toString()
+    }
+
+    private fun extractFirstImageFromGalleryJson(galleryJson: String): String {
+        return try {
+            val arr = JSONArray(galleryJson.ifBlank { "[]" })
+            for (i in 0 until arr.length()) {
+                val entry = arr.optString(i, "").trim()
+                if (entry.isNotBlank()) return entry
+            }
+            ""
+        } catch (_: Exception) {
+            ""
+        }
+    }
+
     private fun postJsonArrayWithColumnFallback(
         endpoint: String,
         primaryJson: String,
         fallbackJson: String? = null
     ): Pair<Boolean, Pair<Int, String>> {
-        val request = buildRequest(
-            endpoint = endpoint,
-            method = "POST",
-            bodyString = primaryJson,
-            extraHeaders = mapOf("Prefer" to "resolution=merge-duplicates")
-        )
-        client.newCall(request).execute().use { response ->
-            val body = response.body?.string() ?: ""
-            if (response.isSuccessful) {
-                return true to (response.code to body)
-            }
-            if (fallbackJson != null && response.code == 400 &&
-                (body.contains("column", ignoreCase = true) || body.contains("PGRST204") || body.contains("schema cache"))
-            ) {
-                val retryReq = buildRequest(
-                    endpoint = endpoint,
-                    method = "POST",
-                    bodyString = fallbackJson,
-                    extraHeaders = mapOf("Prefer" to "resolution=merge-duplicates")
-                )
-                client.newCall(retryReq).execute().use { retryResp ->
-                    val retryBody = retryResp.body?.string() ?: ""
-                    return retryResp.isSuccessful to (retryResp.code to retryBody)
+        var candidateJson = primaryJson
+        var triedExplicitFallback = false
+
+        for (attempt in 0..4) {
+            val request = buildRequest(
+                endpoint = endpoint,
+                method = "POST",
+                bodyString = candidateJson,
+                extraHeaders = mapOf("Prefer" to "resolution=merge-duplicates")
+            )
+            client.newCall(request).execute().use { response ->
+                val body = response.body?.string() ?: ""
+                if (response.isSuccessful) {
+                    return true to (response.code to body)
                 }
+                val isColumnErr = response.code == 400 && (
+                    body.contains("column", ignoreCase = true) ||
+                        body.contains("PGRST204", ignoreCase = true) ||
+                        body.contains("42703", ignoreCase = true) ||
+                        body.contains("schema cache", ignoreCase = true)
+                    )
+                if (!isColumnErr) {
+                    return false to (response.code to body)
+                }
+
+                val missingCol = extractMissingColumnName(body)
+                if (missingCol != null) {
+                    val stripped = stripColumnFromJsonArray(candidateJson, missingCol)
+                    if (stripped != null) {
+                        candidateJson = stripped
+                        continue
+                    }
+                }
+                if (fallbackJson != null && !triedExplicitFallback) {
+                    triedExplicitFallback = true
+                    candidateJson = fallbackJson
+                    continue
+                }
+                return false to (response.code to body)
             }
-            return false to (response.code to body)
         }
+        return false to (400 to "Échec après adaptation des colonnes")
     }
 
     private fun getWithShopFilterFallback(
@@ -192,6 +282,7 @@ class SupabaseApiClient(
             val fallbackArray = JSONArray()
             products.forEach { p ->
                 val cloudId = MultiShopStorage.scopedCloudId(shopId, p.id)
+                val mergedGallery = mergeImageUriIntoGalleryJson(p.imageUri, p.galleryImagesJson)
                 val baseObj = JSONObject().apply {
                     put("id", cloudId)
                     put("name", p.name)
@@ -204,11 +295,11 @@ class SupabaseApiClient(
                     put("unit", p.unit)
                     put("icon_name", p.iconName)
                     put("is_available", p.isAvailable)
-                    put("image_uri", p.imageUri)
+                    if (shopId > 1L) put("shop_id", shopId)
+                    put("gallery_images_json", mergedGallery)
                 }
                 fallbackArray.put(JSONObject(baseObj.toString()))
-                baseObj.put("shop_id", shopId)
-                baseObj.put("gallery_images_json", p.galleryImagesJson)
+                baseObj.put("image_uri", p.imageUri)
                 primaryArray.put(baseObj)
             }
 
@@ -258,6 +349,11 @@ class SupabaseApiClient(
             val list = mutableListOf<ProductEntity>()
             for (i in 0 until jsonArr.length()) {
                 val o = jsonArr.getJSONObject(i)
+                val galleryJson = o.optString("gallery_images_json", "[]").ifBlank { "[]" }
+                val rawImageUri = if (o.has("image_uri") && !o.isNull("image_uri")) {
+                    o.optString("image_uri", "").trim()
+                } else ""
+                val effectiveImageUri = rawImageUri.ifBlank { extractFirstImageFromGalleryJson(galleryJson) }
                 list.add(
                     ProductEntity(
                         id = o.optLong("id", 0L),
@@ -271,8 +367,8 @@ class SupabaseApiClient(
                         unit = o.optString("unit", "pièce"),
                         iconName = o.optString("icon_name", "default"),
                         isAvailable = o.optBoolean("is_available", true),
-                        imageUri = o.optString("image_uri", ""),
-                        galleryImagesJson = o.optString("gallery_images_json", "[]").ifBlank { "[]" }
+                        imageUri = effectiveImageUri,
+                        galleryImagesJson = galleryJson
                     )
                 )
             }
@@ -1617,6 +1713,90 @@ class SupabaseApiClient(
         }
     }
 
+    companion object {
+        private const val MIRROR_RESTO_STAFF = "__CLOUD_RESTO_STAFF__"
+        private const val MIRROR_RESTO_TABLE = "__CLOUD_RESTO_TABLE__"
+        private const val MIRROR_RESTO_ORDER = "__CLOUD_RESTO_ORDER__"
+        private const val MIRROR_RESTO_MENU_DAY = "__CLOUD_RESTO_MENU_DAY__"
+    }
+
+    private fun pushRestaurantMirrorEntries(
+        shopId: Long,
+        markerType: String,
+        entries: List<Triple<String, String, Pair<String, Long>>> // actionRouteKey, title, (jsonPayload, timestamp)
+    ): Result<Int> {
+        if (!SupabaseConfig.isConfigured || entries.isEmpty() || shopId <= 1L) return Result.success(0)
+        val arr = JSONArray()
+        entries.forEach { (key, title, payloadAndTs) ->
+            arr.put(
+                JSONObject().apply {
+                    put("id", mirrorNotificationId(shopId, markerType, key))
+                    put("shop_id", shopId)
+                    put("title", title.ifBlank { markerType })
+                    put("message", payloadAndTs.first)
+                    put("type", markerType)
+                    put("priority", "LOW")
+                    put("timestamp", payloadAndTs.second)
+                    put("is_read", true)
+                    put("action_route", key)
+                    put("reference_id", shopId)
+                }
+            )
+        }
+        val (ok, codeAndBody) = postJsonArrayWithColumnFallback(
+            endpoint = "app_notifications?on_conflict=id",
+            primaryJson = arr.toString(),
+            fallbackJson = null
+        )
+        return if (ok) Result.success(entries.size)
+        else Result.failure(IOException("Échec miroir cloud $markerType (${codeAndBody.first}): ${codeAndBody.second}"))
+    }
+
+    private fun fetchRestaurantMirrorPayloads(
+        shopId: Long,
+        markerType: String
+    ): Result<List<JSONObject>> {
+        if (!SupabaseConfig.isConfigured || shopId <= 1L) return Result.success(emptyList())
+        val encType = URLEncoder.encode(markerType, "UTF-8")
+        val req = buildRequest("app_notifications?shop_id=eq.$shopId&type=eq.$encType&select=*&limit=2000")
+        client.newCall(req).execute().use { resp ->
+            val body = resp.body?.string() ?: "[]"
+            if (!resp.isSuccessful) {
+                return Result.failure(IOException("Échec lecture miroir $markerType (${resp.code})"))
+            }
+            val arr = JSONArray(body.ifBlank { "[]" })
+            val out = mutableListOf<JSONObject>()
+            for (i in 0 until arr.length()) {
+                val row = arr.optJSONObject(i) ?: continue
+                if (row.optLong("shop_id", 0L) != shopId) continue
+                if (row.optString("type", "") != markerType) continue
+                val msg = row.optString("message", "").trim()
+                if (msg.startsWith("{")) {
+                    try {
+                        out.add(JSONObject(msg))
+                    } catch (_: Exception) {}
+                }
+            }
+            return Result.success(out)
+        }
+    }
+
+    private fun deleteRestaurantMirrorEntry(
+        markerType: String,
+        actionRouteKey: String,
+        shopId: Long = 0L
+    ): Result<Unit> {
+        if (!SupabaseConfig.isConfigured || actionRouteKey.isBlank()) return Result.success(Unit)
+        val encKey = URLEncoder.encode(actionRouteKey, "UTF-8")
+        val encType = URLEncoder.encode(markerType, "UTF-8")
+        val shopClause = if (shopId > 1L) "&shop_id=eq.$shopId" else ""
+        val req = buildRequest("app_notifications?action_route=eq.$encKey&type=eq.$encType$shopClause", method = "DELETE")
+        client.newCall(req).execute().use { resp ->
+            return if (resp.isSuccessful) Result.success(Unit)
+            else Result.failure(IOException("Échec suppression miroir $markerType (${resp.code})"))
+        }
+    }
+
     suspend fun authenticateShopTeamMemberRemote(
         identifier: String,
         pin: String
@@ -1639,10 +1819,20 @@ class SupabaseApiClient(
                 val body = response.body?.string() ?: "[]"
                 val jsonArr = JSONArray(body)
                 var firstIdMatchName: String? = null
+                val restaurantRows = mutableListOf<Triple<Long, ConnectedShopSession, RemoteShopLoginMatch>>()
+
                 for (i in 0 until jsonArr.length()) {
                     val o = jsonArr.getJSONObject(i)
                     val cloudId = o.optLong("id", 0L)
                     val session = parseConnectedShopSession(o)
+                    val match = RemoteShopLoginMatch(
+                        cloudShopId = cloudId,
+                        session = session,
+                        profile = session.toShopProfileEntity()
+                    )
+                    if (RestaurantDirectoryHelper.isRestaurantShop(session.businessType)) {
+                        restaurantRows.add(Triple(cloudId, session, match))
+                    }
                     val matchesId = MultiShopStorage.identifierMatchesSession(
                         identifier = cleanId,
                         shopName = session.shopName,
@@ -1657,21 +1847,59 @@ class SupabaseApiClient(
                             o.optString("admin_pin", "").trim()
                         } else ""
                         val expectedPin = storedPin.ifBlank { "1234" }
-                        val match = RemoteShopLoginMatch(
-                            cloudShopId = cloudId,
-                            session = session,
-                            profile = session.toShopProfileEntity()
-                        )
                         if (expectedPin == cleanPin) {
                             return@withContext Result.success(RemoteStaffLoginResult(match = match, staff = null))
                         }
                         val staffList = fetchRestaurantStaff(cloudId).getOrDefault(emptyList())
-                        val staffMatch = staffList.firstOrNull { it.isActive && it.pin == cleanPin }
+                        val staffMatch = staffList.firstOrNull { it.isActive && it.pin.trim() == cleanPin }
                         if (staffMatch != null) {
                             return@withContext Result.success(RemoteStaffLoginResult(match = match, staff = staffMatch))
                         }
+                        val storedCashierPin = if (o.has("cashier_pin") && !o.isNull("cashier_pin")) {
+                            o.optString("cashier_pin", "").trim()
+                        } else ""
+                        if (storedCashierPin.isNotBlank() && storedCashierPin != "0000" && storedCashierPin == cleanPin) {
+                            val cashierStaff = RestaurantStaffAccount(
+                                id = "STAFF-CSH-$cloudId",
+                                shopId = cloudId,
+                                name = "Caissier",
+                                phone = session.phone,
+                                role = RestaurantStaffRole.CASHIER,
+                                pin = cleanPin,
+                                isActive = true
+                            )
+                            return@withContext Result.success(RemoteStaffLoginResult(match = match, staff = cashierStaff))
+                        }
                     }
                 }
+
+                // Fallback multi-utilisateurs : l'utilisateur saisit son propre téléphone ou nom d'équipier
+                if (firstIdMatchName == null) {
+                    var matchedStaffShopName: String? = null
+                    val normId = AgentDeploymentStorage.normalizeShopName(cleanId)
+                    for ((cloudId, session, match) in restaurantRows) {
+                        val staffList = fetchRestaurantStaff(cloudId).getOrDefault(emptyList())
+                        val candidates = staffList.filter { s ->
+                            s.isActive && (
+                                (s.phone.isNotBlank() && MultiShopStorage.phonesMatch(cleanId, s.phone)) ||
+                                    (s.name.isNotBlank() && AgentDeploymentStorage.normalizeShopName(s.name) == normId)
+                                )
+                        }
+                        if (candidates.isNotEmpty()) {
+                            if (matchedStaffShopName == null) matchedStaffShopName = session.shopName
+                            val exact = candidates.firstOrNull { it.pin.trim() == cleanPin }
+                            if (exact != null) {
+                                return@withContext Result.success(RemoteStaffLoginResult(match = match, staff = exact))
+                            }
+                        }
+                    }
+                    if (matchedStaffShopName != null) {
+                        return@withContext Result.failure(
+                            IllegalArgumentException("Code PIN équipe incorrect pour « $matchedStaffShopName ».")
+                        )
+                    }
+                }
+
                 if (firstIdMatchName != null) {
                     return@withContext Result.failure(
                         IllegalArgumentException("Code PIN gérant ou équipe incorrect pour « $firstIdMatchName ».")
@@ -1698,8 +1926,21 @@ class SupabaseApiClient(
                 extraHeaders = mapOf("Prefer" to "resolution=merge-duplicates")
             )
             client.newCall(request).execute().use { resp ->
-                if (resp.isSuccessful) Result.success(staff.size)
-                else Result.failure(IOException("Échec sync équipe (${resp.code}): ${resp.body?.string() ?: ""}"))
+                val errBody = resp.body?.string() ?: ""
+                if (resp.isSuccessful) {
+                    Result.success(staff.size)
+                } else if (isMissingTableError(resp.code, errBody)) {
+                    pushRestaurantMirrorEntries(
+                        shopId = shopId,
+                        markerType = MIRROR_RESTO_STAFF,
+                        entries = staff.map { m ->
+                            val norm = m.copy(shopId = shopId)
+                            Triple(norm.id, "${norm.name} (${norm.role.badgeLabel})", norm.toJson().toString() to norm.updatedAt)
+                        }
+                    )
+                } else {
+                    Result.failure(IOException("Échec sync équipe (${resp.code}): $errBody"))
+                }
             }
         } catch (e: Exception) {
             Result.failure(e)
@@ -1711,10 +1952,17 @@ class SupabaseApiClient(
         try {
             val request = buildRequest("restaurant_staff?shop_id=eq.$shopId&select=*&order=updated_at.asc")
             client.newCall(request).execute().use { resp ->
+                val bodyStr = resp.body?.string() ?: ""
                 if (!resp.isSuccessful) {
+                    if (isMissingTableError(resp.code, bodyStr)) {
+                        return@withContext fetchRestaurantMirrorPayloads(shopId, MIRROR_RESTO_STAFF).map { objs ->
+                            objs.map { RestaurantStaffAccount.fromJson(it).copy(shopId = shopId) }
+                                .sortedBy { it.updatedAt }
+                        }
+                    }
                     return@withContext Result.failure(IOException("Échec chargement équipe (${resp.code})"))
                 }
-                val arr = JSONArray(resp.body?.string() ?: "[]")
+                val arr = JSONArray(bodyStr.ifBlank { "[]" })
                 val list = mutableListOf<RestaurantStaffAccount>()
                 for (i in 0 until arr.length()) {
                     list.add(RestaurantStaffAccount.fromJson(arr.getJSONObject(i)))
@@ -1726,14 +1974,20 @@ class SupabaseApiClient(
         }
     }
 
-    suspend fun deleteRestaurantStaff(staffId: String): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun deleteRestaurantStaff(staffId: String, shopId: Long = 0L): Result<Unit> = withContext(Dispatchers.IO) {
         if (!SupabaseConfig.isConfigured || staffId.isBlank()) return@withContext Result.success(Unit)
         try {
             val enc = URLEncoder.encode(staffId, "UTF-8")
             val request = buildRequest("restaurant_staff?id=eq.$enc", method = "DELETE")
             client.newCall(request).execute().use { resp ->
-                if (resp.isSuccessful) Result.success(Unit)
-                else Result.failure(IOException("Échec suppression membre (${resp.code})"))
+                val errBody = resp.body?.string() ?: ""
+                if (resp.isSuccessful) {
+                    Result.success(Unit)
+                } else if (isMissingTableError(resp.code, errBody)) {
+                    deleteRestaurantMirrorEntry(MIRROR_RESTO_STAFF, staffId, shopId)
+                } else {
+                    Result.failure(IOException("Échec suppression membre (${resp.code})"))
+                }
             }
         } catch (e: Exception) {
             Result.failure(e)
@@ -1752,8 +2006,21 @@ class SupabaseApiClient(
                 extraHeaders = mapOf("Prefer" to "resolution=merge-duplicates")
             )
             client.newCall(request).execute().use { resp ->
-                if (resp.isSuccessful) Result.success(tables.size)
-                else Result.failure(IOException("Échec sync tables (${resp.code}): ${resp.body?.string() ?: ""}"))
+                val errBody = resp.body?.string() ?: ""
+                if (resp.isSuccessful) {
+                    Result.success(tables.size)
+                } else if (isMissingTableError(resp.code, errBody)) {
+                    pushRestaurantMirrorEntries(
+                        shopId = shopId,
+                        markerType = MIRROR_RESTO_TABLE,
+                        entries = tables.map { t ->
+                            val norm = t.copy(shopId = shopId)
+                            Triple(norm.id, norm.tableNumber, norm.toJson().toString() to norm.updatedAt)
+                        }
+                    )
+                } else {
+                    Result.failure(IOException("Échec sync tables (${resp.code}): $errBody"))
+                }
             }
         } catch (e: Exception) {
             Result.failure(e)
@@ -1765,10 +2032,17 @@ class SupabaseApiClient(
         try {
             val request = buildRequest("restaurant_tables?shop_id=eq.$shopId&select=*&order=table_number.asc")
             client.newCall(request).execute().use { resp ->
+                val bodyStr = resp.body?.string() ?: ""
                 if (!resp.isSuccessful) {
+                    if (isMissingTableError(resp.code, bodyStr)) {
+                        return@withContext fetchRestaurantMirrorPayloads(shopId, MIRROR_RESTO_TABLE).map { objs ->
+                            objs.map { RestaurantTableRecord.fromJson(it).copy(shopId = shopId) }
+                                .sortedBy { it.tableNumber }
+                        }
+                    }
                     return@withContext Result.failure(IOException("Échec chargement tables (${resp.code})"))
                 }
-                val arr = JSONArray(resp.body?.string() ?: "[]")
+                val arr = JSONArray(bodyStr.ifBlank { "[]" })
                 val list = mutableListOf<RestaurantTableRecord>()
                 for (i in 0 until arr.length()) {
                     list.add(RestaurantTableRecord.fromJson(arr.getJSONObject(i)))
@@ -1780,14 +2054,20 @@ class SupabaseApiClient(
         }
     }
 
-    suspend fun deleteRestaurantTable(tableId: String): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun deleteRestaurantTable(tableId: String, shopId: Long = 0L): Result<Unit> = withContext(Dispatchers.IO) {
         if (!SupabaseConfig.isConfigured || tableId.isBlank()) return@withContext Result.success(Unit)
         try {
             val enc = URLEncoder.encode(tableId, "UTF-8")
             val request = buildRequest("restaurant_tables?id=eq.$enc", method = "DELETE")
             client.newCall(request).execute().use { resp ->
-                if (resp.isSuccessful) Result.success(Unit)
-                else Result.failure(IOException("Échec suppression table (${resp.code})"))
+                val errBody = resp.body?.string() ?: ""
+                if (resp.isSuccessful) {
+                    Result.success(Unit)
+                } else if (isMissingTableError(resp.code, errBody)) {
+                    deleteRestaurantMirrorEntry(MIRROR_RESTO_TABLE, tableId, shopId)
+                } else {
+                    Result.failure(IOException("Échec suppression table (${resp.code})"))
+                }
             }
         } catch (e: Exception) {
             Result.failure(e)
@@ -1808,8 +2088,21 @@ class SupabaseApiClient(
                 extraHeaders = mapOf("Prefer" to "resolution=merge-duplicates")
             )
             client.newCall(request).execute().use { resp ->
-                if (resp.isSuccessful) Result.success(orders.size)
-                else Result.failure(IOException("Échec sync commandes (${resp.code}): ${resp.body?.string() ?: ""}"))
+                val errBody = resp.body?.string() ?: ""
+                if (resp.isSuccessful) {
+                    Result.success(orders.size)
+                } else if (isMissingTableError(resp.code, errBody)) {
+                    pushRestaurantMirrorEntries(
+                        shopId = shopId,
+                        markerType = MIRROR_RESTO_ORDER,
+                        entries = orders.map { ord ->
+                            val norm = ord.copy(shopId = shopId)
+                            Triple(norm.id, "${norm.orderNumber} (${norm.tableName})", norm.toJson().toString() to norm.updatedAt)
+                        }
+                    )
+                } else {
+                    Result.failure(IOException("Échec sync commandes (${resp.code}): $errBody"))
+                }
             }
         } catch (e: Exception) {
             Result.failure(e)
@@ -1821,10 +2114,17 @@ class SupabaseApiClient(
         try {
             val request = buildRequest("restaurant_orders?shop_id=eq.$shopId&select=*&order=created_at.desc&limit=200")
             client.newCall(request).execute().use { resp ->
+                val bodyStr = resp.body?.string() ?: ""
                 if (!resp.isSuccessful) {
+                    if (isMissingTableError(resp.code, bodyStr)) {
+                        return@withContext fetchRestaurantMirrorPayloads(shopId, MIRROR_RESTO_ORDER).map { objs ->
+                            objs.map { RestaurantOrderRecord.fromJson(it).copy(shopId = shopId) }
+                                .sortedByDescending { it.createdAt }
+                        }
+                    }
                     return@withContext Result.failure(IOException("Échec chargement commandes (${resp.code})"))
                 }
-                val arr = JSONArray(resp.body?.string() ?: "[]")
+                val arr = JSONArray(bodyStr.ifBlank { "[]" })
                 val list = mutableListOf<RestaurantOrderRecord>()
                 for (i in 0 until arr.length()) {
                     list.add(RestaurantOrderRecord.fromJson(arr.getJSONObject(i)))
@@ -1842,15 +2142,13 @@ class SupabaseApiClient(
             val idsArr = JSONArray().apply {
                 productIds.filter { it > 0L }.forEach { put(it) }
             }
-            val payload = JSONArray().apply {
-                put(
-                    JSONObject().apply {
-                        put("shop_id", shopId)
-                        put("product_ids_json", idsArr.toString())
-                        put("updated_at", System.currentTimeMillis())
-                    }
-                )
+            val now = System.currentTimeMillis()
+            val menuObj = JSONObject().apply {
+                put("shop_id", shopId)
+                put("product_ids_json", idsArr.toString())
+                put("updated_at", now)
             }
+            val payload = JSONArray().apply { put(menuObj) }
             val request = buildRequest(
                 endpoint = "restaurant_menu_day?on_conflict=shop_id",
                 method = "POST",
@@ -1858,8 +2156,18 @@ class SupabaseApiClient(
                 extraHeaders = mapOf("Prefer" to "resolution=merge-duplicates")
             )
             client.newCall(request).execute().use { resp ->
-                if (resp.isSuccessful) Result.success(Unit)
-                else Result.failure(IOException("Échec sync menu du jour (${resp.code})"))
+                val errBody = resp.body?.string() ?: ""
+                if (resp.isSuccessful) {
+                    Result.success(Unit)
+                } else if (isMissingTableError(resp.code, errBody)) {
+                    pushRestaurantMirrorEntries(
+                        shopId = shopId,
+                        markerType = MIRROR_RESTO_MENU_DAY,
+                        entries = listOf(Triple("MENU_DAY_$shopId", "Menu du jour", menuObj.toString() to now))
+                    ).map { Unit }
+                } else {
+                    Result.failure(IOException("Échec sync menu du jour (${resp.code})"))
+                }
             }
         } catch (e: Exception) {
             Result.failure(e)
@@ -1871,10 +2179,24 @@ class SupabaseApiClient(
         try {
             val request = buildRequest("restaurant_menu_day?shop_id=eq.$shopId&select=*")
             client.newCall(request).execute().use { resp ->
+                val bodyStr = resp.body?.string() ?: ""
                 if (!resp.isSuccessful) {
+                    if (isMissingTableError(resp.code, bodyStr)) {
+                        return@withContext fetchRestaurantMirrorPayloads(shopId, MIRROR_RESTO_MENU_DAY).map { objs ->
+                            val latest = objs.maxByOrNull { it.optLong("updated_at", 0L) } ?: return@map emptySet()
+                            val rawIds = latest.optString("product_ids_json", "[]")
+                            val idArr = JSONArray(rawIds)
+                            val out = mutableSetOf<Long>()
+                            for (i in 0 until idArr.length()) {
+                                val v = idArr.optLong(i, 0L)
+                                if (v > 0L) out.add(v)
+                            }
+                            out
+                        }
+                    }
                     return@withContext Result.failure(IOException("Échec lecture menu du jour (${resp.code})"))
                 }
-                val arr = JSONArray(resp.body?.string() ?: "[]")
+                val arr = JSONArray(bodyStr.ifBlank { "[]" })
                 if (arr.length() == 0) return@withContext Result.success(emptySet())
                 val rawIds = arr.getJSONObject(0).optString("product_ids_json", "[]")
                 val idArr = JSONArray(rawIds)
@@ -1900,6 +2222,8 @@ class SupabaseApiClient(
         try {
             var resolvedShop: ShopProfileEntity? = null
             var resolvedShopId = shopId
+            val matchingShopIds = linkedSetOf<Long>()
+            if (resolvedShopId > 1L) matchingShopIds.add(resolvedShopId)
 
             if (resolvedShopId > 1L) {
                 val req = buildRequest("shop_profile?id=eq.$resolvedShopId&select=*&limit=1")
@@ -1912,19 +2236,23 @@ class SupabaseApiClient(
                     }
                 }
             }
-            if (resolvedShop == null && fallbackShopName.isNotBlank()) {
+            val lookupName = resolvedShop?.name?.takeIf { it.isNotBlank() } ?: fallbackShopName
+            if (lookupName.isNotBlank()) {
                 val req = buildRequest("shop_profile?select=*&order=updated_at.desc&limit=500")
                 client.newCall(req).execute().use { resp ->
                     if (resp.isSuccessful) {
                         val arr = JSONArray(resp.body?.string() ?: "[]")
-                        val targetNorm = AgentDeploymentStorage.normalizeShopName(fallbackShopName)
+                        val targetNorm = AgentDeploymentStorage.normalizeShopName(lookupName)
                         for (i in 0 until arr.length()) {
                             val obj = arr.getJSONObject(i)
                             val candidateName = AgentDeploymentStorage.normalizeShopName(obj.optString("name", ""))
                             if (candidateName == targetNorm) {
-                                resolvedShop = parseShopProfile(obj)
-                                resolvedShopId = obj.optLong("id", resolvedShopId)
-                                break
+                                val candId = obj.optLong("id", 0L)
+                                if (candId > 1L) matchingShopIds.add(candId)
+                                if (resolvedShop == null) {
+                                    resolvedShop = parseShopProfile(obj)
+                                    if (candId > 1L) resolvedShopId = candId
+                                }
                             }
                         }
                     }
@@ -1935,14 +2263,34 @@ class SupabaseApiClient(
                 return@withContext Result.failure(IllegalStateException("Restaurant introuvable."))
             }
 
-            val products = fetchProducts(resolvedShopId).getOrDefault(emptyList())
-            val menuDayIds = fetchMenuOfDay(resolvedShopId).getOrDefault(emptySet())
-            val tables = fetchRestaurantTables(resolvedShopId).getOrDefault(emptyList())
+            var products = fetchProducts(resolvedShopId).getOrDefault(emptyList())
+            var effectiveShopId = resolvedShopId
+            if (products.isEmpty() && matchingShopIds.size > 1) {
+                for (altId in matchingShopIds) {
+                    if (altId == resolvedShopId) continue
+                    val altProducts = fetchProducts(altId).getOrDefault(emptyList())
+                    if (altProducts.isNotEmpty()) {
+                        products = altProducts
+                        effectiveShopId = altId
+                        break
+                    }
+                }
+            }
+
+            var menuDayIds = fetchMenuOfDay(effectiveShopId).getOrDefault(emptySet())
+            if (menuDayIds.isEmpty() && effectiveShopId != resolvedShopId) {
+                menuDayIds = fetchMenuOfDay(resolvedShopId).getOrDefault(emptySet())
+            }
+            var tables = fetchRestaurantTables(effectiveShopId).getOrDefault(emptyList())
+            if (tables.isEmpty() && effectiveShopId != resolvedShopId) {
+                tables = fetchRestaurantTables(resolvedShopId).getOrDefault(emptyList())
+            }
+
             val filtered = if (menuDayIds.isNotEmpty()) {
                 val matched = products.filter { p ->
                     p.isAvailable && (
                         p.id in menuDayIds ||
-                        MultiShopStorage.scopedCloudId(resolvedShopId, p.id) in menuDayIds ||
+                        MultiShopStorage.scopedCloudId(effectiveShopId, p.id) in menuDayIds ||
                         (p.id % 100000L) in menuDayIds
                     )
                 }
@@ -1953,7 +2301,7 @@ class SupabaseApiClient(
 
             Result.success(
                 PublicRestaurantMenuBundle(
-                    shopId = resolvedShopId,
+                    shopId = effectiveShopId,
                     shopName = resolvedShop?.name?.takeIf { it.isNotBlank() } ?: fallbackShopName.ifBlank { "Restaurant" },
                     city = resolvedShop?.city.orEmpty(),
                     phone = resolvedShop?.phone.orEmpty(),

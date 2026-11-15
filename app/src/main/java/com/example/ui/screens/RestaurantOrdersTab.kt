@@ -39,7 +39,7 @@ fun RestaurantOrdersTab(
     activeRole: RestaurantStaffRole,
     onAdvanceStatus: (RestaurantOrderRecord, RestaurantOrderStatus) -> Unit,
     onOpenCheckout: (RestaurantOrderRecord) -> Unit,
-    onViewReceiptById: (Long) -> Unit,
+    onViewReceiptById: (Long, RestaurantOrderRecord?) -> Unit,
     onOpenPos: () -> Unit
 ) {
     var filter by remember(activeRole) {
@@ -176,7 +176,7 @@ fun RestaurantOrdersTab(
                     order = order,
                     onAdvanceStatus = onAdvanceStatus,
                     onOpenCheckout = onOpenCheckout,
-                    onViewReceiptById = onViewReceiptById
+                    onViewReceiptById = { saleId -> onViewReceiptById(saleId, order) }
                 )
             }
         }
@@ -485,20 +485,18 @@ private fun RestaurantOrderCard(
                     }
 
                     RestaurantOrderStatus.PAID -> {
-                        val linkedSaleId = order.saleId
-                        if (linkedSaleId != null && linkedSaleId > 0L) {
-                            OutlinedButton(
-                                onClick = { onViewReceiptById(linkedSaleId) },
-                                shape = RoundedCornerShape(10.dp),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(48.dp)
-                                    .testTag("btn_view_order_receipt_${order.orderNumber}")
-                            ) {
-                                Icon(Icons.AutoMirrored.Filled.ReceiptLong, contentDescription = null, tint = KonabBlue)
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Voir le Reçu de Caisse", fontWeight = FontWeight.Bold, color = KonabBlue)
-                            }
+                        val linkedSaleId = order.saleId ?: 0L
+                        OutlinedButton(
+                            onClick = { onViewReceiptById(linkedSaleId) },
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp)
+                                .testTag("btn_view_order_receipt_${order.orderNumber}")
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.ReceiptLong, contentDescription = null, tint = KonabBlue)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Voir le Reçu de Caisse", fontWeight = FontWeight.Bold, color = KonabBlue)
                         }
                     }
 

@@ -128,6 +128,15 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
         _menuOfDayProductIds.value = RestaurantStorage.getMenuOfDayProductIds(app, shopId)
     }
 
+    fun syncRoleFromActiveStaff() {
+        val staff = _activeStaff.value
+        _currentRole.value = if (staff == null || staff.role == RestaurantStaffRole.MANAGER) {
+            "ADMIN"
+        } else {
+            staff.role.name
+        }
+    }
+
     // DataStore Local Admin Account Stream
     val adminAccount: StateFlow<com.example.data.local.datastore.LocalAdminAccount> = repository.adminAccount
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), com.example.data.local.datastore.LocalAdminAccount())
@@ -293,6 +302,12 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
                 reloadConnectedShopsState()
                 reloadRestaurantLocalState()
                 reloadCoutureLocalState()
+                val restoredStaff = _activeStaff.value
+                _currentRole.value = if (restoredStaff == null || restoredStaff.role == RestaurantStaffRole.MANAGER) {
+                    "ADMIN"
+                } else {
+                    restoredStaff.role.name
+                }
             }
         }
 
@@ -308,6 +323,20 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
                     reloadCoutureLocalState()
                 }
             } catch (_: Exception) {}
+        }
+    }
+
+    private fun currentOperatorDisplayName(): String {
+        val staff = _activeStaff.value
+        if (staff != null && staff.name.isNotBlank()) {
+            return "${staff.name} (${staff.role.badgeLabel})"
+        }
+        return when (_currentRole.value.uppercase()) {
+            "ADMIN", "MANAGER" -> adminAccount.value.adminName.ifBlank { "Gérant" }
+            "CASHIER" -> "Caissier"
+            "WAITER" -> "Serveur"
+            "KITCHEN" -> "Cuisine"
+            else -> "Caissier"
         }
     }
 
@@ -404,18 +433,27 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
     fun switchShopSector(newSector: String, reloadPresetProducts: Boolean, onComplete: () -> Unit = {}) {
         viewModelScope.launch {
             val profile = repository.getShopProfileOnce()
-            if (profile != null) {
-                val updated = profile.copy(businessType = newSector)
+            val updated = profile?.copy(businessType = newSector)
+            if (updated != null) {
                 repository.saveShopProfile(updated)
             }
             if (reloadPresetProducts) {
                 val preset = com.example.util.BusinessTypePresets.getPreset(newSector)
                 preset.defaultProducts.forEach { prod ->
-                    repository.insertProduct(prod)
+                    repository.insertProduct(prod.copy(id = 0L))
                 }
             }
             reloadRestaurantLocalState()
             reloadCoutureLocalState()
+            withContext(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    if (updated != null && com.example.data.remote.supabase.SupabaseConfig.isConfigured) {
+                        supabaseSyncManager.pushShopProfileDirectly(updated, isNewShop = false)
+                        supabaseSyncManager.syncProductsOnly(repository)
+                    }
+                } catch (_: Exception) {}
+            }
+            triggerAutoSync()
             onComplete()
         }
     }
@@ -482,7 +520,7 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch {
             val customer = _selectedCustomer.value
-            val cashier = if (_currentRole.value == "ADMIN") "Gérant" else "Caissier"
+            val cashier = currentOperatorDisplayName()
             val sale = repository.recordSale(
                 customerId = customer?.id,
                 customerName = customer?.name ?: "Client de passage",
@@ -535,7 +573,7 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
 
     fun openCashSession(openingBalance: Long) {
         viewModelScope.launch {
-            val operator = if (_currentRole.value == "ADMIN") "Gérant" else "Caissier"
+            val operator = currentOperatorDisplayName()
             repository.openCashSession(openingBalance, operator)
             triggerAutoSync()
         }
@@ -544,7 +582,7 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
     fun closeCashSession(actualCountedBalance: Long, notes: String) {
         val active = activeCashSession.value ?: return
         viewModelScope.launch {
-            val operator = if (_currentRole.value == "ADMIN") "Gérant" else "Caissier"
+            val operator = currentOperatorDisplayName()
             repository.closeCashSession(active, actualCountedBalance, operator, notes)
             triggerAutoSync()
         }
@@ -552,7 +590,7 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
 
     fun addCashMovement(type: String, amount: Long, reason: String) {
         viewModelScope.launch {
-            val operator = if (_currentRole.value == "ADMIN") "Gérant" else "Caissier"
+            val operator = currentOperatorDisplayName()
             repository.addCashMovement(
                 type = type,
                 amount = amount,
@@ -606,7 +644,7 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
 
     fun recordCustomerDebtPayment(customer: CustomerEntity, amount: Long, method: String) {
         viewModelScope.launch {
-            val operator = if (_currentRole.value == "ADMIN") "Gérant" else "Caissier"
+            val operator = currentOperatorDisplayName()
             repository.recordCustomerDebtPayment(customer, amount, method, operator)
             triggerAutoSync()
         }
@@ -632,7 +670,7 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
         notes: String
     ) {
         viewModelScope.launch {
-            val operator = if (_currentRole.value == "ADMIN") "Gérant" else "Caissier"
+            val operator = currentOperatorDisplayName()
             repository.recordPurchase(
                 supplier = supplier,
                 product = product,
@@ -728,9 +766,14 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
                 reloadRestaurantLocalState()
                 reloadCoutureLocalState()
                 val staff = _activeStaff.value
-                _currentRole.value = staff?.role?.name ?: "ADMIN"
+                _currentRole.value = if (staff == null || staff.role == RestaurantStaffRole.MANAGER) {
+                    "ADMIN"
+                } else {
+                    staff.role.name
+                }
                 _isLocked.value = false
-                if (staff != null && (staff.role == RestaurantStaffRole.KITCHEN || staff.role == RestaurantStaffRole.WAITER)) {
+                val isResto = session.businessType.equals("Restaurant", ignoreCase = true)
+                if (staff != null && (staff.role == RestaurantStaffRole.KITCHEN || staff.role == RestaurantStaffRole.WAITER || (isResto && staff.role == RestaurantStaffRole.CASHIER))) {
                     resetTo(KonabScreen.RESTAURANT)
                 } else {
                     resetTo(KonabScreen.DASHBOARD)
@@ -760,7 +803,12 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
                 reloadConnectedShopsState()
                 reloadRestaurantLocalState()
                 reloadCoutureLocalState()
-                _currentRole.value = _activeStaff.value?.role?.name ?: "ADMIN"
+                val staff = _activeStaff.value
+                _currentRole.value = if (staff == null || staff.role == RestaurantStaffRole.MANAGER) {
+                    "ADMIN"
+                } else {
+                    staff.role.name
+                }
                 _isLocked.value = false
                 resetTo(KonabScreen.DASHBOARD)
                 onResult(true, "Boutique active : « ${loaded.shopName} »")
@@ -856,9 +904,24 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
         val staffMatch = RestaurantStorage.findStaffByPin(app, shopId, cleanPin)
         if (staffMatch != null) {
             RestaurantStorage.setActiveStaff(app, shopId, staffMatch.id)
-            _currentRole.value = staffMatch.role.name
+            _currentRole.value = if (staffMatch.role == RestaurantStaffRole.MANAGER) "ADMIN" else staffMatch.role.name
             _isLocked.value = false
             reloadRestaurantLocalState()
+            return true
+        }
+        val customCashierPin = profile.cashierPin.trim()
+        if (customCashierPin.isNotBlank() && customCashierPin != "0000" && cleanPin == customCashierPin) {
+            _activeStaff.value = RestaurantStaffAccount(
+                id = "STAFF-CSH-$shopId",
+                shopId = shopId,
+                name = "Caissier",
+                phone = profile.phone,
+                role = RestaurantStaffRole.CASHIER,
+                pin = cleanPin,
+                isActive = true
+            )
+            _currentRole.value = RestaurantStaffRole.CASHIER.name
+            _isLocked.value = false
             return true
         }
         return false
@@ -1089,9 +1152,119 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
 
     fun viewSaleReceipt(sale: SaleEntity) {
         viewModelScope.launch {
-            val items = repository.getSaleItems(sale.id)
+            var items = repository.getSaleItems(sale.id)
+            if (items.isEmpty()) {
+                val shopId = supabaseSyncManager.getOrCreateCloudShopId()
+                if (shopId > 1L) {
+                    val scoped = MultiShopStorage.scopedCloudId(shopId, sale.id)
+                    if (scoped != sale.id) {
+                        items = repository.getSaleItems(scoped)
+                    }
+                    if (items.isEmpty() && SupabaseConfig.isConfigured) {
+                        withContext(kotlinx.coroutines.Dispatchers.IO) {
+                            try {
+                                supabaseSyncManager.pullLedgerAndRestaurantNow(repository)
+                            } catch (_: Exception) {}
+                        }
+                        items = repository.getSaleItems(sale.id)
+                    }
+                }
+            }
             _lastCompletedSale.value = Pair(sale, items)
             navigateTo(KonabScreen.RECEIPT)
+        }
+    }
+
+    fun viewSaleReceiptById(saleId: Long, fallbackOrder: RestaurantOrderRecord? = null) {
+        viewModelScope.launch {
+            val shopId = supabaseSyncManager.getOrCreateCloudShopId()
+
+            fun findMatchingSale(sales: List<SaleEntity>): SaleEntity? {
+                if (saleId > 0L) {
+                    sales.firstOrNull {
+                        it.id == saleId ||
+                            (shopId > 1L && MultiShopStorage.scopedCloudId(shopId, it.id) == saleId) ||
+                            (shopId > 1L && MultiShopStorage.scopedCloudId(shopId, saleId) == it.id)
+                    }?.let { return it }
+                }
+                val orderNum = fallbackOrder?.orderNumber?.trim().orEmpty()
+                if (orderNum.isNotBlank()) {
+                    sales.firstOrNull { it.notes.contains(orderNum, ignoreCase = true) }?.let { return it }
+                }
+                return null
+            }
+
+            var matched = findMatchingSale(repository.getAllSalesOnce())
+            if (matched == null && SupabaseConfig.isConfigured && shopId > 1L) {
+                withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    try {
+                        supabaseSyncManager.pullLedgerAndRestaurantNow(repository)
+                    } catch (_: Exception) {}
+                }
+                matched = findMatchingSale(repository.getAllSalesOnce())
+            }
+
+            if (matched != null) {
+                var items = repository.getSaleItems(matched.id)
+                if (items.isEmpty() && saleId > 0L && saleId != matched.id) {
+                    items = repository.getSaleItems(saleId)
+                }
+                if (items.isEmpty() && fallbackOrder != null) {
+                    items = fallbackOrder.items.map { item ->
+                        SaleItemEntity(
+                            saleId = matched.id,
+                            productId = item.productId,
+                            productName = if (item.note.isNotBlank()) "${item.productName} [${item.note}]" else item.productName,
+                            quantity = item.quantity,
+                            unitPrice = item.unitPrice,
+                            unitBuyPrice = 0L,
+                            totalPrice = item.totalPrice
+                        )
+                    }
+                }
+                _lastCompletedSale.value = Pair(matched, items)
+                navigateTo(KonabScreen.RECEIPT)
+            } else if (fallbackOrder != null) {
+                val orderSale = SaleEntity(
+                    id = fallbackOrder.saleId ?: saleId.coerceAtLeast(1L),
+                    transactionNumber = fallbackOrder.orderNumber,
+                    timestamp = fallbackOrder.updatedAt,
+                    customerName = "${fallbackOrder.customerName.ifBlank { "Client" }} (${fallbackOrder.tableName})",
+                    subtotal = fallbackOrder.totalAmount,
+                    totalAmount = fallbackOrder.totalAmount,
+                    paymentMethod = "Caisse",
+                    paymentStatus = if (fallbackOrder.status == RestaurantOrderStatus.PAID) "PAYÉ" else fallbackOrder.status.label,
+                    amountPaid = if (fallbackOrder.status == RestaurantOrderStatus.PAID) fallbackOrder.totalAmount else 0L,
+                    cashierName = fallbackOrder.createdByName.ifBlank { "Caisse" },
+                    notes = "Table: ${fallbackOrder.tableName} • ${fallbackOrder.orderNumber}"
+                )
+                val orderItems = fallbackOrder.items.map { item ->
+                    SaleItemEntity(
+                        saleId = orderSale.id,
+                        productId = item.productId,
+                        productName = if (item.note.isNotBlank()) "${item.productName} [${item.note}]" else item.productName,
+                        quantity = item.quantity,
+                        unitPrice = item.unitPrice,
+                        unitBuyPrice = 0L,
+                        totalPrice = item.totalPrice
+                    )
+                }
+                _lastCompletedSale.value = Pair(orderSale, orderItems)
+                navigateTo(KonabScreen.RECEIPT)
+            } else {
+                navigateTo(KonabScreen.TRANSACTIONS)
+            }
+        }
+    }
+
+    fun refreshLedgerNow() {
+        if (!SupabaseConfig.isConfigured) return
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                supabaseSyncManager.pullLedgerAndRestaurantNow(repository)
+                reloadConnectedShopsState()
+                reloadRestaurantLocalState()
+            } catch (_: Exception) {}
         }
     }
 
@@ -1101,7 +1274,7 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
         onResult: (Boolean, String) -> Unit
     ) {
         viewModelScope.launch {
-            val operator = if (_currentRole.value == "ADMIN") "Gérant" else "Caissier"
+            val operator = currentOperatorDisplayName()
             val result = repository.cancelSale(
                 saleId = saleId,
                 reason = reason,
@@ -1451,7 +1624,7 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
         _restaurantStaff.value = RestaurantStorage.deleteStaffAccount(app, shopId, staffId)
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
-                supabaseSyncManager.deleteRestaurantStaffCloud(staffId)
+                supabaseSyncManager.deleteRestaurantStaffCloud(staffId, shopId)
             } catch (_: Exception) {}
         }
     }
@@ -1489,7 +1662,7 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
         _restaurantTables.value = RestaurantStorage.deleteTable(app, shopId, tableId)
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
-                supabaseSyncManager.deleteRestaurantTableCloud(tableId)
+                supabaseSyncManager.deleteRestaurantTableCloud(tableId, shopId)
             } catch (_: Exception) {}
         }
     }
@@ -1723,7 +1896,7 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 val previousById = _restaurantOrders.value.associateBy { it.id }
                 if (SupabaseConfig.isConfigured && shopId > 1L) {
-                    supabaseSyncManager.pullRestaurantStateNow(shopId)
+                    supabaseSyncManager.pullLedgerAndRestaurantNow(repository)
                 }
                 reloadRestaurantLocalState()
                 _lastRestaurantSyncAt.value = System.currentTimeMillis()
@@ -1761,8 +1934,7 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
         val saleTotal = order.items.sumOf { it.totalPrice }
-        val activeOp = _activeStaff.value
-        val cashier = activeOp?.name?.ifBlank { null } ?: if (_currentRole.value == "ADMIN") "Gérant" else "Caissier"
+        val cashier = currentOperatorDisplayName()
         val combinedNotes = listOfNotNull(
             "Table: ${order.tableName} • ${order.orderNumber}",
             notes.trim().takeIf { it.isNotBlank() }
@@ -1810,7 +1982,7 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             val previousById = _restaurantOrders.value.associateBy { it.id }
             val pushRes = supabaseSyncManager.syncRestaurantConfigNow(shopId)
-            val pullRes = supabaseSyncManager.pullRestaurantStateNow(shopId)
+            val pullRes = supabaseSyncManager.pullLedgerAndRestaurantNow(repository)
             reloadRestaurantLocalState()
             _lastRestaurantSyncAt.value = System.currentTimeMillis()
             detectAndNotifyRemoteOrderUpdates(previousById, _restaurantOrders.value)
@@ -1818,7 +1990,7 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
                 _isSyncingRestaurant.value = false
                 if (pullRes.isSuccess) {
                     val updates = pullRes.getOrDefault(0) + pushRes.getOrDefault(0)
-                    onResult(true, if (updates > 0) "Restaurant synchronisé ($updates éléments)." else "Restaurant déjà à jour.")
+                    onResult(true, if (updates > 0) "Restaurant & caisse synchronisés ($updates éléments)." else "Restaurant déjà à jour.")
                 } else {
                     onResult(false, pullRes.exceptionOrNull()?.localizedMessage ?: "Échec de synchronisation.")
                 }
@@ -2133,7 +2305,7 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
                             CustomerEntity(
                                 name = cleanName,
                                 phone = norm.customerPhone.trim(),
-                                notes = "Client Atelier Couture (${norm.orderNumber})"
+                                status = "Client Couture"
                             )
                         )
                     }
@@ -2202,7 +2374,7 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
         val shopName = shopProfile.value?.name.orEmpty()
         val amountToCollect = order.remainingBalance.takeIf { it > 0L } ?: order.totalPrice.coerceAtLeast(1L)
         val curr = shopProfile.value?.currency ?: "FCFA"
-        val cashier = if (_currentRole.value == "ADMIN") "Gérant" else "Caissier"
+        val cashier = currentOperatorDisplayName()
 
         val saleItem = SaleItemEntity(
             saleId = 0L,

@@ -88,10 +88,17 @@ class MainActivity : FragmentActivity() {
                 val unreadNotificationsCount by viewModel.unreadNotificationsCount.collectAsStateWithLifecycle()
                 val connectedShops by viewModel.connectedShops.collectAsStateWithLifecycle()
                 val activeCloudShopId by viewModel.activeCloudShopId.collectAsStateWithLifecycle()
+                val currentRole by viewModel.currentRole.collectAsStateWithLifecycle()
 
                 // Synchronized Restaurant State
                 val restaurantStaff by viewModel.restaurantStaff.collectAsStateWithLifecycle()
                 val activeStaff by viewModel.activeStaff.collectAsStateWithLifecycle()
+                val activeOperatorLabel = remember(activeStaff, currentRole) {
+                    activeStaff?.name?.ifBlank { null }
+                        ?: if (currentRole.equals("ADMIN", ignoreCase = true) ||
+                            currentRole.equals("MANAGER", ignoreCase = true)
+                        ) "Gérant" else "Caissier"
+                }
                 val restaurantTables by viewModel.restaurantTables.collectAsStateWithLifecycle()
                 val restaurantOrders by viewModel.restaurantOrders.collectAsStateWithLifecycle()
                 val menuOfDayProductIds by viewModel.menuOfDayProductIds.collectAsStateWithLifecycle()
@@ -198,7 +205,8 @@ class MainActivity : FragmentActivity() {
                                             isRestaurantMode = isRestaurantMode,
                                             openRestaurantOrdersCount = openRestaurantOrdersCount,
                                             isCoutureMode = isCoutureMode,
-                                            openCoutureOrdersCount = openCoutureOrdersCount
+                                            openCoutureOrdersCount = openCoutureOrdersCount,
+                                            currentRole = currentRole
                                         )
                                     }
                                 }
@@ -216,7 +224,8 @@ class MainActivity : FragmentActivity() {
                                             isRestaurantMode = isRestaurantMode,
                                             openRestaurantOrdersCount = openRestaurantOrdersCount,
                                             isCoutureMode = isCoutureMode,
-                                            openCoutureOrdersCount = openCoutureOrdersCount
+                                            openCoutureOrdersCount = openCoutureOrdersCount,
+                                            currentRole = currentRole
                                         )
                                     }
 
@@ -268,7 +277,17 @@ class MainActivity : FragmentActivity() {
                                         onEnterShop = {
                                             viewModel.reloadRestaurantLocalState()
                                             viewModel.reloadCoutureLocalState()
-                                            viewModel.resetTo(KonabScreen.DASHBOARD)
+                                            viewModel.syncRoleFromActiveStaff()
+                                            val staff = viewModel.activeStaff.value
+                                            val isResto = shopProfile?.businessType.equals("Restaurant", ignoreCase = true)
+                                            if (staff != null && (staff.role == com.example.data.remote.supabase.RestaurantStaffRole.KITCHEN ||
+                                                    staff.role == com.example.data.remote.supabase.RestaurantStaffRole.WAITER ||
+                                                    (isResto && staff.role == com.example.data.remote.supabase.RestaurantStaffRole.CASHIER))
+                                            ) {
+                                                viewModel.resetTo(KonabScreen.RESTAURANT)
+                                            } else {
+                                                viewModel.resetTo(KonabScreen.DASHBOARD)
+                                            }
                                             viewModel.refreshActiveShopFromCloud()
                                         },
                                         onComplete = { name, slogan, phone, address, city, currency, logoIcon, type, adminName, adminPhone, pin, preloadDemo, subscriptionTier ->
@@ -461,7 +480,10 @@ class MainActivity : FragmentActivity() {
                                         onOpenSession = { viewModel.openCashSession(it) },
                                         onCloseSession = { actual, notes -> viewModel.closeCashSession(actual, notes) },
                                         onAddMovement = { type, amount, reason -> viewModel.addCashMovement(type, amount, reason) },
-                                        onBack = { viewModel.navigateBack() }
+                                        onBack = { viewModel.navigateBack() },
+                                        currentRole = currentRole,
+                                        activeOperatorLabel = activeOperatorLabel,
+                                        onRefreshCash = { viewModel.refreshLedgerNow() }
                                     )
                                 }
 
@@ -484,7 +506,10 @@ class MainActivity : FragmentActivity() {
                                         onCancelSale = { saleId, reason, onResult ->
                                             viewModel.cancelSale(saleId, reason, onResult)
                                         },
-                                        onBack = { viewModel.navigateBack() }
+                                        onBack = { viewModel.navigateBack() },
+                                        currentRole = currentRole,
+                                        activeOperatorLabel = activeOperatorLabel,
+                                        onRefreshTransactions = { viewModel.refreshLedgerNow() }
                                     )
                                 }
 
@@ -576,13 +601,8 @@ class MainActivity : FragmentActivity() {
                                         onCollectOrderPayment = { order, method, isCredit, notes, onSuccess ->
                                             viewModel.collectRestaurantOrderPayment(order, method, isCredit, notes, onSuccess)
                                         },
-                                        onViewSaleReceiptById = { saleId ->
-                                            val matched = allSales.find { it.id == saleId }
-                                            if (matched != null) {
-                                                viewModel.viewSaleReceipt(matched)
-                                            } else {
-                                                viewModel.navigateTo(KonabScreen.RECEIPT)
-                                            }
+                                        onViewSaleReceiptById = { saleId, order ->
+                                            viewModel.viewSaleReceiptById(saleId, order)
                                         },
                                         onRefreshRestaurant = { cb -> viewModel.refreshRestaurantNow(cb) },
                                         onLivePollOrders = { viewModel.pullRestaurantOrdersLive() },

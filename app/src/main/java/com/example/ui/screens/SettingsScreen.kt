@@ -718,317 +718,22 @@ fun SettingsScreen(
                     testTag = "row_full_reset_app"
                 )
             }
-            // SECTION 4 : SÉCURITÉ & CODES D'ACCÈS
-            // ==========================================
-            SettingsSectionCard(title = "Sécurité & Contrôle", icon = Icons.Default.Security) {
-                var launchLockEnabled by remember { mutableStateOf(BiometricSecurityHelper.isLaunchLockEnabled(context)) }
-                var biometricUnlockEnabled by remember { mutableStateOf(BiometricSecurityHelper.isBiometricEnabled(context)) }
-                val biometricStatus = remember { BiometricSecurityHelper.checkBiometricAvailability(context) }
+            SettingsSecuritySectionCard(
+                shopProfile = shopProfile,
+                onOpenPinChangeDialog = { showPinChangeDialog = true },
+                onLockApp = onLockApp
+            )
 
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(36.dp)
-                                .background(
-                                    if (launchLockEnabled) Color(0xFFDCFCE7) else MaterialTheme.colorScheme.surfaceVariant,
-                                    CircleShape
-                                ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.VerifiedUser,
-                                contentDescription = null,
-                                tint = if (launchLockEnabled) Color(0xFF16A34A) else MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column {
-                            Text(
-                                text = "Sécurité à chaque lancement",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 13.5.sp
-                            )
-                            Text(
-                                text = "Exige le Code Gérant ou l'empreinte à l'ouverture",
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                    Switch(
-                        checked = launchLockEnabled,
-                        onCheckedChange = { checked ->
-                            launchLockEnabled = checked
-                            BiometricSecurityHelper.setLaunchLockEnabled(context, checked)
-                            Toast.makeText(
-                                context,
-                                if (checked) "Verrouillage au lancement activé." else "Verrouillage au lancement désactivé.",
-                                Toast.LENGTH_SHORT
-                            ).show()
-                        },
-                        modifier = Modifier.testTag("switch_launch_lock")
-                    )
-                }
-
-                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(36.dp)
-                                .background(
-                                    if (biometricUnlockEnabled && biometricStatus == BiometricAvailability.AVAILABLE) Color(0xFFDBEAFE) else MaterialTheme.colorScheme.surfaceVariant,
-                                    CircleShape
-                                ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Fingerprint,
-                                contentDescription = null,
-                                tint = if (biometricUnlockEnabled && biometricStatus == BiometricAvailability.AVAILABLE) KonabBlue else MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column {
-                            Text(
-                                text = "Déverrouillage par empreinte digitale",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 13.5.sp
-                            )
-                            Text(
-                                text = when (biometricStatus) {
-                                    BiometricAvailability.AVAILABLE -> "Capteur biométrique prêt"
-                                    BiometricAvailability.NONE_ENROLLED -> "Aucune empreinte enregistrée sur ce téléphone"
-                                    else -> "Capteur biométrique indisponible"
-                                },
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                    Switch(
-                        checked = biometricUnlockEnabled,
-                        enabled = biometricStatus != BiometricAvailability.NO_HARDWARE,
-                        onCheckedChange = { checked ->
-                            biometricUnlockEnabled = checked
-                            BiometricSecurityHelper.setBiometricEnabled(context, checked)
-                        },
-                        modifier = Modifier.testTag("switch_biometric_unlock")
-                    )
-                }
-
-                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-
-                SettingsModernRow(
-                    icon = Icons.Default.Pin,
-                    iconTint = Color(0xFFDC2626),
-                    iconBg = Color(0xFFFEE2E2),
-                    title = "Codes PIN Administrateur & Caisse",
-                    subtitle = "Protection contre les modifications non autorisées",
-                    trailingValue = "Modifier",
-                    onClick = { showPinChangeDialog = true },
-                    testTag = "row_pin_security"
-                )
-
-                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-
-                SettingsModernRow(
-                    icon = Icons.Default.LockClock,
-                    iconTint = Color(0xFFEA580C),
-                    iconBg = Color(0xFFFFEDD5),
-                    title = "Verrouillage immédiat",
-                    subtitle = "Verrouille l'écran jusqu'au Code Gérant ou empreinte",
-                    trailingValue = "Verrouiller",
-                    onClick = onLockApp,
-                    testTag = "row_lock_now"
-                )
-            }
-
-            // ==========================================
-            // SECTION 5 : ABONNEMENT, AIDE & SUPPORT
-            // ==========================================
-            SettingsSectionCard(title = "Abonnement & Assistance", icon = Icons.Default.WorkspacePremium) {
-                val activePricingProfile = remember(shopProfile?.businessType) {
-                    SubscriptionPricingHelper.getPricingProfile(shopProfile?.businessType)
-                }
-                val activeCategoryColor = Color(activePricingProfile.category.accentColorHex)
-
-                SettingsModernRow(
-                    icon = Icons.Default.WorkspacePremium,
-                    iconTint = activeCategoryColor,
-                    iconBg = activeCategoryColor.copy(alpha = 0.12f),
-                    title = "Formule & Tarification par Activité",
-                    subtitle = "${activePricingProfile.category.title} • Standard ${
-                        SubscriptionPricingHelper.formatCompactPrice(activePricingProfile.standardMonthly, "/mois")
-                    } • Pro ${
-                        SubscriptionPricingHelper.formatCompactPrice(activePricingProfile.proAnnual, "/an")
-                    }",
-                    trailingValue = shopProfile?.subscriptionTier ?: "Gratuit",
-                    badgeText = activePricingProfile.category.badgeLabel,
-                    badgeColor = activeCategoryColor,
-                    onClick = { onNavigate(KonabScreen.SUBSCRIPTION) },
-                    testTag = "row_subscription"
-                )
-
-                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-
-                DifferentiatedPricingComparisonBlock(
-                    currentBusinessType = shopProfile?.businessType,
-                    currentTier = shopProfile?.subscriptionTier,
-                    onOpenSubscription = { onNavigate(KonabScreen.SUBSCRIPTION) },
-                    onChangeSector = { showSectorDialog = true }
-                )
-
-                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-
-                val savedSessionAgent = remember { AgentDeploymentStorage.getSavedAgentSession(context) }
-                if (savedSessionAgent != null) {
-                    val savedAgentPhoto = remember(savedSessionAgent) {
-                        AgentDeploymentStorage.getEffectivePhotoUri(context, savedSessionAgent)
-                    }
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onNavigate(KonabScreen.AGENT_PORTAL) }
-                            .padding(horizontal = 16.dp, vertical = 12.dp)
-                            .testTag("row_agent_portal"),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        AgentPhotoAvatar(
-                            name = savedSessionAgent.name,
-                            photoUri = savedAgentPhoto,
-                            size = 44.dp,
-                            borderColor = KonabOrange
-                        )
-                        Column(modifier = Modifier.weight(1f)) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Text(
-                                    text = "Portail Agent • ${savedSessionAgent.name}",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 14.sp,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                            Text(
-                                text = "KONAB-${savedSessionAgent.id} • ${savedSessionAgent.zone} • Carte & QR disponibles",
-                                fontSize = 11.5.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = KonabOrange.copy(alpha = 0.14f)
-                        ) {
-                            Text(
-                                text = "PROFIL",
-                                color = KonabOrange,
-                                fontWeight = FontWeight.ExtraBold,
-                                fontSize = 10.sp,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                            )
-                        }
-                    }
-                } else {
-                    SettingsModernRow(
-                        icon = Icons.Default.Badge,
-                        iconTint = Color(0xFF0F766E),
-                        iconBg = Color(0xFFCCFBF1),
-                        title = "Portail Agent & Déploiement",
-                        subtitle = "Connexion agent agréé, configuration boutique & activation",
-                        trailingValue = "Accéder",
-                        badgeText = "AGENTS",
-                        badgeColor = KonabOrange,
-                        onClick = { onNavigate(KonabScreen.AGENT_PORTAL) },
-                        testTag = "row_agent_portal"
-                    )
-                }
-
-                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-
-                SettingsModernRow(
-                    icon = Icons.Default.SupportAgent,
-                    iconTint = Color(0xFF059669),
-                    iconBg = Color(0xFFD1FAE5),
-                    title = "Aide & Support Client",
-                    subtitle = "Guide pratique et contact WhatsApp / Tel",
-                    trailingValue = "Consulter",
-                    onClick = { showHelpDialog = true },
-                    testTag = "row_help_support"
-                )
-
-                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-
-                SettingsModernRow(
-                    icon = Icons.Default.Send,
-                    iconTint = Color(0xFF25D366),
-                    iconBg = Color(0xFFDCFCE7),
-                    title = "Partager le fichier APK sur WhatsApp",
-                    subtitle = "Envoyer l'installateur APK directement sur WhatsApp pour vos confrères",
-                    trailingValue = if (isSharingApk) "Préparation..." else "Envoyer APK",
-                    badgeText = "WHATSAPP",
-                    badgeColor = Color(0xFF25D366),
-                    onClick = onShareApkWhatsApp,
-                    testTag = "row_share_apk_whatsapp"
-                )
-
-                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-
-                SettingsModernRow(
-                    icon = Icons.Default.Share,
-                    iconTint = Color(0xFF073B9A),
-                    iconBg = Color(0xFFE1ECF9),
-                    title = "Partager l'application (Message)",
-                    subtitle = "Recommander Konab POS à vos confrères et partenaires",
-                    trailingValue = "Partager",
-                    badgeText = "RECOMMANDER",
-                    badgeColor = Color(0xFFFF7900),
-                    onClick = onShareApp,
-                    testTag = "row_share_app"
-                )
-
-                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-
-                SettingsModernRow(
-                    icon = Icons.Default.Info,
-                    iconTint = Color(0xFF6B7280),
-                    iconBg = Color(0xFFF3F4F6),
-                    title = "À propos de Konab POS",
-                    subtitle = "Version 1.0 • Solution 100% Hors-ligne & Cloud",
-                    trailingValue = "V1.0",
-                    onClick = { showAboutDialog = true },
-                    testTag = "row_about_app"
-                )
-            }
+            SettingsSubscriptionSupportCard(
+                shopProfile = shopProfile,
+                isSharingApk = isSharingApk,
+                onNavigate = onNavigate,
+                onOpenSectorDialog = { showSectorDialog = true },
+                onOpenHelpDialog = { showHelpDialog = true },
+                onShareApkWhatsApp = onShareApkWhatsApp,
+                onShareApp = onShareApp,
+                onOpenAboutDialog = { showAboutDialog = true }
+            )
 
             // ==========================================
             // CARTE PROMOTIONNELLE : PARTAGER L'APPLICATION & FICHIER APK
@@ -1214,871 +919,79 @@ fun SettingsScreen(
 
     // Edit Shop Info Dialog
     if (showEditInfoDialog && shopProfile != null) {
-        var name by remember { mutableStateOf(shopProfile.name) }
-        var slogan by remember { mutableStateOf(shopProfile.slogan) }
-        var phone by remember { mutableStateOf(shopProfile.phone) }
-        var address by remember { mutableStateOf(shopProfile.address) }
-        var city by remember { mutableStateOf(shopProfile.city) }
-        var currency by remember { mutableStateOf(shopProfile.currency) }
-        var receiptFooter by remember { mutableStateOf(shopProfile.receiptFooter) }
-
-        val currencies = listOf("FCFA", "EUR", "USD", "GNF", "NGN")
-
-        AlertDialog(
-            onDismissRequest = { showEditInfoDialog = false },
-            title = {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .background(KonabGreenLight, CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(Icons.Default.Storefront, contentDescription = null, tint = KonabGreenDark, modifier = Modifier.size(20.dp))
-                    }
-                    Text("Modifier la boutique", fontWeight = FontWeight.Bold, fontSize = 17.sp)
-                }
-            },
-            text = {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 380.dp)
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    // Logo Picker Section in Edit Shop Dialog
-                    Surface(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { showLogoDialog = true },
-                        shape = RoundedCornerShape(12.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            ShopLogoAvatar(
-                                logoUri = shopProfile.logoUri,
-                                size = 52.dp,
-                                shape = RoundedCornerShape(14.dp),
-                                showEditBadge = true
-                            )
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text("Logo de la boutique", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                                Text("Cliquez pour changer le logo", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            OutlinedButton(
-                                onClick = { showLogoDialog = true },
-                                modifier = Modifier.height(34.dp),
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp)
-                            ) {
-                                Text("Modifier", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
-                    OutlinedTextField(
-                        value = name,
-                        onValueChange = { name = it },
-                        label = { Text("Nom du commerce *") },
-                        leadingIcon = { Icon(Icons.Default.Store, contentDescription = null) },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth().testTag("input_edit_shop_name")
-                    )
-
-                    OutlinedTextField(
-                        value = slogan,
-                        onValueChange = { slogan = it },
-                        label = { Text("Slogan / Sous-titre") },
-                        leadingIcon = { Icon(Icons.Default.FormatQuote, contentDescription = null) },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    OutlinedTextField(
-                        value = phone,
-                        onValueChange = { phone = it },
-                        label = { Text("Numéro de téléphone *") },
-                        leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null) },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth().testTag("input_edit_phone")
-                    )
-
-                    OutlinedTextField(
-                        value = address,
-                        onValueChange = { address = it },
-                        label = { Text("Adresse / Quartier") },
-                        leadingIcon = { Icon(Icons.Default.LocationOn, contentDescription = null) },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    OutlinedTextField(
-                        value = city,
-                        onValueChange = { city = it },
-                        label = { Text("Ville (Burkina Faso)") },
-                        leadingIcon = { Icon(Icons.Default.LocationCity, contentDescription = null) },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    // Villes populaires du Burkina Faso
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(5.dp)
-                    ) {
-                        listOf("Ouagadougou", "Bobo-Dioulasso", "Koudougou", "Banfora").forEach { bCity ->
-                            FilterChip(
-                                selected = city.equals(bCity, ignoreCase = true),
-                                onClick = { city = bCity },
-                                label = { Text(bCity, fontSize = 10.sp) },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = KonabGreen.copy(alpha = 0.15f),
-                                    selectedLabelColor = KonabGreenDark
-                                )
-                            )
-                        }
-                    }
-
-                    // Currency Selector Chips
-                    Text("Devise principale :", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        currencies.forEach { curr ->
-                            FilterChip(
-                                selected = currency == curr,
-                                onClick = { currency = curr },
-                                label = { Text(curr, fontSize = 11.sp, fontWeight = if (currency == curr) FontWeight.Bold else FontWeight.Normal) },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = KonabGreen.copy(alpha = 0.15f),
-                                    selectedLabelColor = KonabGreenDark
-                                )
-                            )
-                        }
-                    }
-
-                    OutlinedTextField(
-                        value = receiptFooter,
-                        onValueChange = { receiptFooter = it },
-                        label = { Text("Pied de page du ticket") },
-                        leadingIcon = { Icon(Icons.AutoMirrored.Filled.ReceiptLong, contentDescription = null) },
-                        singleLine = false,
-                        maxLines = 2,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val updated = shopProfile.copy(
-                            name = name.trim().ifBlank { shopProfile.name },
-                            slogan = slogan.trim(),
-                            phone = phone.trim().ifBlank { shopProfile.phone },
-                            address = address.trim(),
-                            city = city.trim(),
-                            currency = currency,
-                            receiptFooter = receiptFooter.trim()
-                        )
-                        onUpdateProfile(updated)
-                        Toast.makeText(context, "Boutique \"${updated.name}\" enregistrée et synchronisée", Toast.LENGTH_SHORT).show()
-                        showEditInfoDialog = false
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = KonabGreen),
-                    modifier = Modifier.testTag("btn_save_shop_info")
-                ) {
-                    Text("Enregistrer")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showEditInfoDialog = false }) {
-                    Text("Annuler")
-                }
-            }
+        SettingsEditInfoDialog(
+            shopProfile = shopProfile,
+            onOpenLogoDialog = { showLogoDialog = true },
+            onUpdateProfile = onUpdateProfile,
+            onDismiss = { showEditInfoDialog = false }
         )
     }
 
-    // ==========================================
-    // DIALOG : CHANGER LE LOGO DE LA BOUTIQUE
-    // ==========================================
     if (showLogoDialog && shopProfile != null) {
-        var selectedPresetKey by remember { mutableStateOf(shopProfile.logoUri) }
-
-        AlertDialog(
-            onDismissRequest = { showLogoDialog = false },
-            title = {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .background(Color(0xFFFEF3C7), CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.AddPhotoAlternate,
-                            contentDescription = null,
-                            tint = Color(0xFFD97706),
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                    Text(
-                        text = "Logo de la boutique",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 17.sp
-                    )
-                }
+        SettingsLogoDialog(
+            shopProfile = shopProfile,
+            onPickFromGallery = {
+                photoPickerLauncher.launch(
+                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                )
+                showLogoDialog = false
             },
-            text = {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 440.dp)
-                        .verticalScroll(rememberScrollState()),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
-                ) {
-                    // Live Logo Preview
-                    ShopLogoAvatar(
-                        logoUri = selectedPresetKey,
-                        size = 88.dp,
-                        shape = CircleShape,
-                        contentDescription = "Aperçu du logo"
-                    )
-
-                    Text(
-                        text = "Le logo s'affiche sur le tableau de bord, les paramètres et les tickets de caisse imprimés.",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                        lineHeight = 16.sp
-                    )
-
-                    // Button 1: Zero-permission Android Photo Picker
-                    Button(
-                        onClick = {
-                            photoPickerLauncher.launch(
-                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                            )
-                            showLogoDialog = false
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(46.dp)
-                            .testTag("btn_pick_logo_gallery"),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF073B9A)),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Icon(Icons.Default.PhotoLibrary, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Choisir une image dans la galerie", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                    }
-
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-
-                    Text(
-                        text = "OU CHOISIR UN LOGO PRÉDÉFINI :",
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary,
-                            fontSize = 11.sp
-                        ),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    // Preset Logos List
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        ShopLogoHelper.PRESET_LOGOS.forEach { preset ->
-                            val isSelected = selectedPresetKey == preset.key
-                            Surface(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        selectedPresetKey = preset.key
-                                    },
-                                shape = RoundedCornerShape(12.dp),
-                                color = if (isSelected) Color(0xFFE1ECF9) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
-                                border = BorderStroke(
-                                    if (isSelected) 2.dp else 1.dp,
-                                    if (isSelected) Color(0xFF073B9A) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
-                                )
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(8.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                ) {
-                                    Surface(
-                                        shape = RoundedCornerShape(8.dp),
-                                        color = Color.White,
-                                        modifier = Modifier.size(38.dp)
-                                    ) {
-                                        Image(
-                                            painter = painterResource(id = preset.drawableRes),
-                                            contentDescription = preset.label,
-                                            contentScale = ContentScale.Fit,
-                                            modifier = Modifier.fillMaxSize().padding(2.dp)
-                                        )
-                                    }
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = preset.label,
-                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                            fontSize = 12.sp,
-                                            color = if (isSelected) Color(0xFF073B9A) else MaterialTheme.colorScheme.onSurface
-                                        )
-                                        Text(
-                                            text = preset.category,
-                                            fontSize = 10.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                    if (isSelected) {
-                                        Icon(
-                                            imageVector = Icons.Default.CheckCircle,
-                                            contentDescription = "Sélectionné",
-                                            tint = Color(0xFF073B9A),
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // Reset button
-                    if (!shopProfile.logoUri.isNullOrBlank() || selectedPresetKey != null) {
-                        TextButton(
-                            onClick = {
-                                selectedPresetKey = null
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Rétablir le logo officiel Konab POS par défaut", fontSize = 11.sp, color = MaterialTheme.colorScheme.error)
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val updated = shopProfile.copy(logoUri = selectedPresetKey)
-                        onUpdateProfile(updated)
-                        Toast.makeText(context, "Logo de la boutique enregistré !", Toast.LENGTH_SHORT).show()
-                        showLogoDialog = false
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = KonabGreen),
-                    modifier = Modifier.testTag("btn_save_shop_logo")
-                ) {
-                    Text("Appliquer ce logo", fontWeight = FontWeight.Bold)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showLogoDialog = false }) {
-                    Text("Annuler")
-                }
-            }
+            onUpdateProfile = onUpdateProfile,
+            onDismiss = { showLogoDialog = false }
         )
     }
 
-    // Change PIN Dialog
     if (showPinChangeDialog && shopProfile != null) {
-        var currentPinInput by remember { mutableStateOf("") }
-        var newAdminPinInput by remember { mutableStateOf("") }
-        var newCashierPinInput by remember { mutableStateOf(shopProfile.cashierPin) }
-        var errorMsg by remember { mutableStateOf("") }
-
-        AlertDialog(
-            onDismissRequest = { showPinChangeDialog = false },
-            title = {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .background(Color(0xFFFEE2E2), CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(Icons.Default.Lock, contentDescription = null, tint = Color(0xFFDC2626), modifier = Modifier.size(20.dp))
-                    }
-                    Text("Sécurité des Codes PIN", fontWeight = FontWeight.Bold, fontSize = 17.sp)
-                }
-            },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(
-                        "Pour modifier les codes, veuillez d'abord saisir le code PIN Administrateur actuel :",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-
-                    OutlinedTextField(
-                        value = currentPinInput,
-                        onValueChange = { if (it.length <= 4) currentPinInput = it },
-                        label = { Text("Code PIN Admin actuel (4 chiffres)") },
-                        visualTransformation = PasswordVisualTransformation(),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                        singleLine = true,
-                        leadingIcon = { Icon(Icons.Default.Key, contentDescription = null) },
-                        modifier = Modifier.fillMaxWidth().testTag("input_current_pin")
-                    )
-
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-
-                    OutlinedTextField(
-                        value = newAdminPinInput,
-                        onValueChange = { if (it.length <= 4) newAdminPinInput = it },
-                        label = { Text("Nouveau PIN Admin (4 chiffres)") },
-                        placeholder = { Text("Ex: 1234") },
-                        visualTransformation = PasswordVisualTransformation(),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                        singleLine = true,
-                        leadingIcon = { Icon(Icons.Default.Shield, contentDescription = null) },
-                        modifier = Modifier.fillMaxWidth().testTag("input_new_admin_pin")
-                    )
-
-                    OutlinedTextField(
-                        value = newCashierPinInput,
-                        onValueChange = { if (it.length <= 4) newCashierPinInput = it },
-                        label = { Text("PIN Caissier (4 chiffres)") },
-                        placeholder = { Text("Ex: 0000") },
-                        visualTransformation = PasswordVisualTransformation(),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                        singleLine = true,
-                        leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
-                        modifier = Modifier.fillMaxWidth().testTag("input_new_cashier_pin")
-                    )
-
-                    if (errorMsg.isNotBlank()) {
-                        Text(errorMsg, color = MaterialTheme.colorScheme.error, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    }
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        if (currentPinInput != shopProfile.adminPin) {
-                            errorMsg = "Le code PIN actuel est incorrect"
-                        } else if (newAdminPinInput.length < 4) {
-                            errorMsg = "Le nouveau code Admin doit comporter 4 chiffres"
-                        } else {
-                            onUpdateProfile(
-                                shopProfile.copy(
-                                    adminPin = newAdminPinInput,
-                                    cashierPin = newCashierPinInput.ifBlank { "0000" }
-                                )
-                            )
-                            Toast.makeText(context, "Codes PIN mis à jour avec succès", Toast.LENGTH_SHORT).show()
-                            showPinChangeDialog = false
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = KonabGreen),
-                    modifier = Modifier.testTag("btn_confirm_pin_change")
-                ) {
-                    Text("Valider")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showPinChangeDialog = false }) {
-                    Text("Annuler")
-                }
-            }
+        SettingsPinChangeDialog(
+            shopProfile = shopProfile,
+            onUpdateProfile = onUpdateProfile,
+            onDismiss = { showPinChangeDialog = false }
         )
     }
 
-    // Backup Dialog
     if (showBackupDialog) {
-        AlertDialog(
-            onDismissRequest = { showBackupDialog = false },
-            title = {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .background(KonabGreenLight, CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(Icons.Default.Backup, contentDescription = null, tint = KonabGreenDark, modifier = Modifier.size(20.dp))
-                    }
-                    Text("Sauvegarde Locale (100% Hors-ligne)", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                }
+        SettingsBackupDialog(
+            onBackup = onBackup,
+            onOpenRestore = {
+                showBackupDialog = false
+                showRestoreDialog = true
             },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(
-                        "Une archive JSON chiffrée contenant toutes vos données (produits, ventes, tickets, clients, fournisseurs, caisse) sera créée sur votre appareil.",
-                        fontSize = 13.sp,
-                        lineHeight = 18.sp
-                    )
-                    Surface(
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                        shape = RoundedCornerShape(10.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Icon(Icons.Default.Share, contentDescription = null, tint = KonabGreen, modifier = Modifier.size(18.dp))
-                            Text(
-                                "Vous pourrez envoyer le fichier par WhatsApp, Email ou Bluetooth pour le conserver en lieu sûr.",
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        onBackup(context) { file ->
-                            if (file != null) {
-                                BackupRestoreHelper.shareBackupFile(context, file)
-                            } else {
-                                Toast.makeText(context, "Erreur lors de la création de la sauvegarde", Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                        showBackupDialog = false
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = KonabGreen)
-                ) {
-                    Text("Exporter la sauvegarde")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = {
-                    showBackupDialog = false
-                    showRestoreDialog = true
-                }) {
-                    Text("Restaurer un fichier...")
-                }
-            }
+            onDismiss = { showBackupDialog = false }
         )
     }
 
-    // Restore Dialog
     if (showRestoreDialog) {
-        var jsonInput by remember { mutableStateOf("") }
-        AlertDialog(
-            onDismissRequest = { showRestoreDialog = false },
-            title = {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .background(Color(0xFFE0F2FE), CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(Icons.Default.Restore, contentDescription = null, tint = Color(0xFF0284C7), modifier = Modifier.size(20.dp))
-                    }
-                    Text("Restaurer des Données", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                }
-            },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        "Collez ci-dessous le contenu textuel de votre fichier de sauvegarde JSON :",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    OutlinedTextField(
-                        value = jsonInput,
-                        onValueChange = { jsonInput = it },
-                        placeholder = { Text("{\"version\":1, \"app\":\"Konab POS\"...}") },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(140.dp)
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        onRestore(jsonInput) { success ->
-                            if (success) {
-                                Toast.makeText(context, "Données restaurées avec succès !", Toast.LENGTH_LONG).show()
-                                showRestoreDialog = false
-                            } else {
-                                Toast.makeText(context, "Fichier invalide ou format incorrect", Toast.LENGTH_LONG).show()
-                            }
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = KonabGreen)
-                ) {
-                    Text("Restaurer")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showRestoreDialog = false }) {
-                    Text("Annuler")
-                }
-            }
+        SettingsRestoreDialog(
+            onRestore = onRestore,
+            onDismiss = { showRestoreDialog = false }
         )
     }
 
-    // Clear Demo Data Dialog
     if (showClearDemoDialog) {
-        AlertDialog(
-            onDismissRequest = { showClearDemoDialog = false },
-            title = {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .background(Color(0xFFFEE2E2), CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(Icons.Default.DeleteSweep, contentDescription = null, tint = Color(0xFFDC2626), modifier = Modifier.size(20.dp))
-                    }
-                    Text("Effacer les données démo", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                }
-            },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(
-                        "Cette action va supprimer définitivement :",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Text("• Tous les articles et stocks de test", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("• Toutes les ventes et tickets enregistrés", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("• Tous les clients et dettes de test", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("• Tous les fournisseurs et achats de test", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("• L'historique des mouvements et sessions de caisse", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Surface(
-                        color = Color(0xFFECFDF5),
-                        shape = RoundedCornerShape(10.dp)
-                    ) {
-                        Text(
-                            text = "Votre profil de commerce, logo, nom et code PIN seront conservés. Votre application sera 100% vierge et prête pour vos vrais encaissements.",
-                            fontSize = 11.sp,
-                            color = Color(0xFF065F46),
-                            modifier = Modifier.padding(10.dp),
-                            lineHeight = 16.sp
-                        )
-                    }
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        onClearDemoData(true) {
-                            Toast.makeText(context, "Toutes les données démo ont été effacées avec succès !", Toast.LENGTH_LONG).show()
-                        }
-                        showClearDemoDialog = false
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626))
-                ) {
-                    Text("Oui, effacer la démo")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showClearDemoDialog = false }) {
-                    Text("Annuler")
-                }
-            }
+        SettingsClearDemoDialog(
+            onClearDemoData = onClearDemoData,
+            onDismiss = { showClearDemoDialog = false }
         )
     }
 
-    // Full Reset Dialog
     if (showFullResetDialog) {
-        AlertDialog(
-            onDismissRequest = { showFullResetDialog = false },
-            title = {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .background(Color(0xFFFEF2F2), CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(Icons.Default.RestartAlt, contentDescription = null, tint = Color(0xFFB91C1C), modifier = Modifier.size(20.dp))
-                    }
-                    Text("Réinitialisation Complète", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                }
-            },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(
-                        "Attention : Cette opération efface absolument TOUT sur l'appareil (données, paramètres, profil commerçant et codes PIN).",
-                        fontSize = 13.sp,
-                        color = Color(0xFFB91C1C),
-                        fontWeight = FontWeight.Medium
-                    )
-                    Text(
-                        "L'application reviendra à l'écran initial de configuration de bienvenue.",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        onClearDemoData(false) {
-                            Toast.makeText(context, "Application réinitialisée à zéro.", Toast.LENGTH_LONG).show()
-                        }
-                        showFullResetDialog = false
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB91C1C))
-                ) {
-                    Text("Réinitialiser à zéro")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showFullResetDialog = false }) {
-                    Text("Annuler")
-                }
-            }
+        SettingsFullResetDialog(
+            onClearDemoData = onClearDemoData,
+            onDismiss = { showFullResetDialog = false }
         )
     }
 
-    // Help Dialog
     if (showHelpDialog) {
-        AlertDialog(
-            onDismissRequest = { showHelpDialog = false },
-            title = {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .background(KonabGreenLight, CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(Icons.AutoMirrored.Filled.HelpOutline, contentDescription = null, tint = KonabGreenDark, modifier = Modifier.size(20.dp))
-                    }
-                    Text("Guide & Support Konab POS", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                }
-            },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    HelpPointItem(
-                        icon = Icons.Default.PointOfSale,
-                        title = "Encaissement Express",
-                        desc = "Cliquez sur les articles pour les ajouter au panier ou scannez directement les codes-barres."
-                    )
-                    HelpPointItem(
-                        icon = Icons.Default.AccountBalanceWallet,
-                        title = "Gestion de Caisse",
-                        desc = "Ouvrez votre session chaque matin avec le montant en espèces, puis effectuez la clôture (Z de caisse) le soir."
-                    )
-                    HelpPointItem(
-                        icon = Icons.Default.CloudDone,
-                        title = "Synchronisation Automatique",
-                        desc = "Vos ventes, stocks et clients sont automatiquement synchronisés en arrière-plan pour ne jamais perdre vos données."
-                    )
-                    Surface(
-                        color = KonabGoldContainer.copy(alpha = 0.5f),
-                        shape = RoundedCornerShape(10.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Column {
-                                Text("Ligne officielle support & activation :", fontSize = 11.sp, color = KonabGoldDark)
-                                Text("+226 65 41 37 99", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = KonabGoldDark)
-                            }
-                            IconButton(
-                                onClick = {
-                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                    clipboard.setPrimaryClip(ClipData.newPlainText("Support Phone", "65413799"))
-                                    Toast.makeText(context, "Numéro copié : 65413799", Toast.LENGTH_SHORT).show()
-                                }
-                            ) {
-                                Icon(Icons.Default.ContentCopy, contentDescription = "Copier", tint = KonabGoldDark, modifier = Modifier.size(18.dp))
-                            }
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showHelpDialog = false }) {
-                    Text("Fermer", fontWeight = FontWeight.Bold)
-                }
-            }
-        )
+        SettingsHelpDialog(onDismiss = { showHelpDialog = false })
     }
 
-    // About Dialog
     if (showAboutDialog) {
-        AlertDialog(
-            onDismissRequest = { showAboutDialog = false },
-            title = {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .background(KonabGreenLight, CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("K", fontWeight = FontWeight.ExtraBold, color = KonabGreenDark, fontSize = 20.sp)
-                    }
-                    Text("À propos de Konab POS", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                }
-            },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        "Konab POS - Système de Point de Vente Professionnel",
-                        fontWeight = FontWeight.Bold,
-                        color = KonabGreenDark,
-                        fontSize = 13.sp
-                    )
-                    Text(
-                        "Spécialement développé pour les commerçants du Burkina Faso et de la sous-région ouest-africaine. Fonctionne sans connexion Internet grâce à la technologie SQLite Room, avec synchronisation Cloud automatique.",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        lineHeight = 17.sp
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text("Version 1.0.0 (Build 2026)", fontSize = 11.sp, fontWeight = FontWeight.Medium)
-                    Text("Développé avec fierté par Konab Digital © 2026", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showAboutDialog = false }) {
-                    Text("Fermer", fontWeight = FontWeight.Bold)
-                }
-            },
-            dismissButton = {
-                OutlinedButton(
-                    onClick = onShareApp,
-                    modifier = Modifier.testTag("btn_share_about_dialog")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Share,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Partager", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                }
-            }
+        SettingsAboutDialog(
+            onShareApp = onShareApp,
+            onDismiss = { showAboutDialog = false }
         )
     }
 
-    // Modals
     if (showBluetoothPrinterModal) {
         com.example.ui.components.BluetoothPrinterModal(
             shopProfile = shopProfile,
@@ -2120,6 +1033,828 @@ fun SettingsScreen(
         )
     }
 }
+
+@Composable
+private fun SettingsSecuritySectionCard(
+    shopProfile: ShopProfileEntity?,
+    onOpenPinChangeDialog: () -> Unit,
+    onLockApp: () -> Unit
+) {
+    val context = LocalContext.current
+    SettingsSectionCard(title = "Sécurité & Contrôle", icon = Icons.Default.Security) {
+        var launchLockEnabled by remember { mutableStateOf(BiometricSecurityHelper.isLaunchLockEnabled(context)) }
+        var biometricUnlockEnabled by remember { mutableStateOf(BiometricSecurityHelper.isBiometricEnabled(context)) }
+        val biometricStatus = remember { BiometricSecurityHelper.checkBiometricAvailability(context) }
+
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                Box(
+                    modifier = Modifier.size(36.dp).background(if (launchLockEnabled) Color(0xFFDCFCE7) else MaterialTheme.colorScheme.surfaceVariant, CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Default.VerifiedUser, contentDescription = null, tint = if (launchLockEnabled) Color(0xFF16A34A) else MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Column {
+                    Text("Sécurité à chaque lancement", fontWeight = FontWeight.Bold, fontSize = 13.5.sp)
+                    Text("Exige le Code Gérant ou l'empreinte à l'ouverture", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            Switch(
+                checked = launchLockEnabled,
+                onCheckedChange = { checked ->
+                    launchLockEnabled = checked
+                    BiometricSecurityHelper.setLaunchLockEnabled(context, checked)
+                    Toast.makeText(context, if (checked) "Verrouillage au lancement activé." else "Verrouillage au lancement désactivé.", Toast.LENGTH_SHORT).show()
+                },
+                modifier = Modifier.testTag("switch_launch_lock")
+            )
+        }
+
+        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                Box(
+                    modifier = Modifier.size(36.dp).background(if (biometricUnlockEnabled && biometricStatus == BiometricAvailability.AVAILABLE) Color(0xFFDBEAFE) else MaterialTheme.colorScheme.surfaceVariant, CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Default.Fingerprint, contentDescription = null, tint = if (biometricUnlockEnabled && biometricStatus == BiometricAvailability.AVAILABLE) KonabBlue else MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Column {
+                    Text("Déverrouillage par empreinte digitale", fontWeight = FontWeight.Bold, fontSize = 13.5.sp)
+                    Text(
+                        text = when (biometricStatus) {
+                            BiometricAvailability.AVAILABLE -> "Capteur biométrique prêt"
+                            BiometricAvailability.NONE_ENROLLED -> "Aucune empreinte enregistrée sur ce téléphone"
+                            else -> "Capteur biométrique indisponible"
+                        },
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            Switch(
+                checked = biometricUnlockEnabled,
+                enabled = biometricStatus != BiometricAvailability.NO_HARDWARE,
+                onCheckedChange = { checked ->
+                    biometricUnlockEnabled = checked
+                    BiometricSecurityHelper.setBiometricEnabled(context, checked)
+                },
+                modifier = Modifier.testTag("switch_biometric_unlock")
+            )
+        }
+
+        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+        SettingsModernRow(
+            icon = Icons.Default.Pin,
+            iconTint = Color(0xFFDC2626),
+            iconBg = Color(0xFFFEE2E2),
+            title = "Codes PIN Administrateur & Caisse",
+            subtitle = "Protection contre les modifications non autorisées",
+            trailingValue = "Modifier",
+            onClick = onOpenPinChangeDialog,
+            testTag = "row_pin_security"
+        )
+
+        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+        SettingsModernRow(
+            icon = Icons.Default.LockClock,
+            iconTint = Color(0xFFEA580C),
+            iconBg = Color(0xFFFFEDD5),
+            title = "Verrouillage immédiat",
+            subtitle = "Verrouille l'écran jusqu'au Code Gérant ou empreinte",
+            trailingValue = "Verrouiller",
+            onClick = onLockApp,
+            testTag = "row_lock_now"
+        )
+    }
+}
+
+@Composable
+private fun SettingsSubscriptionSupportCard(
+    shopProfile: ShopProfileEntity?,
+    isSharingApk: Boolean,
+    onNavigate: (KonabScreen) -> Unit,
+    onOpenSectorDialog: () -> Unit,
+    onOpenHelpDialog: () -> Unit,
+    onShareApkWhatsApp: () -> Unit,
+    onShareApp: () -> Unit,
+    onOpenAboutDialog: () -> Unit
+) {
+    val context = LocalContext.current
+    SettingsSectionCard(title = "Abonnement & Assistance", icon = Icons.Default.WorkspacePremium) {
+        val activePricingProfile = remember(shopProfile?.businessType) {
+            SubscriptionPricingHelper.getPricingProfile(shopProfile?.businessType)
+        }
+        val activeCategoryColor = Color(activePricingProfile.category.accentColorHex)
+
+        SettingsModernRow(
+            icon = Icons.Default.WorkspacePremium,
+            iconTint = activeCategoryColor,
+            iconBg = activeCategoryColor.copy(alpha = 0.12f),
+            title = "Formule & Tarification par Activité",
+            subtitle = "${activePricingProfile.category.title} • Standard ${
+                SubscriptionPricingHelper.formatCompactPrice(activePricingProfile.standardMonthly, "/mois")
+            } • Pro ${
+                SubscriptionPricingHelper.formatCompactPrice(activePricingProfile.proAnnual, "/an")
+            }",
+            trailingValue = shopProfile?.subscriptionTier ?: "Gratuit",
+            badgeText = activePricingProfile.category.badgeLabel,
+            badgeColor = activeCategoryColor,
+            onClick = { onNavigate(KonabScreen.SUBSCRIPTION) },
+            testTag = "row_subscription"
+        )
+
+        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+        DifferentiatedPricingComparisonBlock(
+            currentBusinessType = shopProfile?.businessType,
+            currentTier = shopProfile?.subscriptionTier,
+            onOpenSubscription = { onNavigate(KonabScreen.SUBSCRIPTION) },
+            onChangeSector = onOpenSectorDialog
+        )
+
+        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+        val savedSessionAgent = remember { AgentDeploymentStorage.getSavedAgentSession(context) }
+        if (savedSessionAgent != null) {
+            val savedAgentPhoto = remember(savedSessionAgent) {
+                AgentDeploymentStorage.getEffectivePhotoUri(context, savedSessionAgent)
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onNavigate(KonabScreen.AGENT_PORTAL) }
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                    .testTag("row_agent_portal"),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                AgentPhotoAvatar(name = savedSessionAgent.name, photoUri = savedAgentPhoto, size = 44.dp, borderColor = KonabOrange)
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("Portail Agent • ${savedSessionAgent.name}", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    Text("KONAB-${savedSessionAgent.id} • ${savedSessionAgent.zone} • Carte & QR disponibles", fontSize = 11.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                Surface(shape = RoundedCornerShape(8.dp), color = KonabOrange.copy(alpha = 0.14f)) {
+                    Text("PROFIL", color = KonabOrange, fontWeight = FontWeight.ExtraBold, fontSize = 10.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+                }
+            }
+        } else {
+            SettingsModernRow(
+                icon = Icons.Default.Badge,
+                iconTint = Color(0xFF0F766E),
+                iconBg = Color(0xFFCCFBF1),
+                title = "Portail Agent & Déploiement",
+                subtitle = "Connexion agent agréé, configuration boutique & activation",
+                trailingValue = "Accéder",
+                badgeText = "AGENTS",
+                badgeColor = KonabOrange,
+                onClick = { onNavigate(KonabScreen.AGENT_PORTAL) },
+                testTag = "row_agent_portal"
+            )
+        }
+
+        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+        SettingsModernRow(
+            icon = Icons.Default.SupportAgent,
+            iconTint = Color(0xFF059669),
+            iconBg = Color(0xFFD1FAE5),
+            title = "Aide & Support Client",
+            subtitle = "Guide pratique et contact WhatsApp / Tel",
+            trailingValue = "Consulter",
+            onClick = onOpenHelpDialog,
+            testTag = "row_help_support"
+        )
+
+        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+        SettingsModernRow(
+            icon = Icons.Default.Send,
+            iconTint = Color(0xFF25D366),
+            iconBg = Color(0xFFDCFCE7),
+            title = "Partager le fichier APK sur WhatsApp",
+            subtitle = "Envoyer l'installateur APK directement sur WhatsApp pour vos confrères",
+            trailingValue = if (isSharingApk) "Préparation..." else "Envoyer APK",
+            badgeText = "WHATSAPP",
+            badgeColor = Color(0xFF25D366),
+            onClick = onShareApkWhatsApp,
+            testTag = "row_share_apk_whatsapp"
+        )
+
+        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+        SettingsModernRow(
+            icon = Icons.Default.Share,
+            iconTint = Color(0xFF073B9A),
+            iconBg = Color(0xFFE1ECF9),
+            title = "Partager l'application (Message)",
+            subtitle = "Recommander Konab POS à vos confrères et partenaires",
+            trailingValue = "Partager",
+            badgeText = "RECOMMANDER",
+            badgeColor = Color(0xFFFF7900),
+            onClick = onShareApp,
+            testTag = "row_share_app"
+        )
+
+        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+        SettingsModernRow(
+            icon = Icons.Default.Info,
+            iconTint = Color(0xFF6B7280),
+            iconBg = Color(0xFFF3F4F6),
+            title = "À propos de Konab POS",
+            subtitle = "Version 1.0 • Solution 100% Hors-ligne & Cloud",
+            trailingValue = "V1.0",
+            onClick = onOpenAboutDialog,
+            testTag = "row_about_app"
+        )
+    }
+}
+
+@Composable
+private fun SettingsEditInfoDialog(
+    shopProfile: ShopProfileEntity,
+    onOpenLogoDialog: () -> Unit,
+    onUpdateProfile: (ShopProfileEntity) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    var name by remember { mutableStateOf(shopProfile.name) }
+    var slogan by remember { mutableStateOf(shopProfile.slogan) }
+    var phone by remember { mutableStateOf(shopProfile.phone) }
+    var address by remember { mutableStateOf(shopProfile.address) }
+    var city by remember { mutableStateOf(shopProfile.city) }
+    var currency by remember { mutableStateOf(shopProfile.currency) }
+    var receiptFooter by remember { mutableStateOf(shopProfile.receiptFooter) }
+    val currencies = listOf("FCFA", "EUR", "USD", "GNF", "NGN")
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(modifier = Modifier.size(36.dp).background(KonabGreenLight, CircleShape), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Default.Storefront, contentDescription = null, tint = KonabGreenDark, modifier = Modifier.size(20.dp))
+                }
+                Text("Modifier la boutique", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth().heightIn(max = 380.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenLogoDialog),
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                ) {
+                    Row(modifier = Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        ShopLogoAvatar(logoUri = shopProfile.logoUri, size = 52.dp, shape = RoundedCornerShape(14.dp), showEditBadge = true)
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Logo de la boutique", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text("Cliquez pour changer le logo", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        OutlinedButton(onClick = onOpenLogoDialog, modifier = Modifier.height(34.dp), contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp)) {
+                            Text("Modifier", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Nom du commerce *") }, leadingIcon = { Icon(Icons.Default.Store, contentDescription = null) }, singleLine = true, modifier = Modifier.fillMaxWidth().testTag("input_edit_shop_name"))
+                OutlinedTextField(value = slogan, onValueChange = { slogan = it }, label = { Text("Slogan / Sous-titre") }, leadingIcon = { Icon(Icons.Default.FormatQuote, contentDescription = null) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = phone, onValueChange = { phone = it }, label = { Text("Numéro de téléphone *") }, leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null) }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone), singleLine = true, modifier = Modifier.fillMaxWidth().testTag("input_edit_phone"))
+                OutlinedTextField(value = address, onValueChange = { address = it }, label = { Text("Adresse / Quartier") }, leadingIcon = { Icon(Icons.Default.LocationOn, contentDescription = null) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = city, onValueChange = { city = it }, label = { Text("Ville (Burkina Faso)") }, leadingIcon = { Icon(Icons.Default.LocationCity, contentDescription = null) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                    listOf("Ouagadougou", "Bobo-Dioulasso", "Koudougou", "Banfora").forEach { bCity ->
+                        FilterChip(
+                            selected = city.equals(bCity, ignoreCase = true),
+                            onClick = { city = bCity },
+                            label = { Text(bCity, fontSize = 10.sp) },
+                            colors = FilterChipDefaults.filterChipColors(selectedContainerColor = KonabGreen.copy(alpha = 0.15f), selectedLabelColor = KonabGreenDark)
+                        )
+                    }
+                }
+                Text("Devise principale :", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    currencies.forEach { curr ->
+                        FilterChip(
+                            selected = currency == curr,
+                            onClick = { currency = curr },
+                            label = { Text(curr, fontSize = 11.sp, fontWeight = if (currency == curr) FontWeight.Bold else FontWeight.Normal) },
+                            colors = FilterChipDefaults.filterChipColors(selectedContainerColor = KonabGreen.copy(alpha = 0.15f), selectedLabelColor = KonabGreenDark)
+                        )
+                    }
+                }
+                OutlinedTextField(value = receiptFooter, onValueChange = { receiptFooter = it }, label = { Text("Pied de page du ticket") }, leadingIcon = { Icon(Icons.AutoMirrored.Filled.ReceiptLong, contentDescription = null) }, singleLine = false, maxLines = 2, modifier = Modifier.fillMaxWidth())
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val updated = shopProfile.copy(
+                        name = name.trim().ifBlank { shopProfile.name },
+                        slogan = slogan.trim(),
+                        phone = phone.trim().ifBlank { shopProfile.phone },
+                        address = address.trim(),
+                        city = city.trim(),
+                        currency = currency,
+                        receiptFooter = receiptFooter.trim()
+                    )
+                    onUpdateProfile(updated)
+                    Toast.makeText(context, "Boutique \"${updated.name}\" enregistrée et synchronisée", Toast.LENGTH_SHORT).show()
+                    onDismiss()
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = KonabGreen),
+                modifier = Modifier.testTag("btn_save_shop_info")
+            ) { Text("Enregistrer") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Annuler") }
+        }
+    )
+}
+
+@Composable
+private fun SettingsLogoDialog(
+    shopProfile: ShopProfileEntity,
+    onPickFromGallery: () -> Unit,
+    onUpdateProfile: (ShopProfileEntity) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    var selectedPresetKey by remember { mutableStateOf(shopProfile.logoUri) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(modifier = Modifier.size(36.dp).background(Color(0xFFFEF3C7), CircleShape), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Default.AddPhotoAlternate, contentDescription = null, tint = Color(0xFFD97706), modifier = Modifier.size(20.dp))
+                }
+                Text("Logo de la boutique", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth().heightIn(max = 440.dp).verticalScroll(rememberScrollState()),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                ShopLogoAvatar(logoUri = selectedPresetKey, size = 88.dp, shape = CircleShape, contentDescription = "Aperçu du logo")
+                Text(
+                    text = "Le logo s'affiche sur le tableau de bord, les paramètres et les tickets de caisse imprimés.",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    lineHeight = 16.sp
+                )
+                Button(
+                    onClick = onPickFromGallery,
+                    modifier = Modifier.fillMaxWidth().height(46.dp).testTag("btn_pick_logo_gallery"),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF073B9A)),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Icon(Icons.Default.PhotoLibrary, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Choisir une image dans la galerie", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                }
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                Text(
+                    text = "OU CHOISIR UN LOGO PRÉDÉFINI :",
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, fontSize = 11.sp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ShopLogoHelper.PRESET_LOGOS.forEach { preset ->
+                        val isSelected = selectedPresetKey == preset.key
+                        Surface(
+                            modifier = Modifier.fillMaxWidth().clickable { selectedPresetKey = preset.key },
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (isSelected) Color(0xFFE1ECF9) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                            border = BorderStroke(if (isSelected) 2.dp else 1.dp, if (isSelected) Color(0xFF073B9A) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                        ) {
+                            Row(modifier = Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Surface(shape = RoundedCornerShape(8.dp), color = Color.White, modifier = Modifier.size(38.dp)) {
+                                    Image(painter = painterResource(id = preset.drawableRes), contentDescription = preset.label, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize().padding(2.dp))
+                                }
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(preset.label, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium, fontSize = 12.sp, color = if (isSelected) Color(0xFF073B9A) else MaterialTheme.colorScheme.onSurface)
+                                    Text(preset.category, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                if (isSelected) {
+                                    Icon(Icons.Default.CheckCircle, contentDescription = "Sélectionné", tint = Color(0xFF073B9A), modifier = Modifier.size(20.dp))
+                                }
+                            }
+                        }
+                    }
+                }
+                if (!shopProfile.logoUri.isNullOrBlank() || selectedPresetKey != null) {
+                    TextButton(onClick = { selectedPresetKey = null }, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Rétablir le logo officiel Konab POS par défaut", fontSize = 11.sp, color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val updated = shopProfile.copy(logoUri = selectedPresetKey)
+                    onUpdateProfile(updated)
+                    Toast.makeText(context, "Logo de la boutique enregistré !", Toast.LENGTH_SHORT).show()
+                    onDismiss()
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = KonabGreen),
+                modifier = Modifier.testTag("btn_save_shop_logo")
+            ) { Text("Appliquer ce logo", fontWeight = FontWeight.Bold) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Annuler") }
+        }
+    )
+}
+
+@Composable
+private fun SettingsPinChangeDialog(
+    shopProfile: ShopProfileEntity,
+    onUpdateProfile: (ShopProfileEntity) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    var currentPinInput by remember { mutableStateOf("") }
+    var newAdminPinInput by remember { mutableStateOf("") }
+    var newCashierPinInput by remember { mutableStateOf(shopProfile.cashierPin) }
+    var errorMsg by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(modifier = Modifier.size(36.dp).background(Color(0xFFFEE2E2), CircleShape), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Default.Lock, contentDescription = null, tint = Color(0xFFDC2626), modifier = Modifier.size(20.dp))
+                }
+                Text("Sécurité des Codes PIN", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+            }
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Pour modifier les codes, veuillez d'abord saisir le code PIN Administrateur actuel :", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                OutlinedTextField(
+                    value = currentPinInput,
+                    onValueChange = { if (it.length <= 4) currentPinInput = it },
+                    label = { Text("Code PIN Admin actuel (4 chiffres)") },
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                    singleLine = true,
+                    leadingIcon = { Icon(Icons.Default.Key, contentDescription = null) },
+                    modifier = Modifier.fillMaxWidth().testTag("input_current_pin")
+                )
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                OutlinedTextField(
+                    value = newAdminPinInput,
+                    onValueChange = { if (it.length <= 4) newAdminPinInput = it },
+                    label = { Text("Nouveau PIN Admin (4 chiffres)") },
+                    placeholder = { Text("Ex: 1234") },
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                    singleLine = true,
+                    leadingIcon = { Icon(Icons.Default.Shield, contentDescription = null) },
+                    modifier = Modifier.fillMaxWidth().testTag("input_new_admin_pin")
+                )
+                OutlinedTextField(
+                    value = newCashierPinInput,
+                    onValueChange = { if (it.length <= 4) newCashierPinInput = it },
+                    label = { Text("PIN Caissier (4 chiffres)") },
+                    placeholder = { Text("Ex: 0000") },
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                    singleLine = true,
+                    leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
+                    modifier = Modifier.fillMaxWidth().testTag("input_new_cashier_pin")
+                )
+                if (errorMsg.isNotBlank()) {
+                    Text(errorMsg, color = MaterialTheme.colorScheme.error, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (currentPinInput != shopProfile.adminPin) {
+                        errorMsg = "Le code PIN actuel est incorrect"
+                    } else if (newAdminPinInput.length < 4) {
+                        errorMsg = "Le nouveau code Admin doit comporter 4 chiffres"
+                    } else {
+                        onUpdateProfile(shopProfile.copy(adminPin = newAdminPinInput, cashierPin = newCashierPinInput.ifBlank { "0000" }))
+                        Toast.makeText(context, "Codes PIN mis à jour avec succès", Toast.LENGTH_SHORT).show()
+                        onDismiss()
+                    }
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = KonabGreen),
+                modifier = Modifier.testTag("btn_confirm_pin_change")
+            ) { Text("Valider") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Annuler") }
+        }
+    )
+}
+
+@Composable
+private fun SettingsBackupDialog(
+    onBackup: (Context, onResult: (File?) -> Unit) -> Unit,
+    onOpenRestore: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(modifier = Modifier.size(36.dp).background(KonabGreenLight, CircleShape), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Default.Backup, contentDescription = null, tint = KonabGreenDark, modifier = Modifier.size(20.dp))
+                }
+                Text("Sauvegarde Locale (100% Hors-ligne)", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            }
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    "Une archive JSON chiffrée contenant toutes vos données (produits, ventes, tickets, clients, fournisseurs, caisse) sera créée sur votre appareil.",
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp
+                )
+                Surface(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), shape = RoundedCornerShape(10.dp)) {
+                    Row(modifier = Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Icon(Icons.Default.Share, contentDescription = null, tint = KonabGreen, modifier = Modifier.size(18.dp))
+                        Text("Vous pourrez envoyer le fichier par WhatsApp, Email ou Bluetooth pour le conserver en lieu sûr.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    onBackup(context) { file ->
+                        if (file != null) BackupRestoreHelper.shareBackupFile(context, file)
+                        else Toast.makeText(context, "Erreur lors de la création de la sauvegarde", Toast.LENGTH_SHORT).show()
+                    }
+                    onDismiss()
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = KonabGreen)
+            ) { Text("Exporter la sauvegarde") }
+        },
+        dismissButton = {
+            TextButton(onClick = onOpenRestore) { Text("Restaurer un fichier...") }
+        }
+    )
+}
+
+@Composable
+private fun SettingsRestoreDialog(
+    onRestore: (String, onResult: (Boolean) -> Unit) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    var jsonInput by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(modifier = Modifier.size(36.dp).background(Color(0xFFE0F2FE), CircleShape), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Default.Restore, contentDescription = null, tint = Color(0xFF0284C7), modifier = Modifier.size(20.dp))
+                }
+                Text("Restaurer des Données", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            }
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Collez ci-dessous le contenu textuel de votre fichier de sauvegarde JSON :", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                OutlinedTextField(
+                    value = jsonInput,
+                    onValueChange = { jsonInput = it },
+                    placeholder = { Text("{\"version\":1, \"app\":\"Konab POS\"...}") },
+                    modifier = Modifier.fillMaxWidth().height(140.dp)
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    onRestore(jsonInput) { success ->
+                        if (success) {
+                            Toast.makeText(context, "Données restaurées avec succès !", Toast.LENGTH_LONG).show()
+                            onDismiss()
+                        } else {
+                            Toast.makeText(context, "Fichier invalide ou format incorrect", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = KonabGreen)
+            ) { Text("Restaurer") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Annuler") }
+        }
+    )
+}
+
+@Composable
+private fun SettingsClearDemoDialog(
+    onClearDemoData: (keepShopProfile: Boolean, onResult: () -> Unit) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(modifier = Modifier.size(36.dp).background(Color(0xFFFEE2E2), CircleShape), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Default.DeleteSweep, contentDescription = null, tint = Color(0xFFDC2626), modifier = Modifier.size(20.dp))
+                }
+                Text("Effacer les données démo", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            }
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Cette action va supprimer définitivement :", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Text("• Tous les articles et stocks de test", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("• Toutes les ventes et tickets enregistrés", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("• Tous les clients et dettes de test", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("• Tous les fournisseurs et achats de test", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("• L'historique des mouvements et sessions de caisse", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Surface(color = Color(0xFFECFDF5), shape = RoundedCornerShape(10.dp)) {
+                    Text(
+                        text = "Votre profil de commerce, logo, nom et code PIN seront conservés. Votre application sera 100% vierge et prête pour vos vrais encaissements.",
+                        fontSize = 11.sp,
+                        color = Color(0xFF065F46),
+                        modifier = Modifier.padding(10.dp),
+                        lineHeight = 16.sp
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    onClearDemoData(true) {
+                        Toast.makeText(context, "Toutes les données démo ont été effacées avec succès !", Toast.LENGTH_LONG).show()
+                    }
+                    onDismiss()
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626))
+            ) { Text("Oui, effacer la démo") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Annuler") }
+        }
+    )
+}
+
+@Composable
+private fun SettingsFullResetDialog(
+    onClearDemoData: (keepShopProfile: Boolean, onResult: () -> Unit) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(modifier = Modifier.size(36.dp).background(Color(0xFFFEF2F2), CircleShape), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Default.RestartAlt, contentDescription = null, tint = Color(0xFFB91C1C), modifier = Modifier.size(20.dp))
+                }
+                Text("Réinitialisation Complète", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            }
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    "Attention : Cette opération efface absolument TOUT sur l'appareil (données, paramètres, profil commerçant et codes PIN).",
+                    fontSize = 13.sp,
+                    color = Color(0xFFB91C1C),
+                    fontWeight = FontWeight.Medium
+                )
+                Text("L'application reviendra à l'écran initial de configuration de bienvenue.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    onClearDemoData(false) {
+                        Toast.makeText(context, "Application réinitialisée à zéro.", Toast.LENGTH_LONG).show()
+                    }
+                    onDismiss()
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB91C1C))
+            ) { Text("Réinitialiser à zéro") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Annuler") }
+        }
+    )
+}
+
+@Composable
+private fun SettingsHelpDialog(onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(modifier = Modifier.size(36.dp).background(KonabGreenLight, CircleShape), contentAlignment = Alignment.Center) {
+                    Icon(Icons.AutoMirrored.Filled.HelpOutline, contentDescription = null, tint = KonabGreenDark, modifier = Modifier.size(20.dp))
+                }
+                Text("Guide & Support Konab POS", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            }
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                HelpPointItem(icon = Icons.Default.PointOfSale, title = "Encaissement Express", desc = "Cliquez sur les articles pour les ajouter au panier ou scannez directement les codes-barres.")
+                HelpPointItem(icon = Icons.Default.AccountBalanceWallet, title = "Gestion de Caisse", desc = "Ouvrez votre session chaque matin avec le montant en espèces, puis effectuez la clôture (Z de caisse) le soir.")
+                HelpPointItem(icon = Icons.Default.CloudDone, title = "Synchronisation Automatique", desc = "Vos ventes, stocks et clients sont automatiquement synchronisés en arrière-plan pour ne jamais perdre vos données.")
+                Surface(color = KonabGoldContainer.copy(alpha = 0.5f), shape = RoundedCornerShape(10.dp)) {
+                    Row(modifier = Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                        Column {
+                            Text("Ligne officielle support & activation :", fontSize = 11.sp, color = KonabGoldDark)
+                            Text("+226 65 41 37 99", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = KonabGoldDark)
+                        }
+                        IconButton(onClick = {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            clipboard.setPrimaryClip(ClipData.newPlainText("Support Phone", "65413799"))
+                            Toast.makeText(context, "Numéro copié : 65413799", Toast.LENGTH_SHORT).show()
+                        }) {
+                            Icon(Icons.Default.ContentCopy, contentDescription = "Copier", tint = KonabGoldDark, modifier = Modifier.size(18.dp))
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Fermer", fontWeight = FontWeight.Bold) }
+        }
+    )
+}
+
+@Composable
+private fun SettingsAboutDialog(
+    onShareApp: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(modifier = Modifier.size(36.dp).background(KonabGreenLight, CircleShape), contentAlignment = Alignment.Center) {
+                    Text("K", fontWeight = FontWeight.ExtraBold, color = KonabGreenDark, fontSize = 20.sp)
+                }
+                Text("À propos de Konab POS", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            }
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Konab POS - Système de Point de Vente Professionnel", fontWeight = FontWeight.Bold, color = KonabGreenDark, fontSize = 13.sp)
+                Text(
+                    "Spécialement développé pour les commerçants du Burkina Faso et de la sous-région ouest-africaine. Fonctionne sans connexion Internet grâce à la technologie SQLite Room, avec synchronisation Cloud automatique.",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    lineHeight = 17.sp
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text("Version 1.0.0 (Build 2026)", fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                Text("Développé avec fierté par Konab Digital © 2026", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Fermer", fontWeight = FontWeight.Bold) }
+        },
+        dismissButton = {
+            OutlinedButton(onClick = onShareApp, modifier = Modifier.testTag("btn_share_about_dialog")) {
+                Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Partager", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
+    )
+}
+
 
 @Composable
 private fun SettingsSectionCard(

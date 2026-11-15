@@ -72,15 +72,26 @@ fun TransactionsScreen(
     shopProfile: ShopProfileEntity?,
     onViewSaleReceipt: (SaleEntity) -> Unit,
     onCancelSale: (saleId: Long, reason: String, onResult: (Boolean, String) -> Unit) -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    currentRole: String = "ADMIN",
+    activeOperatorLabel: String = "Gérant",
+    onRefreshTransactions: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+
+    val normalizedRole = currentRole.uppercase()
+    val canCancelSales = normalizedRole in setOf("ADMIN", "MANAGER")
+
+    LaunchedEffect(Unit) {
+        onRefreshTransactions()
+    }
 
     var searchQuery by remember { mutableStateOf("") }
     var selectedPeriod by remember { mutableStateOf(DateFilterPeriod.ALL) }
     var selectedPaymentMethod by remember { mutableStateOf("Tous") }
     var selectedStatus by remember { mutableStateOf("Tous") } // Tous, Payées, Crédit, Annulées
+    var onlyMyReceipts by remember { mutableStateOf(false) }
 
     // Cancellation dialog state
     var saleToCancel by remember { mutableStateOf<SaleEntity?>(null) }
@@ -92,8 +103,8 @@ fun TransactionsScreen(
         saleItems.groupBy { it.saleId }
     }
 
-    // Filter sales based on period, payment method, status, and search query
-    val filteredSales = remember(sales, searchQuery, selectedPeriod, selectedPaymentMethod, selectedStatus) {
+    // Filter sales based on period, payment method, status, operator, and search query
+    val filteredSales = remember(sales, searchQuery, selectedPeriod, selectedPaymentMethod, selectedStatus, onlyMyReceipts, activeOperatorLabel) {
         val nowCal = Calendar.getInstance()
         val todayStart = Calendar.getInstance().apply {
             set(Calendar.HOUR_OF_DAY, 0)
@@ -163,7 +174,13 @@ fun TransactionsScreen(
                     sale.notes.lowercase().contains(query)
             }
 
-            dateMatches && methodMatches && statusMatches && queryMatches
+            val operatorMatches = if (!onlyMyReceipts) {
+                true
+            } else {
+                sale.cashierName.equals(activeOperatorLabel, ignoreCase = true)
+            }
+
+            dateMatches && methodMatches && statusMatches && operatorMatches && queryMatches
         }
     }
 
@@ -180,8 +197,19 @@ fun TransactionsScreen(
         topBar = {
             KonabScreenTopBar(
                 title = "Historique des transactions",
-                subtitle = "${filteredSales.size} vente(s) trouvée(s)",
-                onBack = onBack
+                subtitle = "${filteredSales.size} reçu(s) • $activeOperatorLabel ($normalizedRole)",
+                onBack = onBack,
+                actions = {
+                    IconButton(
+                        onClick = {
+                            onRefreshTransactions()
+                            Toast.makeText(context, "Actualisation des reçus depuis le cloud...", Toast.LENGTH_SHORT).show()
+                        },
+                        modifier = Modifier.testTag("btn_refresh_transactions")
+                    ) {
+                        Icon(Icons.Default.Sync, contentDescription = "Synchroniser les reçus", tint = KonabBlue)
+                    }
+                }
             )
         }
     ) { innerPadding ->
@@ -240,6 +268,20 @@ fun TransactionsScreen(
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 // Status Filter Chips
+                FilterChip(
+                    selected = onlyMyReceipts,
+                    onClick = { onlyMyReceipts = !onlyMyReceipts },
+                    label = { Text("Mes reçus", fontSize = 12.sp) },
+                    leadingIcon = if (onlyMyReceipts) {
+                        { Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(14.dp)) }
+                    } else null,
+                    modifier = Modifier.testTag("chip_filter_my_receipts"),
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = KonabBlueContainer,
+                        selectedLabelColor = KonabBlueDark
+                    )
+                )
+
                 listOf("Tous", "Payées", "Crédit", "Annulées").forEach { status ->
                     val isSelected = selectedStatus == status
                     FilterChip(
@@ -372,6 +414,7 @@ fun TransactionsScreen(
                                 sale = sale,
                                 items = items,
                                 shopProfile = shopProfile,
+                                canCancelSale = canCancelSales,
                                 onViewReceipt = { onViewSaleReceipt(sale) },
                                 onRequestCancel = {
                                     saleToCancel = sale
@@ -568,6 +611,7 @@ fun TransactionCard(
     sale: SaleEntity,
     items: List<SaleItemEntity>,
     shopProfile: ShopProfileEntity?,
+    canCancelSale: Boolean = true,
     onViewReceipt: () -> Unit,
     onRequestCancel: () -> Unit,
     onPrintBluetooth: () -> Unit
@@ -883,8 +927,8 @@ fun TransactionCard(
                     }
                 }
 
-                // Cancel Button (only for active sales)
-                if (!sale.isCancelled) {
+                // Cancel Button (manager/admin only for active sales)
+                if (!sale.isCancelled && canCancelSale) {
                     OutlinedButton(
                         onClick = onRequestCancel,
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = KonabRed),
@@ -895,6 +939,18 @@ fun TransactionCard(
                         Icon(Icons.Default.Block, contentDescription = null, modifier = Modifier.size(14.dp), tint = KonabRed)
                         Spacer(modifier = Modifier.width(4.dp))
                         Text("Annuler", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                } else if (!sale.isCancelled) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text(
+                            text = "Par ${sale.cashierName}",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
                     }
                 }
             }

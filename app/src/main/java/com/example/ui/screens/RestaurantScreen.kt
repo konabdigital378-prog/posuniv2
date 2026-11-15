@@ -82,7 +82,7 @@ fun RestaurantScreen(
         notes: String,
         onSuccess: (SaleEntity) -> Unit
     ) -> Unit,
-    onViewSaleReceiptById: (Long) -> Unit,
+    onViewSaleReceiptById: (Long, RestaurantOrderRecord?) -> Unit,
     onRefreshRestaurant: ((Boolean, String) -> Unit) -> Unit,
     onLivePollOrders: () -> Unit = {},
     onOpenQrScanResult: (String) -> Boolean,
@@ -377,12 +377,14 @@ fun RestaurantScreen(
                     }
 
                     RestaurantTab.TEAM -> {
+                        val canManageTeam = (activeStaff?.role ?: RestaurantStaffRole.MANAGER) == RestaurantStaffRole.MANAGER
                         RestaurantTeamSyncTab(
                             shopName = shopProfile?.name ?: "Mon Restaurant",
                             shopPhone = shopProfile?.phone.orEmpty(),
                             cloudShopId = cloudShopId,
                             staffList = staffList,
                             activeStaff = activeStaff,
+                            canManageTeam = canManageTeam,
                             onSwitchActiveStaff = onSwitchActiveStaffDirect,
                             onSaveStaff = onSaveStaffAccount,
                             onDeleteStaff = onDeleteStaffAccount
@@ -431,7 +433,7 @@ fun RestaurantScreen(
                         "Encaissement confirmé • Ticket #${sale.transactionNumber}",
                         Toast.LENGTH_LONG
                     ).show()
-                    onViewSaleReceiptById(sale.id)
+                    onViewSaleReceiptById(sale.id, order)
                 }
             }
         )

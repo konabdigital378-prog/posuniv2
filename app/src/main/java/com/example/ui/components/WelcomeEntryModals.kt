@@ -69,21 +69,35 @@ fun ManagerPinEntryModal(
         val cleanEntered = enteredPin.trim()
         val expectedPin = shopProfile.adminPin.trim()
         val activeCloudId = com.example.data.remote.supabase.MultiShopStorage.getActiveCloudShopId(context)
+        val staffList = com.example.data.remote.supabase.RestaurantStorage.getStaffAccounts(context, activeCloudId)
         val matchedStaff = com.example.data.remote.supabase.RestaurantStorage.findStaffByPin(
             context = context,
             shopId = activeCloudId,
             pin = cleanEntered
         )
+        val customCashierPin = shopProfile.cashierPin.trim()
         when {
             cleanEntered.isEmpty() -> {
                 errorMessage = "Veuillez saisir le code PIN."
             }
             cleanEntered == expectedPin -> {
+                val mgr = staffList.firstOrNull {
+                    it.role == com.example.data.remote.supabase.RestaurantStaffRole.MANAGER && it.isActive
+                }
+                com.example.data.remote.supabase.RestaurantStorage.setActiveStaff(context, activeCloudId, mgr?.id)
                 errorMessage = ""
                 onPinVerified()
             }
             matchedStaff != null -> {
                 com.example.data.remote.supabase.RestaurantStorage.setActiveStaff(context, activeCloudId, matchedStaff.id)
+                errorMessage = ""
+                onPinVerified()
+            }
+            customCashierPin.isNotBlank() && customCashierPin != "0000" && cleanEntered == customCashierPin -> {
+                val cashier = staffList.firstOrNull {
+                    it.role == com.example.data.remote.supabase.RestaurantStaffRole.CASHIER && it.isActive
+                }
+                com.example.data.remote.supabase.RestaurantStorage.setActiveStaff(context, activeCloudId, cashier?.id)
                 errorMessage = ""
                 onPinVerified()
             }

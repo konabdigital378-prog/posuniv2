@@ -17,6 +17,11 @@ object CurrencyFormatter {
         return "${decimalFormat.format(amount)} FCFA"
     }
 
+    fun formatAmount(amount: Long, currency: String = "FCFA"): String {
+        val cleanCurrency = currency.trim().ifBlank { "FCFA" }
+        return "${decimalFormat.format(amount)} $cleanCurrency"
+    }
+
     fun formatNumber(amount: Long): String {
         return decimalFormat.format(amount)
     }

@@ -552,16 +552,66 @@ object MultiShopStorage {
     ): ConnectedShopSession? {
         val cleanPin = pin.trim()
         if (cleanPin.isBlank()) return null
-        return getConnectedShops(context).firstOrNull { session ->
-            identifierMatchesSession(
+        val sessions = getConnectedShops(context)
+        val byShop = sessions.firstOrNull { session ->
+            val matchesId = identifierMatchesSession(
                 identifier = identifier,
                 shopName = session.shopName,
                 shopPhone = session.phone,
                 adminName = session.adminName,
                 adminPhone = session.adminPhone,
                 cloudShopId = session.cloudShopId
-            ) && session.adminPin.trim() == cleanPin
+            )
+            if (!matchesId) return@firstOrNull false
+            val matchesAdmin = session.adminPin.trim() == cleanPin
+            val matchesCustomCashier = session.cashierPin.trim().let {
+                it.isNotBlank() && it != "0000" && it == cleanPin
+            }
+            val matchesStaff = session.cloudShopId > 1L &&
+                RestaurantStorage.findStaffByPin(context, session.cloudShopId, cleanPin) != null
+            matchesAdmin || matchesCustomCashier || matchesStaff
         }
+        if (byShop != null) return byShop
+
+        // Fallback : identifiant = téléphone ou nom du membre d'équipe en cache
+        val normId = AgentDeploymentStorage.normalizeShopName(identifier)
+        return sessions.firstOrNull { session ->
+            if (session.cloudShopId <= 1L) return@firstOrNull false
+            RestaurantStorage.getStaffAccounts(context, session.cloudShopId).any { s ->
+                s.isActive && s.pin.trim() == cleanPin && (
+                    (s.phone.isNotBlank() && phonesMatch(identifier, s.phone)) ||
+                        (s.name.isNotBlank() && AgentDeploymentStorage.normalizeShopName(s.name) == normId)
+                    )
+            }
+        }
+    }
+
+    @Synchronized
+    fun findConnectedStaffForCredentials(
+        context: Context,
+        session: ConnectedShopSession,
+        pin: String
+    ): RestaurantStaffAccount? {
+        val cleanPin = pin.trim()
+        if (cleanPin.isBlank()) return null
+        if (session.adminPin.trim() == cleanPin) return null
+        if (session.cloudShopId > 1L) {
+            val staff = RestaurantStorage.findStaffByPin(context, session.cloudShopId, cleanPin)
+            if (staff != null) return staff
+        }
+        val customCashier = session.cashierPin.trim()
+        if (customCashier.isNotBlank() && customCashier != "0000" && customCashier == cleanPin) {
+            return RestaurantStaffAccount(
+                id = "STAFF-CSH-${session.cloudShopId}",
+                shopId = session.cloudShopId,
+                name = "Caissier",
+                phone = session.phone,
+                role = RestaurantStaffRole.CASHIER,
+                pin = cleanPin,
+                isActive = true
+            )
+        }
+        return null
     }
 
     @Synchronized

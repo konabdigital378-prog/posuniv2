@@ -52,9 +52,19 @@ fun CashScreen(
     onOpenSession: (openingBalance: Long) -> Unit,
     onCloseSession: (actualBalance: Long, notes: String) -> Unit,
     onAddMovement: (type: String, amount: Long, reason: String) -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    currentRole: String = "ADMIN",
+    activeOperatorLabel: String = "Gérant",
+    onRefreshCash: () -> Unit = {}
 ) {
     val context = LocalContext.current
+    val normalizedRole = currentRole.uppercase()
+    val canOperateCash = normalizedRole in setOf("ADMIN", "MANAGER", "CASHIER")
+
+    LaunchedEffect(Unit) {
+        onRefreshCash()
+    }
+
     var showOpenSessionDialog by remember { mutableStateOf(false) }
     var showCloseSessionDialog by remember { mutableStateOf(false) }
     var showExpenseDialog by remember { mutableStateOf(false) }
@@ -96,13 +106,27 @@ fun CashScreen(
         topBar = {
             KonabScreenTopBar(
                 title = "Caisse & Dépenses",
-                subtitle = if (activeSession != null) "Session ouverte" else "Caisse actuellement fermée",
+                subtitle = "${if (activeSession != null) "Session ouverte" else "Caisse fermée"} • $activeOperatorLabel ($normalizedRole)",
                 onBack = onBack,
                 actions = {
                     IconButton(
                         onClick = {
+                            onRefreshCash()
+                            android.widget.Toast.makeText(
+                                context,
+                                "Synchronisation de la caisse depuis le cloud...",
+                                android.widget.Toast.LENGTH_SHORT
+                            ).show()
+                        },
+                        modifier = Modifier.testTag("btn_refresh_cash")
+                    ) {
+                        Icon(Icons.Default.Sync, contentDescription = "Synchroniser la caisse", tint = KonabBlue)
+                    }
+                    IconButton(
+                        onClick = {
                             val zReport = buildString {
                                 append("🧾 *RAPPORT Z DE CAISSE — KONAB POS*\n")
+                                append("Opérateur : $activeOperatorLabel ($normalizedRole)\n")
                                 append("Statut : ${if (activeSession != null) "Ouverte (depuis ${CurrencyFormatter.formatTimeOnly(activeSession.openedAt)})" else "Fermée"}\n")
                                 append("----------------------------\n")
                                 append("• Ventes espèces : ${CurrencyFormatter.formatFCFA(totalSalesCash)}\n")
@@ -219,38 +243,54 @@ fun CashScreen(
 
                                 Spacer(modifier = Modifier.height(16.dp))
 
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                ) {
-                                    if (activeSession == null) {
-                                        Button(
-                                            onClick = { showOpenSessionDialog = true },
-                                            colors = ButtonDefaults.buttonColors(containerColor = KonabOrange, contentColor = Color.White),
-                                            shape = RoundedCornerShape(12.dp),
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .heightIn(min = 48.dp)
-                                                .konabPressScale()
-                                        ) {
-                                            Icon(Icons.Default.LockOpen, contentDescription = null, tint = Color.White)
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                            Text("Ouvrir la caisse", color = Color.White, fontWeight = FontWeight.Bold)
+                                if (canOperateCash) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        if (activeSession == null) {
+                                            Button(
+                                                onClick = { showOpenSessionDialog = true },
+                                                colors = ButtonDefaults.buttonColors(containerColor = KonabOrange, contentColor = Color.White),
+                                                shape = RoundedCornerShape(12.dp),
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .heightIn(min = 48.dp)
+                                                    .konabPressScale()
+                                            ) {
+                                                Icon(Icons.Default.LockOpen, contentDescription = null, tint = Color.White)
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text("Ouvrir la caisse", color = Color.White, fontWeight = FontWeight.Bold)
+                                            }
+                                        } else {
+                                            Button(
+                                                onClick = { showCloseSessionDialog = true },
+                                                colors = ButtonDefaults.buttonColors(containerColor = Color.White),
+                                                shape = RoundedCornerShape(12.dp),
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .heightIn(min = 48.dp)
+                                                    .konabPressScale()
+                                            ) {
+                                                Icon(Icons.Default.Lock, contentDescription = null, tint = KonabBlueDark)
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text("Clôturer la caisse (Z de caisse)", color = KonabBlueDark, fontWeight = FontWeight.Bold)
+                                            }
                                         }
-                                    } else {
-                                        Button(
-                                            onClick = { showCloseSessionDialog = true },
-                                            colors = ButtonDefaults.buttonColors(containerColor = Color.White),
-                                            shape = RoundedCornerShape(12.dp),
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .heightIn(min = 48.dp)
-                                                .konabPressScale()
-                                        ) {
-                                            Icon(Icons.Default.Lock, contentDescription = null, tint = KonabBlueDark)
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                            Text("Clôturer la caisse (Z de caisse)", color = KonabBlueDark, fontWeight = FontWeight.Bold)
-                                        }
+                                    }
+                                } else {
+                                    Surface(
+                                        color = Color.White.copy(alpha = 0.14f),
+                                        shape = RoundedCornerShape(10.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text(
+                                            text = "Consultation seule ($normalizedRole) : réservé au Gérant ou au Caissier.",
+                                            color = Color.White,
+                                            fontSize = 11.5.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
+                                        )
                                     }
                                 }
                             }
@@ -258,41 +298,43 @@ fun CashScreen(
                     }
                 }
 
-                // Quick cash movement actions
-                item {
-                    KonabStaggeredReveal(index = 1) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            Button(
-                                onClick = { showExpenseDialog = true },
-                                colors = ButtonDefaults.buttonColors(containerColor = KonabRed),
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .heightIn(min = 48.dp)
-                                    .konabPressScale()
-                                    .testTag("btn_add_expense")
+                // Quick cash movement actions (Gérant / Caissier only)
+                if (canOperateCash) {
+                    item {
+                        KonabStaggeredReveal(index = 1) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                Icon(Icons.Default.Remove, contentDescription = null)
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Sortie / Dépense", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                            }
+                                Button(
+                                    onClick = { showExpenseDialog = true },
+                                    colors = ButtonDefaults.buttonColors(containerColor = KonabRed),
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .heightIn(min = 48.dp)
+                                        .konabPressScale()
+                                        .testTag("btn_add_expense")
+                                ) {
+                                    Icon(Icons.Default.Remove, contentDescription = null)
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Sortie / Dépense", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                }
 
-                            OutlinedButton(
-                                onClick = { showCashInDialog = true },
-                                shape = RoundedCornerShape(12.dp),
-                                border = BorderStroke(1.dp, KonabGreen.copy(alpha = 0.6f)),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .heightIn(min = 48.dp)
-                                    .konabPressScale()
-                                    .testTag("btn_cash_in")
-                            ) {
-                                Icon(Icons.Default.Add, contentDescription = null, tint = KonabGreen)
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Entrée de caisse", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = KonabGreen)
+                                OutlinedButton(
+                                    onClick = { showCashInDialog = true },
+                                    shape = RoundedCornerShape(12.dp),
+                                    border = BorderStroke(1.dp, KonabGreen.copy(alpha = 0.6f)),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .heightIn(min = 48.dp)
+                                        .konabPressScale()
+                                        .testTag("btn_cash_in")
+                                ) {
+                                    Icon(Icons.Default.Add, contentDescription = null, tint = KonabGreen)
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Entrée de caisse", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = KonabGreen)
+                                }
                             }
                         }
                     }

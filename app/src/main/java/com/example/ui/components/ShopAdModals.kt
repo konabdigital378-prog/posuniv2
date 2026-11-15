@@ -605,81 +605,44 @@ fun ShopAdVideoPlayerDialog(
 /**
  * Système complet de configuration de publicité lancé directement depuis le petit cadre carrousel de l'écran d'accueil.
  */
-@Composable
-fun ShopAdConfigModal(
+private class ShopAdEditorState(
+    context: Context,
     currentShop: ShopProfileEntity?,
-    registeredShops: List<ShopProfileEntity>,
-    initialAdToEdit: ShopAdRecord? = null,
-    onDismiss: () -> Unit,
-    onPublished: (ShopAdRecord) -> Unit
+    defaultSource: ShopAdRecord?
 ) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val syncManager = remember { SupabaseSyncManager(context) }
+    var activeTab by mutableIntStateOf(0)
+    var savedAds by mutableStateOf(ShopAdStorage.getAllAds(context).filter { !it.isFallbackShopOnly })
+    var carouselSettings by mutableStateOf(ShopAdStorage.getCarouselSettings(context))
+    var partnerShopsRevision by mutableIntStateOf(0)
 
-    var activeTab by remember { mutableIntStateOf(0) } // 0: Configurer, 1: Boutiques partenaires, 2: Défilement
-    var savedAds by remember {
-        mutableStateOf(ShopAdStorage.getAllAds(context).filter { !it.isFallbackShopOnly })
-    }
-    var carouselSettings by remember {
-        mutableStateOf(ShopAdStorage.getCarouselSettings(context))
-    }
+    var editingAdId by mutableStateOf(
+        if (defaultSource != null && !defaultSource.isFallbackShopOnly) defaultSource.id
+        else "AD-${System.currentTimeMillis()}"
+    )
+    var shopName by mutableStateOf(defaultSource?.shopName ?: currentShop?.name.orEmpty())
+    var businessType by mutableStateOf(defaultSource?.businessType ?: currentShop?.businessType ?: "Boutique")
+    var city by mutableStateOf(defaultSource?.city ?: currentShop?.city.orEmpty())
+    var phone by mutableStateOf(defaultSource?.phone ?: currentShop?.phone.orEmpty())
+    var whatsappPhone by mutableStateOf(defaultSource?.whatsappPhone ?: currentShop?.phone.orEmpty())
+    var logoUri by mutableStateOf(defaultSource?.logoUri ?: currentShop?.logoUri.orEmpty())
+    var localLogoFile by mutableStateOf<File?>(null)
 
-    val candidateShops = remember(currentShop, registeredShops) {
-        val map = LinkedHashMap<String, ShopProfileEntity>()
-        if (currentShop != null && currentShop.name.isNotBlank()) {
-            map[AgentDeploymentStorage.normalizeShopName(currentShop.name)] = currentShop
-        }
-        registeredShops.filter { it.name.isNotBlank() }.forEach { s ->
-            val k = AgentDeploymentStorage.normalizeShopName(s.name)
-            if (!map.containsKey(k)) map[k] = s
-        }
-        map.values.toList()
-    }
+    var adTitle by mutableStateOf(defaultSource?.adTitle ?: currentShop?.name.orEmpty())
+    var adDescription by mutableStateOf(defaultSource?.adDescription ?: currentShop?.slogan.orEmpty())
+    var ctaLabel by mutableStateOf(defaultSource?.ctaLabel ?: "Contacter")
+    var isActive by mutableStateOf(defaultSource?.isActive ?: true)
 
-    var partnerShopsRevision by remember { mutableIntStateOf(0) }
-    val partnerShopEntries = remember(candidateShops, savedAds, partnerShopsRevision) {
-        ShopAdStorage.buildManageablePartnerShops(
-            registeredShops = candidateShops,
-            ads = savedAds,
-            localShop = currentShop,
-            localDeployments = AgentDeploymentStorage.getAllDeployments(context)
-        )
-    }
+    var attachPromoVideo by mutableStateOf(!defaultSource?.videoUri.isNullOrBlank())
+    var videoUri by mutableStateOf(defaultSource?.videoUri.orEmpty())
+    var videoDurationSec by mutableIntStateOf(defaultSource?.videoDurationSec ?: 0)
+    var originalDurationNote by mutableStateOf<String?>(null)
+    var localVideoFile by mutableStateOf<File?>(null)
+    var videoUrlInput by mutableStateOf(
+        if (defaultSource?.videoUri?.startsWith("http") == true) defaultSource.videoUri else ""
+    )
 
-    val defaultSource = initialAdToEdit
-    var editingAdId by remember {
-        mutableStateOf(
-            if (defaultSource != null && !defaultSource.isFallbackShopOnly) defaultSource.id
-            else "AD-${System.currentTimeMillis()}"
-        )
-    }
-    var shopName by remember { mutableStateOf(defaultSource?.shopName ?: currentShop?.name.orEmpty()) }
-    var businessType by remember { mutableStateOf(defaultSource?.businessType ?: currentShop?.businessType ?: "Boutique") }
-    var city by remember { mutableStateOf(defaultSource?.city ?: currentShop?.city.orEmpty()) }
-    var phone by remember { mutableStateOf(defaultSource?.phone ?: currentShop?.phone.orEmpty()) }
-    var whatsappPhone by remember { mutableStateOf(defaultSource?.whatsappPhone ?: currentShop?.phone.orEmpty()) }
-    var logoUri by remember { mutableStateOf(defaultSource?.logoUri ?: currentShop?.logoUri.orEmpty()) }
-    var localLogoFile by remember { mutableStateOf<File?>(null) }
-
-    var adTitle by remember { mutableStateOf(defaultSource?.adTitle ?: currentShop?.name.orEmpty()) }
-    var adDescription by remember { mutableStateOf(defaultSource?.adDescription ?: currentShop?.slogan.orEmpty()) }
-    var ctaLabel by remember { mutableStateOf(defaultSource?.ctaLabel ?: "Contacter") }
-    var isActive by remember { mutableStateOf(defaultSource?.isActive ?: true) }
-
-    var attachPromoVideo by remember { mutableStateOf(!defaultSource?.videoUri.isNullOrBlank()) }
-    var videoUri by remember { mutableStateOf(defaultSource?.videoUri.orEmpty()) }
-    var videoDurationSec by remember { mutableIntStateOf(defaultSource?.videoDurationSec ?: 0) }
-    var originalDurationNote by remember { mutableStateOf<String?>(null) }
-    var localVideoFile by remember { mutableStateOf<File?>(null) }
-    var videoUrlInput by remember {
-        mutableStateOf(
-            if (defaultSource?.videoUri?.startsWith("http") == true) defaultSource.videoUri else ""
-        )
-    }
-
-    var isPublishing by remember { mutableStateOf(false) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
+    var isPublishing by mutableStateOf(false)
+    var errorMessage by mutableStateOf<String?>(null)
 
     fun loadAdIntoEditor(ad: ShopAdRecord, forceEnableVideoOption: Boolean = false) {
         editingAdId = if (ad.isFallbackShopOnly) "AD-${System.currentTimeMillis()}" else ad.id
@@ -702,6 +665,43 @@ fun ShopAdConfigModal(
         originalDurationNote = null
         activeTab = 0
     }
+}
+
+/**
+ * Système complet de configuration de publicité lancé directement depuis le petit cadre carrousel de l'écran d'accueil.
+ */
+@Composable
+fun ShopAdConfigModal(
+    currentShop: ShopProfileEntity?,
+    registeredShops: List<ShopProfileEntity>,
+    initialAdToEdit: ShopAdRecord? = null,
+    onDismiss: () -> Unit,
+    onPublished: (ShopAdRecord) -> Unit
+) {
+    val context = LocalContext.current
+    val syncManager = remember { SupabaseSyncManager(context) }
+    val state = remember { ShopAdEditorState(context, currentShop, initialAdToEdit) }
+
+    val candidateShops = remember(currentShop, registeredShops) {
+        val map = LinkedHashMap<String, ShopProfileEntity>()
+        if (currentShop != null && currentShop.name.isNotBlank()) {
+            map[AgentDeploymentStorage.normalizeShopName(currentShop.name)] = currentShop
+        }
+        registeredShops.filter { it.name.isNotBlank() }.forEach { s ->
+            val k = AgentDeploymentStorage.normalizeShopName(s.name)
+            if (!map.containsKey(k)) map[k] = s
+        }
+        map.values.toList()
+    }
+
+    val partnerShopEntries = remember(candidateShops, state.savedAds, state.partnerShopsRevision) {
+        ShopAdStorage.buildManageablePartnerShops(
+            registeredShops = candidateShops,
+            ads = state.savedAds,
+            localShop = currentShop,
+            localDeployments = AgentDeploymentStorage.getAllDeployments(context)
+        )
+    }
 
     val logoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
@@ -709,8 +709,8 @@ fun ShopAdConfigModal(
         if (uri != null) {
             val res = ShopAdStorage.copyAdLogoToInternalStorage(context, uri)
             if (res != null) {
-                logoUri = res.first
-                localLogoFile = res.second
+                state.logoUri = res.first
+                state.localLogoFile = res.second
                 Toast.makeText(context, "Logo importé pour la publicité", Toast.LENGTH_SHORT).show()
             } else {
                 Toast.makeText(context, "Impossible de lire ce logo", Toast.LENGTH_SHORT).show()
@@ -724,12 +724,12 @@ fun ShopAdConfigModal(
         if (uri != null) {
             val picked = ShopAdStorage.copyVideoToInternalStorage(context, uri)
             if (picked != null) {
-                attachPromoVideo = true
-                videoUri = picked.localUri
-                localVideoFile = picked.localFile
-                videoUrlInput = ""
-                videoDurationSec = picked.effectiveDurationSec
-                originalDurationNote = if (picked.wasTrimmedTo60s) {
+                state.attachPromoVideo = true
+                state.videoUri = picked.localUri
+                state.localVideoFile = picked.localFile
+                state.videoUrlInput = ""
+                state.videoDurationSec = picked.effectiveDurationSec
+                state.originalDurationNote = if (picked.wasTrimmedTo60s) {
                     "Vidéo originale (${picked.originalDurationSec}s) limitée automatiquement à 60 secondes (1 min max)."
                 } else {
                     "Vidéo prête : ${picked.effectiveDurationSec}s / 60s max"
@@ -755,1083 +755,1130 @@ fun ShopAdConfigModal(
                 .testTag("dialog_shop_ad_config")
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
-                // Header
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(Brush.horizontalGradient(listOf(KonabBlueDeep, KonabBlue)))
-                        .padding(16.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(44.dp)
-                                .clip(CircleShape)
-                                .background(KonabOrange),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(Icons.Default.Campaign, contentDescription = null, tint = Color.White, modifier = Modifier.size(24.dp))
-                        }
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Régie Publicitaire Boutiques",
-                                fontFamily = OutfitFontFamily,
-                                fontWeight = FontWeight.ExtraBold,
-                                fontSize = 17.sp,
-                                color = Color.White
-                            )
-                            Text(
-                                text = "Diffusez votre boutique & vidéo 60s sur l'écran d'accueil",
-                                fontSize = 11.5.sp,
-                                color = Color(0xFFD6E4FA)
-                            )
-                        }
-                        IconButton(
-                            onClick = onDismiss,
-                            modifier = Modifier
-                                .size(38.dp)
-                                .background(Color.White.copy(alpha = 0.16f), CircleShape)
-                                .testTag("btn_close_ad_config")
-                        ) {
-                            Icon(Icons.Default.Close, contentDescription = "Fermer", tint = Color.White, modifier = Modifier.size(18.dp))
-                        }
-                    }
-                }
+                ShopAdConfigHeader(onDismiss = onDismiss)
 
-                // Tabs (3 onglets : Configurer Pub & Vidéo 60s / Boutiques partenaires / Paramètres défilement)
                 TabRow(
-                    selectedTabIndex = activeTab,
+                    selectedTabIndex = state.activeTab,
                     containerColor = MaterialTheme.colorScheme.surface,
                     contentColor = KonabBlue
                 ) {
                     Tab(
-                        selected = activeTab == 0,
-                        onClick = { activeTab = 0 },
+                        selected = state.activeTab == 0,
+                        onClick = { state.activeTab = 0 },
                         text = { Text("Configurer", fontWeight = FontWeight.Bold, fontSize = 12.5.sp) },
                         modifier = Modifier.testTag("tab_ad_config_editor")
                     )
                     Tab(
-                        selected = activeTab == 1,
+                        selected = state.activeTab == 1,
                         onClick = {
-                            savedAds = ShopAdStorage.getAllAds(context).filter { !it.isFallbackShopOnly }
-                            partnerShopsRevision++
-                            activeTab = 1
+                            state.savedAds = ShopAdStorage.getAllAds(context).filter { !it.isFallbackShopOnly }
+                            state.partnerShopsRevision++
+                            state.activeTab = 1
                         },
                         text = { Text("Boutiques (${partnerShopEntries.size})", fontWeight = FontWeight.Bold, fontSize = 12.5.sp) },
                         modifier = Modifier.testTag("tab_ad_partner_shops")
                     )
                     Tab(
-                        selected = activeTab == 2,
-                        onClick = { activeTab = 2 },
+                        selected = state.activeTab == 2,
+                        onClick = { state.activeTab = 2 },
                         text = { Text("Défilement", fontWeight = FontWeight.Bold, fontSize = 12.5.sp) },
                         modifier = Modifier.testTag("tab_ad_scroll_settings")
                     )
                 }
 
-                if (activeTab == 0) {
-                    Column(
-                        modifier = Modifier
-                            .weight(1f)
-                            .verticalScroll(rememberScrollState())
-                            .padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(14.dp)
-                    ) {
-                        // Sélecteur rapide d'une boutique inscrite
-                        if (candidateShops.isNotEmpty()) {
-                            Text(
-                                text = "Boutique inscrite (pré-remplissage rapide)",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 12.5.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                when (state.activeTab) {
+                    0 -> ShopAdEditorTab(
+                        state = state,
+                        currentShop = currentShop,
+                        candidateShops = candidateShops,
+                        syncManager = syncManager,
+                        onPickLogo = {
+                            logoPickerLauncher.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                             )
-                            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                items(candidateShops) { shop ->
-                                    val isSelected = AgentDeploymentStorage.normalizeShopName(shop.name) ==
-                                        AgentDeploymentStorage.normalizeShopName(shopName)
-                                    FilterChip(
-                                        selected = isSelected,
-                                        onClick = {
-                                            shopName = shop.name
-                                            businessType = shop.businessType.ifBlank { "Boutique" }
-                                            city = shop.city
-                                            phone = shop.phone
-                                            if (whatsappPhone.isBlank()) whatsappPhone = shop.phone
-                                            if (!shop.logoUri.isNullOrBlank()) {
-                                                logoUri = shop.logoUri
-                                                localLogoFile = null
-                                            }
-                                            if (adTitle.isBlank()) adTitle = shop.name
-                                            if (adDescription.isBlank()) adDescription = shop.slogan
-                                        },
-                                        leadingIcon = {
-                                            ShopLogoAvatar(
-                                                logoUri = shop.logoUri,
-                                                size = 20.dp,
-                                                shape = CircleShape
-                                            )
-                                        },
-                                        label = {
-                                            Text(
-                                                text = shop.name,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
-                                                fontSize = 12.sp,
-                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                                            )
-                                        }
-                                    )
-                                }
+                        },
+                        onPickVideo = {
+                            videoPickerLauncher.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)
+                            )
+                        },
+                        onDismiss = onDismiss,
+                        onPublished = onPublished
+                    )
+                    1 -> ShopAdPartnerShopsTab(
+                        state = state,
+                        partnerShopEntries = partnerShopEntries,
+                        syncManager = syncManager,
+                        onPublished = onPublished
+                    )
+                    else -> ShopAdScrollSettingsTab(
+                        state = state,
+                        partnerShopEntries = partnerShopEntries,
+                        onDismiss = onDismiss,
+                        onPublished = onPublished
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ShopAdConfigHeader(onDismiss: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Brush.horizontalGradient(listOf(KonabBlueDeep, KonabBlue)))
+            .padding(16.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(KonabOrange),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Default.Campaign, contentDescription = null, tint = Color.White, modifier = Modifier.size(24.dp))
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Régie Publicitaire Boutiques",
+                    fontFamily = OutfitFontFamily,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 17.sp,
+                    color = Color.White
+                )
+                Text(
+                    text = "Diffusez votre boutique & vidéo 60s sur l'écran d'accueil",
+                    fontSize = 11.5.sp,
+                    color = Color(0xFFD6E4FA)
+                )
+            }
+            IconButton(
+                onClick = onDismiss,
+                modifier = Modifier
+                    .size(38.dp)
+                    .background(Color.White.copy(alpha = 0.16f), CircleShape)
+                    .testTag("btn_close_ad_config")
+            ) {
+                Icon(Icons.Default.Close, contentDescription = "Fermer", tint = Color.White, modifier = Modifier.size(18.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun ColumnScope.ShopAdEditorTab(
+    state: ShopAdEditorState,
+    currentShop: ShopProfileEntity?,
+    candidateShops: List<ShopProfileEntity>,
+    syncManager: SupabaseSyncManager,
+    onPickLogo: () -> Unit,
+    onPickVideo: () -> Unit,
+    onDismiss: () -> Unit,
+    onPublished: (ShopAdRecord) -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    Column(
+        modifier = Modifier
+            .weight(1f)
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        if (candidateShops.isNotEmpty()) {
+            Text(
+                text = "Boutique inscrite (pré-remplissage rapide)",
+                fontWeight = FontWeight.Bold,
+                fontSize = 12.5.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(candidateShops) { shop ->
+                    val isSelected = AgentDeploymentStorage.normalizeShopName(shop.name) ==
+                        AgentDeploymentStorage.normalizeShopName(state.shopName)
+                    FilterChip(
+                        selected = isSelected,
+                        onClick = {
+                            state.shopName = shop.name
+                            state.businessType = shop.businessType.ifBlank { "Boutique" }
+                            state.city = shop.city
+                            state.phone = shop.phone
+                            if (state.whatsappPhone.isBlank()) state.whatsappPhone = shop.phone
+                            if (!shop.logoUri.isNullOrBlank()) {
+                                state.logoUri = shop.logoUri
+                                state.localLogoFile = null
                             }
-                        }
-
-                        // Section 1 : Logo & Identité boutique
-                        Surface(
-                            shape = RoundedCornerShape(16.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(14.dp),
-                                verticalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                Text(
-                                    text = "1. Boutique & Logo",
-                                    fontFamily = OutfitFontFamily,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    fontSize = 14.5.sp,
-                                    color = KonabBlue
-                                )
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                ) {
-                                    ShopLogoAvatar(
-                                        logoUri = logoUri.ifBlank { null },
-                                        size = 64.dp,
-                                        shape = CircleShape,
-                                        showEditBadge = true,
-                                        onClick = {
-                                            logoPickerLauncher.launch(
-                                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                            )
-                                        }
-                                    )
-                                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                        OutlinedButton(
-                                            onClick = {
-                                                logoPickerLauncher.launch(
-                                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                                )
-                                            },
-                                            shape = RoundedCornerShape(10.dp),
-                                            modifier = Modifier.heightIn(min = 42.dp)
-                                        ) {
-                                            Icon(Icons.Default.PhotoLibrary, contentDescription = null, modifier = Modifier.size(16.dp))
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                            Text("Choisir le logo (Galerie)", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                        }
-                                        Text(
-                                            text = "Ou sélectionnez un logo rapide ci-dessous :",
-                                            fontSize = 11.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                }
-
-                                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    items(ShopLogoHelper.PRESET_LOGOS) { preset ->
-                                        val isChosen = logoUri == preset.key
-                                        Box(
-                                            modifier = Modifier
-                                                .size(46.dp)
-                                                .clip(CircleShape)
-                                                .border(
-                                                    width = if (isChosen) 2.5.dp else 1.dp,
-                                                    color = if (isChosen) KonabOrange else MaterialTheme.colorScheme.outlineVariant,
-                                                    shape = CircleShape
-                                                )
-                                                .clickable {
-                                                    logoUri = preset.key
-                                                    localLogoFile = null
-                                                }
-                                        ) {
-                                            ShopLogoAvatar(
-                                                logoUri = preset.key,
-                                                size = 46.dp,
-                                                shape = CircleShape
-                                            )
-                                        }
-                                    }
-                                }
-
-                                OutlinedTextField(
-                                    value = shopName,
-                                    onValueChange = { shopName = it; errorMessage = null },
-                                    label = { Text("Nom de la boutique *") },
-                                    leadingIcon = { Icon(Icons.Default.Storefront, contentDescription = null) },
-                                    singleLine = true,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .testTag("input_ad_shop_name")
-                                )
-
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    OutlinedTextField(
-                                        value = businessType,
-                                        onValueChange = { businessType = it },
-                                        label = { Text("Activité") },
-                                        singleLine = true,
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                    OutlinedTextField(
-                                        value = city,
-                                        onValueChange = { city = it },
-                                        label = { Text("Ville") },
-                                        singleLine = true,
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                }
-                            }
-                        }
-
-                        // Section 2 : Option Vidéo Promotionnelle 60 secondes (1 min max)
-                        Surface(
-                            shape = RoundedCornerShape(16.dp),
-                            color = KonabOrange.copy(alpha = 0.06f),
-                            border = BorderStroke(1.dp, KonabOrange.copy(alpha = 0.35f)),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(14.dp),
-                                verticalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = "2. Vidéo Promotionnelle (60s max)",
-                                            fontFamily = OutfitFontFamily,
-                                            fontWeight = FontWeight.ExtraBold,
-                                            fontSize = 14.5.sp,
-                                            color = KonabOrange
-                                        )
-                                        Text(
-                                            text = "Option : associer une vidéo de 60s au logo partenaire",
-                                            fontSize = 11.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                    ) {
-                                        Surface(
-                                            shape = RoundedCornerShape(8.dp),
-                                            color = if (attachPromoVideo && videoUri.isNotBlank()) KonabOrange else KonabBlueDark.copy(alpha = 0.7f)
-                                        ) {
-                                            Text(
-                                                text = if (attachPromoVideo && videoUri.isNotBlank()) {
-                                                    "${ShopAdStorage.clampVideoDurationSec(videoDurationSec, true)}s / 60s"
-                                                } else {
-                                                    "MAX 60s"
-                                                },
-                                                fontSize = 10.sp,
-                                                fontWeight = FontWeight.ExtraBold,
-                                                color = Color.White,
-                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                                            )
-                                        }
-                                        Switch(
-                                            checked = attachPromoVideo,
-                                            onCheckedChange = { enabled ->
-                                                attachPromoVideo = enabled
-                                            },
-                                            modifier = Modifier.testTag("switch_attach_promo_video")
-                                        )
-                                    }
-                                }
-
-                                if (attachPromoVideo) {
-                                    Text(
-                                        text = "Une fois publiée, cette vidéo promotionnelle de 60 secondes défilera sur le modal d'accueil pour tous les utilisateurs.",
-                                        fontSize = 11.5.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        Button(
-                                            onClick = {
-                                                videoPickerLauncher.launch(
-                                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)
-                                                )
-                                            },
-                                            colors = ButtonDefaults.buttonColors(containerColor = KonabOrange),
-                                            shape = RoundedCornerShape(10.dp),
-                                            modifier = Modifier
-                                                .weight(1f)
-                                                .height(48.dp)
-                                                .testTag("btn_pick_ad_video")
-                                        ) {
-                                            Icon(Icons.Default.VideoLibrary, contentDescription = null, modifier = Modifier.size(18.dp))
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                            Text(
-                                                text = if (videoUri.isBlank()) "Importer vidéo (≤ 60s)" else "Changer la vidéo",
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 12.5.sp
-                                            )
-                                        }
-
-                                        if (videoUri.isNotBlank()) {
-                                            OutlinedButton(
-                                                onClick = {
-                                                    videoUri = ""
-                                                    localVideoFile = null
-                                                    videoDurationSec = 0
-                                                    videoUrlInput = ""
-                                                    originalDurationNote = null
-                                                },
-                                                shape = RoundedCornerShape(10.dp),
-                                                modifier = Modifier.height(48.dp)
-                                            ) {
-                                                Icon(Icons.Default.DeleteOutline, contentDescription = "Retirer vidéo", tint = KonabRed)
-                                            }
-                                        }
-                                    }
-
-                                    if (!originalDurationNote.isNullOrBlank()) {
-                                        Text(
-                                            text = originalDurationNote!!,
-                                            fontSize = 11.5.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = KonabGreen
-                                        )
-                                    }
-
-                                    OutlinedTextField(
-                                        value = videoUrlInput,
-                                        onValueChange = { url ->
-                                            videoUrlInput = url
-                                            val clean = url.trim()
-                                            if (clean.startsWith("http://") || clean.startsWith("https://")) {
-                                                attachPromoVideo = true
-                                                videoUri = clean
-                                                localVideoFile = null
-                                                if (videoDurationSec <= 0) videoDurationSec = 60
-                                            } else if (clean.isBlank() && localVideoFile == null) {
-                                                videoUri = ""
-                                                videoDurationSec = 0
-                                            }
-                                        },
-                                        label = { Text("Ou coller un lien vidéo MP4 public (HTTPS)") },
-                                        leadingIcon = { Icon(Icons.Default.Link, contentDescription = null) },
-                                        singleLine = true,
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
-
-                                    // Aperçu vidéo intégré
-                                    if (videoUri.isNotBlank()) {
-                                        Box(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .height(150.dp)
-                                                .clip(RoundedCornerShape(12.dp))
-                                                .background(Color.Black)
-                                        ) {
-                                            ShopAdVideoSurface(
-                                                videoUri = videoUri,
-                                                modifier = Modifier.fillMaxSize(),
-                                                isMuted = true,
-                                                isPlaying = true,
-                                                loop = true,
-                                                resizeZoom = true
-                                            )
-                                            Surface(
-                                                shape = RoundedCornerShape(8.dp),
-                                                color = Color.Black.copy(alpha = 0.65f),
-                                                modifier = Modifier
-                                                    .align(Alignment.BottomStart)
-                                                    .padding(8.dp)
-                                            ) {
-                                                Text(
-                                                    text = "Aperçu en boucle (max 60s)",
-                                                    color = Color.White,
-                                                    fontSize = 10.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                                                )
-                                            }
-                                        }
-                                    }
-                                } else {
-                                    Text(
-                                        text = "Mode Logo & Bannière uniquement : activez l'interrupteur ci-dessus si vous souhaitez associer une vidéo promotionnelle de 60 secondes.",
-                                        fontSize = 11.5.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                        }
-
-                        // Section 3 : Message & Contact Direct Client
-                        Surface(
-                            shape = RoundedCornerShape(16.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(14.dp),
-                                verticalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                Text(
-                                    text = "3. Message Publicitaire & Contact Direct",
-                                    fontFamily = OutfitFontFamily,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    fontSize = 14.5.sp,
-                                    color = KonabBlue
-                                )
-
-                                OutlinedTextField(
-                                    value = adTitle,
-                                    onValueChange = { adTitle = it; errorMessage = null },
-                                    label = { Text("Titre accrocheur de la publicité *") },
-                                    leadingIcon = { Icon(Icons.Default.Title, contentDescription = null) },
-                                    singleLine = true,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .testTag("input_ad_title")
-                                )
-
-                                OutlinedTextField(
-                                    value = adDescription,
-                                    onValueChange = { adDescription = it },
-                                    label = { Text("Description / Offre promotionnelle") },
-                                    leadingIcon = { Icon(Icons.Default.Description, contentDescription = null) },
-                                    minLines = 2,
-                                    maxLines = 4,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .testTag("input_ad_description")
-                                )
-
-                                OutlinedTextField(
-                                    value = phone,
-                                    onValueChange = {
-                                        phone = it
-                                        errorMessage = null
-                                    },
-                                    label = { Text("Téléphone d'appel direct *") },
-                                    leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null) },
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                                    singleLine = true,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .testTag("input_ad_phone")
-                                )
-
-                                OutlinedTextField(
-                                    value = whatsappPhone,
-                                    onValueChange = { whatsappPhone = it },
-                                    label = { Text("Numéro WhatsApp") },
-                                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null) },
-                                    trailingIcon = {
-                                        if (phone.isNotBlank() && whatsappPhone != phone) {
-                                            TextButton(onClick = { whatsappPhone = phone }) {
-                                                Text("= Tél", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                            }
-                                        }
-                                    },
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                                    singleLine = true,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .testTag("input_ad_whatsapp")
-                                )
-
-                                Text(
-                                    text = "Bouton d'action sur l'affiche :",
-                                    fontSize = 11.5.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    items(listOf("Contacter", "Commander", "Profiter de l'offre", "Appeler")) { labelOption ->
-                                        FilterChip(
-                                            selected = ctaLabel == labelOption,
-                                            onClick = { ctaLabel = labelOption },
-                                            label = { Text(labelOption, fontSize = 11.5.sp) }
-                                        )
-                                    }
-                                }
-
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = "Diffuser sur l'écran d'accueil",
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 13.sp
-                                        )
-                                        Text(
-                                            text = "Visible par tous les utilisateurs de KONAB POS",
-                                            fontSize = 11.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                    Switch(
-                                        checked = isActive,
-                                        onCheckedChange = { isActive = it }
-                                    )
-                                }
-                            }
-                        }
-
-                        if (!errorMessage.isNullOrBlank()) {
+                            if (state.adTitle.isBlank()) state.adTitle = shop.name
+                            if (state.adDescription.isBlank()) state.adDescription = shop.slogan
+                        },
+                        leadingIcon = {
+                            ShopLogoAvatar(
+                                logoUri = shop.logoUri,
+                                size = 20.dp,
+                                shape = CircleShape
+                            )
+                        },
+                        label = {
                             Text(
-                                text = errorMessage!!,
-                                color = KonabRed,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 12.sp
+                                text = shop.name,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                fontSize = 12.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                             )
                         }
-                    }
+                    )
+                }
+            }
+        }
 
-                    // Footer Action
-                    Surface(
-                        tonalElevation = 4.dp,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(14.dp),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = "1. Boutique & Logo",
+                    fontFamily = OutfitFontFamily,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 14.5.sp,
+                    color = KonabBlue
+                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    ShopLogoAvatar(
+                        logoUri = state.logoUri.ifBlank { null },
+                        size = 64.dp,
+                        shape = CircleShape,
+                        showEditBadge = true,
+                        onClick = onPickLogo
+                    )
+                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        OutlinedButton(
+                            onClick = onPickLogo,
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.heightIn(min = 42.dp)
                         ) {
-                            OutlinedButton(
-                                onClick = onDismiss,
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.height(48.dp)
-                            ) {
-                                Text("Annuler", fontWeight = FontWeight.Bold)
-                            }
-                            Button(
-                                onClick = {
-                                    val cleanShop = shopName.trim()
-                                    val cleanPhone = phone.trim()
-                                    if (cleanShop.isBlank()) {
-                                        errorMessage = "Veuillez renseigner le nom de la boutique."
-                                        return@Button
-                                    }
-                                    if (cleanPhone.isBlank() && whatsappPhone.isBlank()) {
-                                        errorMessage = "Veuillez saisir au moins un numéro de contact (Téléphone ou WhatsApp)."
-                                        return@Button
-                                    }
-                                    isPublishing = true
-                                    errorMessage = null
-                                    val activeAgent = AgentDeploymentStorage.getSavedAgentSession(context)
-                                    val activeVideoUri = if (attachPromoVideo) videoUri.trim() else ""
-                                    val activeVideoFile = if (attachPromoVideo) localVideoFile else null
-                                    val record = ShopAdRecord(
-                                        id = editingAdId,
-                                        shopId = currentShop?.id?.toLong() ?: 0L,
-                                        shopName = cleanShop,
-                                        businessType = businessType.trim().ifBlank { "Boutique" },
-                                        city = city.trim(),
-                                        phone = cleanPhone.ifBlank { whatsappPhone.trim() },
-                                        whatsappPhone = whatsappPhone.trim().ifBlank { cleanPhone },
-                                        logoUri = logoUri.trim(),
-                                        adTitle = adTitle.trim().ifBlank { cleanShop },
-                                        adDescription = adDescription.trim(),
-                                        videoUri = activeVideoUri,
-                                        videoDurationSec = ShopAdStorage.clampVideoDurationSec(
-                                            videoDurationSec,
-                                            activeVideoUri.isNotBlank()
-                                        ),
-                                        ctaLabel = ctaLabel.trim().ifBlank { "Contacter" },
-                                        isActive = isActive,
-                                        updatedAt = System.currentTimeMillis(),
-                                        deployerId = activeAgent?.id.orEmpty(),
-                                        isSynced = false,
-                                        isFallbackShopOnly = false
-                                    )
-                                    scope.launch {
-                                        val res = syncManager.publishShopAd(
-                                            ad = record,
-                                            localLogoFile = localLogoFile,
-                                            localVideoFile = activeVideoFile
-                                        )
-                                        isPublishing = false
-                                        if (res.isSuccess) {
-                                            val published = res.getOrThrow()
-                                            val statusText = if (published.isSynced) {
-                                                "Publicité publiée et diffusée à tous les utilisateurs !"
-                                            } else if (SupabaseConfig.isConfigured) {
-                                                "Publicité enregistrée localement (synchronisation Cloud en attente)."
-                                            } else {
-                                                "Publicité enregistrée !"
-                                            }
-                                            Toast.makeText(context, statusText, Toast.LENGTH_LONG).show()
-                                            onPublished(published)
-                                            onDismiss()
-                                        } else {
-                                            errorMessage = res.exceptionOrNull()?.localizedMessage ?: "Erreur lors de la publication."
-                                        }
-                                    }
-                                },
-                                enabled = !isPublishing,
-                                colors = ButtonDefaults.buttonColors(containerColor = KonabOrange),
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(48.dp)
-                                    .testTag("btn_publish_shop_ad")
-                            ) {
-                                if (isPublishing) {
-                                    CircularProgressIndicator(
-                                        color = Color.White,
-                                        strokeWidth = 2.dp,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text("Publication...", fontWeight = FontWeight.Bold)
-                                } else {
-                                    Icon(Icons.Default.RocketLaunch, contentDescription = null, modifier = Modifier.size(18.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text("Publier la publicité", fontWeight = FontWeight.Bold)
-                                }
-                            }
+                            Icon(Icons.Default.PhotoLibrary, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Choisir le logo (Galerie)", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         }
+                        Text(
+                            text = "Ou sélectionnez un logo rapide ci-dessous :",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
-                } else if (activeTab == 1) {
-                    // Tab 1 : Gestion complète des logos des boutiques partenaires dans le défilement
-                    if (partnerShopEntries.isEmpty()) {
+                }
+
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(ShopLogoHelper.PRESET_LOGOS) { preset ->
+                        val isChosen = state.logoUri == preset.key
                         Box(
                             modifier = Modifier
-                                .weight(1f)
-                                .fillMaxWidth()
-                                .padding(24.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Icon(Icons.Default.Campaign, contentDescription = null, tint = KonabOrange, modifier = Modifier.size(44.dp))
-                                Text("Aucune boutique partenaire", fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                                Text(
-                                    text = "Configurez une boutique partenaire avec son logo et une vidéo promo de 60s pour la diffuser à l'écran d'accueil.",
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                .size(46.dp)
+                                .clip(CircleShape)
+                                .border(
+                                    width = if (isChosen) 2.5.dp else 1.dp,
+                                    color = if (isChosen) KonabOrange else MaterialTheme.colorScheme.outlineVariant,
+                                    shape = CircleShape
                                 )
-                                Button(
-                                    onClick = { activeTab = 0 },
-                                    colors = ButtonDefaults.buttonColors(containerColor = KonabOrange)
-                                ) {
-                                    Text("Configurer une boutique", fontWeight = FontWeight.Bold)
+                                .clickable {
+                                    state.logoUri = preset.key
+                                    state.localLogoFile = null
                                 }
-                            }
+                        ) {
+                            ShopLogoAvatar(
+                                logoUri = preset.key,
+                                size = 46.dp,
+                                shape = CircleShape
+                            )
                         }
-                    } else {
-                        LazyColumn(
+                    }
+                }
+
+                OutlinedTextField(
+                    value = state.shopName,
+                    onValueChange = { state.shopName = it; state.errorMessage = null },
+                    label = { Text("Nom de la boutique *") },
+                    leadingIcon = { Icon(Icons.Default.Storefront, contentDescription = null) },
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("input_ad_shop_name")
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = state.businessType,
+                        onValueChange = { state.businessType = it },
+                        label = { Text("Activité") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedTextField(
+                        value = state.city,
+                        onValueChange = { state.city = it },
+                        label = { Text("Ville") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+        }
+
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = KonabOrange.copy(alpha = 0.06f),
+            border = BorderStroke(1.dp, KonabOrange.copy(alpha = 0.35f)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "2. Vidéo Promotionnelle (60s max)",
+                            fontFamily = OutfitFontFamily,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 14.5.sp,
+                            color = KonabOrange
+                        )
+                        Text(
+                            text = "Option : associer une vidéo de 60s au logo partenaire",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (state.attachPromoVideo && state.videoUri.isNotBlank()) KonabOrange else KonabBlueDark.copy(alpha = 0.7f)
+                        ) {
+                            Text(
+                                text = if (state.attachPromoVideo && state.videoUri.isNotBlank()) {
+                                    "${ShopAdStorage.clampVideoDurationSec(state.videoDurationSec, true)}s / 60s"
+                                } else {
+                                    "MAX 60s"
+                                },
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color.White,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                            )
+                        }
+                        Switch(
+                            checked = state.attachPromoVideo,
+                            onCheckedChange = { enabled -> state.attachPromoVideo = enabled },
+                            modifier = Modifier.testTag("switch_attach_promo_video")
+                        )
+                    }
+                }
+
+                if (state.attachPromoVideo) {
+                    Text(
+                        text = "Une fois publiée, cette vidéo promotionnelle de 60 secondes défilera sur le modal d'accueil pour tous les utilisateurs.",
+                        fontSize = 11.5.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = onPickVideo,
+                            colors = ButtonDefaults.buttonColors(containerColor = KonabOrange),
+                            shape = RoundedCornerShape(10.dp),
                             modifier = Modifier
                                 .weight(1f)
-                                .fillMaxWidth(),
-                            contentPadding = PaddingValues(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                                .height(48.dp)
+                                .testTag("btn_pick_ad_video")
                         ) {
-                            item {
-                                Surface(
-                                    shape = RoundedCornerShape(12.dp),
-                                    color = KonabBlue.copy(alpha = 0.08f),
-                                    border = BorderStroke(1.dp, KonabBlue.copy(alpha = 0.2f)),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(10.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        Icon(Icons.Default.ViewCarousel, contentDescription = null, tint = KonabBlue, modifier = Modifier.size(18.dp))
-                                        Text(
-                                            text = "Activez ou mettez en pause chaque logo partenaire dans le modal d'accueil et associez-lui une vidéo promo 60s.",
-                                            fontSize = 11.5.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            lineHeight = 15.sp
-                                        )
-                                    }
-                                }
-                            }
+                            Icon(Icons.Default.VideoLibrary, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = if (state.videoUri.isBlank()) "Importer vidéo (≤ 60s)" else "Changer la vidéo",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.5.sp
+                            )
+                        }
 
-                            items(partnerShopEntries, key = { "${it.id}_${it.shopName}" }) { ad ->
-                                Card(
-                                    shape = RoundedCornerShape(16.dp),
-                                    border = BorderStroke(
-                                        1.dp,
-                                        if (ad.isActive) KonabBlue.copy(alpha = 0.25f)
-                                        else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
-                                    )
-                                ) {
-                                    Column(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(12.dp),
-                                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                        ) {
-                                            ShopLogoAvatar(
-                                                logoUri = ad.logoUri.ifBlank { null },
-                                                size = 44.dp,
-                                                shape = CircleShape
-                                            )
-                                            Column(modifier = Modifier.weight(1f)) {
-                                                Row(
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                                ) {
-                                                    Text(
-                                                        text = ad.shopName,
-                                                        fontWeight = FontWeight.ExtraBold,
-                                                        fontSize = 14.sp,
-                                                        maxLines = 1,
-                                                        overflow = TextOverflow.Ellipsis,
-                                                        modifier = Modifier.weight(1f, fill = false)
-                                                    )
-                                                    Surface(
-                                                        shape = RoundedCornerShape(6.dp),
-                                                        color = if (ad.hasVideo) KonabOrange else KonabBlue.copy(alpha = 0.14f)
-                                                    ) {
-                                                        Text(
-                                                            text = if (ad.hasVideo) "VIDÉO ${ad.videoDurationSec}s" else "LOGO",
-                                                            fontSize = 9.5.sp,
-                                                            fontWeight = FontWeight.ExtraBold,
-                                                            color = if (ad.hasVideo) Color.White else KonabBlue,
-                                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                                        )
-                                                    }
-                                                }
-                                                Text(
-                                                    text = "${ad.businessType}${if (ad.city.isNotBlank()) " • ${ad.city}" else ""} • ${if (ad.isActive) "En défilement" else "En pause"}",
-                                                    fontSize = 11.5.sp,
-                                                    color = if (ad.isActive) KonabGreen else MaterialTheme.colorScheme.onSurfaceVariant
-                                                )
-                                            }
-                                            Switch(
-                                                checked = ad.isActive,
-                                                onCheckedChange = { checked ->
-                                                    scope.launch {
-                                                        val targetId = if (ad.isFallbackShopOnly) "AD-${ad.shopName.hashCode()}-${System.currentTimeMillis()}" else ad.id
-                                                        val updated = ad.copy(
-                                                            id = targetId,
-                                                            isActive = checked,
-                                                            isFallbackShopOnly = false,
-                                                            updatedAt = System.currentTimeMillis()
-                                                        )
-                                                        syncManager.publishShopAd(updated)
-                                                        savedAds = ShopAdStorage.getAllAds(context).filter { !it.isFallbackShopOnly }
-                                                        partnerShopsRevision++
-                                                        onPublished(updated)
-                                                    }
-                                                }
-                                            )
-                                        }
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.End,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            if (ad.isActive) {
-                                                TextButton(
-                                                    onClick = {
-                                                        scope.launch {
-                                                            val targetId = if (ad.isFallbackShopOnly) "AD-${ad.shopName.hashCode()}-${System.currentTimeMillis()}" else ad.id
-                                                            val promoted = ad.copy(
-                                                                id = targetId,
-                                                                isActive = true,
-                                                                isFallbackShopOnly = false,
-                                                                updatedAt = System.currentTimeMillis()
-                                                            )
-                                                            syncManager.publishShopAd(promoted)
-                                                            savedAds = ShopAdStorage.getAllAds(context).filter { !it.isFallbackShopOnly }
-                                                            partnerShopsRevision++
-                                                            onPublished(promoted)
-                                                            Toast.makeText(context, "« ${ad.shopName} » placé en tête du défilement.", Toast.LENGTH_SHORT).show()
-                                                        }
-                                                    }
-                                                ) {
-                                                    Icon(Icons.Default.VerticalAlignTop, contentDescription = null, modifier = Modifier.size(15.dp))
-                                                    Spacer(modifier = Modifier.width(4.dp))
-                                                    Text("En tête", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
-                                                }
-                                            }
-                                            TextButton(
-                                                onClick = { loadAdIntoEditor(ad, forceEnableVideoOption = !ad.hasVideo) }
-                                            ) {
-                                                Icon(
-                                                    imageVector = if (ad.hasVideo) Icons.Default.Edit else Icons.Default.VideoCall,
-                                                    contentDescription = null,
-                                                    tint = KonabOrange,
-                                                    modifier = Modifier.size(16.dp)
-                                                )
-                                                Spacer(modifier = Modifier.width(4.dp))
-                                                Text(
-                                                    text = if (ad.hasVideo) "Modifier" else "Vidéo 60s",
-                                                    color = KonabOrange,
-                                                    fontSize = 12.sp,
-                                                    fontWeight = FontWeight.Bold
-                                                )
-                                            }
-                                            if (!ad.isFallbackShopOnly) {
-                                                TextButton(
-                                                    onClick = {
-                                                        scope.launch {
-                                                            syncManager.deleteShopAd(ad.id)
-                                                            savedAds = ShopAdStorage.getAllAds(context).filter { !it.isFallbackShopOnly }
-                                                            partnerShopsRevision++
-                                                            onPublished(ad)
-                                                        }
-                                                    }
-                                                ) {
-                                                    Icon(Icons.Default.DeleteOutline, contentDescription = null, tint = KonabRed, modifier = Modifier.size(16.dp))
-                                                    Spacer(modifier = Modifier.width(4.dp))
-                                                    Text("Supprimer", color = KonabRed, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
+                        if (state.videoUri.isNotBlank()) {
+                            OutlinedButton(
+                                onClick = {
+                                    state.videoUri = ""
+                                    state.localVideoFile = null
+                                    state.videoDurationSec = 0
+                                    state.videoUrlInput = ""
+                                    state.originalDurationNote = null
+                                },
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.height(48.dp)
+                            ) {
+                                Icon(Icons.Default.DeleteOutline, contentDescription = "Retirer vidéo", tint = KonabRed)
+                            }
+                        }
+                    }
+
+                    if (!state.originalDurationNote.isNullOrBlank()) {
+                        Text(
+                            text = state.originalDurationNote!!,
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = KonabGreen
+                        )
+                    }
+
+                    OutlinedTextField(
+                        value = state.videoUrlInput,
+                        onValueChange = { url ->
+                            state.videoUrlInput = url
+                            val clean = url.trim()
+                            if (clean.startsWith("http://") || clean.startsWith("https://")) {
+                                state.attachPromoVideo = true
+                                state.videoUri = clean
+                                state.localVideoFile = null
+                                if (state.videoDurationSec <= 0) state.videoDurationSec = 60
+                            } else if (clean.isBlank() && state.localVideoFile == null) {
+                                state.videoUri = ""
+                                state.videoDurationSec = 0
+                            }
+                        },
+                        label = { Text("Ou coller un lien vidéo MP4 public (HTTPS)") },
+                        leadingIcon = { Icon(Icons.Default.Link, contentDescription = null) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    if (state.videoUri.isNotBlank()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(150.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Color.Black)
+                        ) {
+                            ShopAdVideoSurface(
+                                videoUri = state.videoUri,
+                                modifier = Modifier.fillMaxSize(),
+                                isMuted = true,
+                                isPlaying = true,
+                                loop = true,
+                                resizeZoom = true
+                            )
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = Color.Black.copy(alpha = 0.65f),
+                                modifier = Modifier
+                                    .align(Alignment.BottomStart)
+                                    .padding(8.dp)
+                            ) {
+                                Text(
+                                    text = "Aperçu en boucle (max 60s)",
+                                    color = Color.White,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                )
                             }
                         }
                     }
                 } else {
-                    // Tab 2 : Paramètres du défilement des logos & vidéos dans le modal d'accueil
+                    Text(
+                        text = "Mode Logo & Bannière uniquement : activez l'interrupteur ci-dessus si vous souhaitez associer une vidéo promotionnelle de 60 secondes.",
+                        fontSize = 11.5.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    text = "3. Message Publicitaire & Contact Direct",
+                    fontFamily = OutfitFontFamily,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 14.5.sp,
+                    color = KonabBlue
+                )
+
+                OutlinedTextField(
+                    value = state.adTitle,
+                    onValueChange = { state.adTitle = it; state.errorMessage = null },
+                    label = { Text("Titre accrocheur de la publicité *") },
+                    leadingIcon = { Icon(Icons.Default.Title, contentDescription = null) },
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("input_ad_title")
+                )
+
+                OutlinedTextField(
+                    value = state.adDescription,
+                    onValueChange = { state.adDescription = it },
+                    label = { Text("Description / Offre promotionnelle") },
+                    leadingIcon = { Icon(Icons.Default.Description, contentDescription = null) },
+                    minLines = 2,
+                    maxLines = 4,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("input_ad_description")
+                )
+
+                OutlinedTextField(
+                    value = state.phone,
+                    onValueChange = {
+                        state.phone = it
+                        state.errorMessage = null
+                    },
+                    label = { Text("Téléphone d'appel direct *") },
+                    leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("input_ad_phone")
+                )
+
+                OutlinedTextField(
+                    value = state.whatsappPhone,
+                    onValueChange = { state.whatsappPhone = it },
+                    label = { Text("Numéro WhatsApp") },
+                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null) },
+                    trailingIcon = {
+                        if (state.phone.isNotBlank() && state.whatsappPhone != state.phone) {
+                            TextButton(onClick = { state.whatsappPhone = state.phone }) {
+                                Text("= Tél", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("input_ad_whatsapp")
+                )
+
+                Text(
+                    text = "Bouton d'action sur l'affiche :",
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(listOf("Contacter", "Commander", "Profiter de l'offre", "Appeler")) { labelOption ->
+                        FilterChip(
+                            selected = state.ctaLabel == labelOption,
+                            onClick = { state.ctaLabel = labelOption },
+                            label = { Text(labelOption, fontSize = 11.5.sp) }
+                        )
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Diffuser sur l'écran d'accueil",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp
+                        )
+                        Text(
+                            text = "Visible par tous les utilisateurs de KONAB POS",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = state.isActive,
+                        onCheckedChange = { state.isActive = it }
+                    )
+                }
+            }
+        }
+
+        if (!state.errorMessage.isNullOrBlank()) {
+            Text(
+                text = state.errorMessage!!,
+                color = KonabRed,
+                fontWeight = FontWeight.Bold,
+                fontSize = 12.sp
+            )
+        }
+    }
+
+    Surface(
+        tonalElevation = 4.dp,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            OutlinedButton(
+                onClick = onDismiss,
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.height(48.dp)
+            ) {
+                Text("Annuler", fontWeight = FontWeight.Bold)
+            }
+            Button(
+                onClick = {
+                    val cleanShop = state.shopName.trim()
+                    val cleanPhone = state.phone.trim()
+                    if (cleanShop.isBlank()) {
+                        state.errorMessage = "Veuillez renseigner le nom de la boutique."
+                        return@Button
+                    }
+                    if (cleanPhone.isBlank() && state.whatsappPhone.isBlank()) {
+                        state.errorMessage = "Veuillez saisir au moins un numéro de contact (Téléphone ou WhatsApp)."
+                        return@Button
+                    }
+                    state.isPublishing = true
+                    state.errorMessage = null
+                    val activeAgent = AgentDeploymentStorage.getSavedAgentSession(context)
+                    val activeVideoUri = if (state.attachPromoVideo) state.videoUri.trim() else ""
+                    val activeVideoFile = if (state.attachPromoVideo) state.localVideoFile else null
+                    val record = ShopAdRecord(
+                        id = state.editingAdId,
+                        shopId = currentShop?.id?.toLong() ?: 0L,
+                        shopName = cleanShop,
+                        businessType = state.businessType.trim().ifBlank { "Boutique" },
+                        city = state.city.trim(),
+                        phone = cleanPhone.ifBlank { state.whatsappPhone.trim() },
+                        whatsappPhone = state.whatsappPhone.trim().ifBlank { cleanPhone },
+                        logoUri = state.logoUri.trim(),
+                        adTitle = state.adTitle.trim().ifBlank { cleanShop },
+                        adDescription = state.adDescription.trim(),
+                        videoUri = activeVideoUri,
+                        videoDurationSec = ShopAdStorage.clampVideoDurationSec(
+                            state.videoDurationSec,
+                            activeVideoUri.isNotBlank()
+                        ),
+                        ctaLabel = state.ctaLabel.trim().ifBlank { "Contacter" },
+                        isActive = state.isActive,
+                        updatedAt = System.currentTimeMillis(),
+                        deployerId = activeAgent?.id.orEmpty(),
+                        isSynced = false,
+                        isFallbackShopOnly = false
+                    )
+                    scope.launch {
+                        val res = syncManager.publishShopAd(
+                            ad = record,
+                            localLogoFile = state.localLogoFile,
+                            localVideoFile = activeVideoFile
+                        )
+                        state.isPublishing = false
+                        if (res.isSuccess) {
+                            val published = res.getOrThrow()
+                            val statusText = if (published.isSynced) {
+                                "Publicité publiée et diffusée à tous les utilisateurs !"
+                            } else if (SupabaseConfig.isConfigured) {
+                                "Publicité enregistrée localement (synchronisation Cloud en attente)."
+                            } else {
+                                "Publicité enregistrée !"
+                            }
+                            Toast.makeText(context, statusText, Toast.LENGTH_LONG).show()
+                            onPublished(published)
+                            onDismiss()
+                        } else {
+                            state.errorMessage = res.exceptionOrNull()?.localizedMessage ?: "Erreur lors de la publication."
+                        }
+                    }
+                },
+                enabled = !state.isPublishing,
+                colors = ButtonDefaults.buttonColors(containerColor = KonabOrange),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .height(48.dp)
+                    .testTag("btn_publish_shop_ad")
+            ) {
+                if (state.isPublishing) {
+                    CircularProgressIndicator(
+                        color = Color.White,
+                        strokeWidth = 2.dp,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Publication...", fontWeight = FontWeight.Bold)
+                } else {
+                    Icon(Icons.Default.RocketLaunch, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Publier la publicité", fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ColumnScope.ShopAdPartnerShopsTab(
+    state: ShopAdEditorState,
+    partnerShopEntries: List<ShopAdRecord>,
+    syncManager: SupabaseSyncManager,
+    onPublished: (ShopAdRecord) -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    if (partnerShopEntries.isEmpty()) {
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .padding(24.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Icon(Icons.Default.Campaign, contentDescription = null, tint = KonabOrange, modifier = Modifier.size(44.dp))
+                Text("Aucune boutique partenaire", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                Text(
+                    text = "Configurez une boutique partenaire avec son logo et une vidéo promo de 60s pour la diffuser à l'écran d'accueil.",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Button(
+                    onClick = { state.activeTab = 0 },
+                    colors = ButtonDefaults.buttonColors(containerColor = KonabOrange)
+                ) {
+                    Text("Configurer une boutique", fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    } else {
+        LazyColumn(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            item {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = KonabBlue.copy(alpha = 0.08f),
+                    border = BorderStroke(1.dp, KonabBlue.copy(alpha = 0.2f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(Icons.Default.ViewCarousel, contentDescription = null, tint = KonabBlue, modifier = Modifier.size(18.dp))
+                        Text(
+                            text = "Activez ou mettez en pause chaque logo partenaire dans le modal d'accueil et associez-lui une vidéo promo 60s.",
+                            fontSize = 11.5.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            lineHeight = 15.sp
+                        )
+                    }
+                }
+            }
+
+            items(partnerShopEntries, key = { "${it.id}_${it.shopName}" }) { ad ->
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    border = BorderStroke(
+                        1.dp,
+                        if (ad.isActive) KonabBlue.copy(alpha = 0.25f)
+                        else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
+                    )
+                ) {
                     Column(
                         modifier = Modifier
-                            .weight(1f)
-                            .verticalScroll(rememberScrollState())
-                            .padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        val activeCount = partnerShopEntries.count { it.isActive }
-                        val videoCount = partnerShopEntries.count { it.isActive && it.hasVideo }
-
-                        Surface(
-                            shape = RoundedCornerShape(16.dp),
-                            color = KonabBlueContainer.copy(alpha = 0.4f),
-                            border = BorderStroke(1.dp, KonabBlue.copy(alpha = 0.25f)),
-                            modifier = Modifier.fillMaxWidth()
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Row(
-                                modifier = Modifier.padding(14.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(44.dp)
-                                        .clip(CircleShape)
-                                        .background(KonabBlue),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(Icons.Default.ViewCarousel, contentDescription = null, tint = Color.White, modifier = Modifier.size(22.dp))
-                                }
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = "Modal d'accueil • Défilement actif",
-                                        fontFamily = OutfitFontFamily,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        fontSize = 14.5.sp
-                                    )
-                                    Text(
-                                        text = "$activeCount boutique(s) partenaire(s) • $videoCount vidéo(s) promo 60s",
-                                        fontSize = 12.sp,
-                                        color = KonabBlue,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                }
-                            }
-                        }
-
-                        Surface(
-                            shape = RoundedCornerShape(16.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(14.dp),
-                                verticalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
+                            ShopLogoAvatar(
+                                logoUri = ad.logoUri.ifBlank { null },
+                                size = 44.dp,
+                                shape = CircleShape
+                            )
+                            Column(modifier = Modifier.weight(1f)) {
                                 Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text("Défilement automatique des logos", fontWeight = FontWeight.Bold, fontSize = 13.5.sp)
+                                    Text(
+                                        text = ad.shopName,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        fontSize = 14.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f, fill = false)
+                                    )
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = if (ad.hasVideo) KonabOrange else KonabBlue.copy(alpha = 0.14f)
+                                    ) {
                                         Text(
-                                            text = "Fait défiler automatiquement les logos partenaires sur l'accueil",
-                                            fontSize = 11.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            text = if (ad.hasVideo) "VIDÉO ${ad.videoDurationSec}s" else "LOGO",
+                                            fontSize = 9.5.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            color = if (ad.hasVideo) Color.White else KonabBlue,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                         )
                                     }
-                                    Switch(
-                                        checked = carouselSettings.autoScrollEnabled,
-                                        onCheckedChange = { checked ->
-                                            val updated = carouselSettings.copy(autoScrollEnabled = checked)
-                                            carouselSettings = updated
-                                            ShopAdStorage.saveCarouselSettings(context, updated)
-                                            onPublished(partnerShopEntries.firstOrNull() ?: ShopAdRecord(id = "SETTINGS", shopName = shopName))
-                                        },
-                                        modifier = Modifier.testTag("switch_ad_autoscroll")
-                                    )
                                 }
-
-                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-
-                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Text(
-                                        text = "Vitesse de passage par boutique (${carouselSettings.scrollIntervalSeconds}s)",
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 13.sp
-                                    )
-                                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        items(listOf(3 to "Rapide (3s)", 4 to "Standard (4s)", 6 to "Confort (6s)", 8 to "Lecture (8s)")) { (sec, label) ->
-                                            FilterChip(
-                                                selected = carouselSettings.scrollIntervalSeconds == sec,
-                                                enabled = carouselSettings.autoScrollEnabled,
-                                                onClick = {
-                                                    val updated = carouselSettings.copy(scrollIntervalSeconds = sec)
-                                                    carouselSettings = updated
-                                                    ShopAdStorage.saveCarouselSettings(context, updated)
-                                                    onPublished(partnerShopEntries.firstOrNull() ?: ShopAdRecord(id = "SETTINGS", shopName = shopName))
-                                                },
-                                                label = { Text(label, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold) }
+                                Text(
+                                    text = "${ad.businessType}${if (ad.city.isNotBlank()) " • ${ad.city}" else ""} • ${if (ad.isActive) "En défilement" else "En pause"}",
+                                    fontSize = 11.5.sp,
+                                    color = if (ad.isActive) KonabGreen else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Switch(
+                                checked = ad.isActive,
+                                onCheckedChange = { checked ->
+                                    scope.launch {
+                                        val targetId = if (ad.isFallbackShopOnly) "AD-${ad.shopName.hashCode()}-${System.currentTimeMillis()}" else ad.id
+                                        val updated = ad.copy(
+                                            id = targetId,
+                                            isActive = checked,
+                                            isFallbackShopOnly = false,
+                                            updatedAt = System.currentTimeMillis()
+                                        )
+                                        syncManager.publishShopAd(updated)
+                                        state.savedAds = ShopAdStorage.getAllAds(context).filter { !it.isFallbackShopOnly }
+                                        state.partnerShopsRevision++
+                                        onPublished(updated)
+                                    }
+                                }
+                            )
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (ad.isActive) {
+                                TextButton(
+                                    onClick = {
+                                        scope.launch {
+                                            val targetId = if (ad.isFallbackShopOnly) "AD-${ad.shopName.hashCode()}-${System.currentTimeMillis()}" else ad.id
+                                            val promoted = ad.copy(
+                                                id = targetId,
+                                                isActive = true,
+                                                isFallbackShopOnly = false,
+                                                updatedAt = System.currentTimeMillis()
                                             )
+                                            syncManager.publishShopAd(promoted)
+                                            state.savedAds = ShopAdStorage.getAllAds(context).filter { !it.isFallbackShopOnly }
+                                            state.partnerShopsRevision++
+                                            onPublished(promoted)
+                                            Toast.makeText(context, "« ${ad.shopName} » placé en tête du défilement.", Toast.LENGTH_SHORT).show()
                                         }
                                     }
-                                }
-
-                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text("Afficher toutes les boutiques partenaires", fontWeight = FontWeight.Bold, fontSize = 13.5.sp)
-                                        Text(
-                                            text = "Inclut automatiquement le logo de chaque boutique inscrite",
-                                            fontSize = 11.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                    Switch(
-                                        checked = carouselSettings.includePartnerLogosInScroll,
-                                        onCheckedChange = { checked ->
-                                            val updated = carouselSettings.copy(includePartnerLogosInScroll = checked)
-                                            carouselSettings = updated
-                                            ShopAdStorage.saveCarouselSettings(context, updated)
-                                            onPublished(partnerShopEntries.firstOrNull() ?: ShopAdRecord(id = "SETTINGS", shopName = shopName))
-                                        },
-                                        modifier = Modifier.testTag("switch_include_partner_logos")
-                                    )
-                                }
-
-                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text("Prioriser les vidéos promo 60s", fontWeight = FontWeight.Bold, fontSize = 13.5.sp)
-                                        Text(
-                                            text = "Affiche d'abord les boutiques associées à une vidéo promotionnelle",
-                                            fontSize = 11.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                    Switch(
-                                        checked = carouselSettings.prioritizeVideoAds,
-                                        onCheckedChange = { checked ->
-                                            val updated = carouselSettings.copy(prioritizeVideoAds = checked)
-                                            carouselSettings = updated
-                                            ShopAdStorage.saveCarouselSettings(context, updated)
-                                            onPublished(partnerShopEntries.firstOrNull() ?: ShopAdRecord(id = "SETTINGS", shopName = shopName))
-                                        },
-                                        modifier = Modifier.testTag("switch_prioritize_video_ads")
-                                    )
-                                }
-
-                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text("Aperçu vidéo 60s dans le cadre d'accueil", fontWeight = FontWeight.Bold, fontSize = 13.5.sp)
-                                        Text(
-                                            text = "Lance un aperçu visuel muet de la vidéo directement dans le modal d'accueil",
-                                            fontSize = 11.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                    Switch(
-                                        checked = carouselSettings.autoPlayVideoPreviewInCarousel,
-                                        onCheckedChange = { checked ->
-                                            val updated = carouselSettings.copy(autoPlayVideoPreviewInCarousel = checked)
-                                            carouselSettings = updated
-                                            ShopAdStorage.saveCarouselSettings(context, updated)
-                                            onPublished(partnerShopEntries.firstOrNull() ?: ShopAdRecord(id = "SETTINGS", shopName = shopName))
-                                        },
-                                        modifier = Modifier.testTag("switch_autoplay_inline_video")
-                                    )
+                                    Icon(Icons.Default.VerticalAlignTop, contentDescription = null, modifier = Modifier.size(15.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("En tête", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
-                        }
-
-                        Button(
-                            onClick = {
-                                ShopAdStorage.saveCarouselSettings(context, carouselSettings)
-                                onPublished(partnerShopEntries.firstOrNull() ?: ShopAdRecord(id = "SETTINGS", shopName = shopName))
-                                Toast.makeText(context, "Réglages de défilement enregistrés !", Toast.LENGTH_SHORT).show()
-                                onDismiss()
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = KonabBlue),
-                            shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(48.dp)
-                                .testTag("btn_save_scroll_settings")
-                        ) {
-                            Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Appliquer au modal d'accueil", fontWeight = FontWeight.Bold)
+                            TextButton(
+                                onClick = { state.loadAdIntoEditor(ad, forceEnableVideoOption = !ad.hasVideo) }
+                            ) {
+                                Icon(
+                                    imageVector = if (ad.hasVideo) Icons.Default.Edit else Icons.Default.VideoCall,
+                                    contentDescription = null,
+                                    tint = KonabOrange,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = if (ad.hasVideo) "Modifier" else "Vidéo 60s",
+                                    color = KonabOrange,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                            if (!ad.isFallbackShopOnly) {
+                                TextButton(
+                                    onClick = {
+                                        scope.launch {
+                                            syncManager.deleteShopAd(ad.id)
+                                            state.savedAds = ShopAdStorage.getAllAds(context).filter { !it.isFallbackShopOnly }
+                                            state.partnerShopsRevision++
+                                            onPublished(ad)
+                                        }
+                                    }
+                                ) {
+                                    Icon(Icons.Default.DeleteOutline, contentDescription = null, tint = KonabRed, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Supprimer", color = KonabRed, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
                         }
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun ColumnScope.ShopAdScrollSettingsTab(
+    state: ShopAdEditorState,
+    partnerShopEntries: List<ShopAdRecord>,
+    onDismiss: () -> Unit,
+    onPublished: (ShopAdRecord) -> Unit
+) {
+    val context = LocalContext.current
+    Column(
+        modifier = Modifier
+            .weight(1f)
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        val activeCount = partnerShopEntries.count { it.isActive }
+        val videoCount = partnerShopEntries.count { it.isActive && it.hasVideo }
+
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = KonabBlueContainer.copy(alpha = 0.4f),
+            border = BorderStroke(1.dp, KonabBlue.copy(alpha = 0.25f)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                modifier = Modifier.padding(14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .background(KonabBlue),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Default.ViewCarousel, contentDescription = null, tint = Color.White, modifier = Modifier.size(22.dp))
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Modal d'accueil • Défilement actif",
+                        fontFamily = OutfitFontFamily,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 14.5.sp
+                    )
+                    Text(
+                        text = "$activeCount boutique(s) partenaire(s) • $videoCount vidéo(s) promo 60s",
+                        fontSize = 12.sp,
+                        color = KonabBlue,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+        }
+
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Défilement automatique des logos", fontWeight = FontWeight.Bold, fontSize = 13.5.sp)
+                        Text(
+                            text = "Fait défiler automatiquement les logos partenaires sur l'accueil",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = state.carouselSettings.autoScrollEnabled,
+                        onCheckedChange = { checked ->
+                            val updated = state.carouselSettings.copy(autoScrollEnabled = checked)
+                            state.carouselSettings = updated
+                            ShopAdStorage.saveCarouselSettings(context, updated)
+                            onPublished(partnerShopEntries.firstOrNull() ?: ShopAdRecord(id = "SETTINGS", shopName = state.shopName))
+                        },
+                        modifier = Modifier.testTag("switch_ad_autoscroll")
+                    )
+                }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "Vitesse de passage par boutique (${state.carouselSettings.scrollIntervalSeconds}s)",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp
+                    )
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(listOf(3 to "Rapide (3s)", 4 to "Standard (4s)", 6 to "Confort (6s)", 8 to "Lecture (8s)")) { (sec, label) ->
+                            FilterChip(
+                                selected = state.carouselSettings.scrollIntervalSeconds == sec,
+                                enabled = state.carouselSettings.autoScrollEnabled,
+                                onClick = {
+                                    val updated = state.carouselSettings.copy(scrollIntervalSeconds = sec)
+                                    state.carouselSettings = updated
+                                    ShopAdStorage.saveCarouselSettings(context, updated)
+                                    onPublished(partnerShopEntries.firstOrNull() ?: ShopAdRecord(id = "SETTINGS", shopName = state.shopName))
+                                },
+                                label = { Text(label, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold) }
+                            )
+                        }
+                    }
+                }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Afficher toutes les boutiques partenaires", fontWeight = FontWeight.Bold, fontSize = 13.5.sp)
+                        Text(
+                            text = "Inclut automatiquement le logo de chaque boutique inscrite",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = state.carouselSettings.includePartnerLogosInScroll,
+                        onCheckedChange = { checked ->
+                            val updated = state.carouselSettings.copy(includePartnerLogosInScroll = checked)
+                            state.carouselSettings = updated
+                            ShopAdStorage.saveCarouselSettings(context, updated)
+                            onPublished(partnerShopEntries.firstOrNull() ?: ShopAdRecord(id = "SETTINGS", shopName = state.shopName))
+                        },
+                        modifier = Modifier.testTag("switch_include_partner_logos")
+                    )
+                }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Prioriser les vidéos promo 60s", fontWeight = FontWeight.Bold, fontSize = 13.5.sp)
+                        Text(
+                            text = "Affiche d'abord les boutiques associées à une vidéo promotionnelle",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = state.carouselSettings.prioritizeVideoAds,
+                        onCheckedChange = { checked ->
+                            val updated = state.carouselSettings.copy(prioritizeVideoAds = checked)
+                            state.carouselSettings = updated
+                            ShopAdStorage.saveCarouselSettings(context, updated)
+                            onPublished(partnerShopEntries.firstOrNull() ?: ShopAdRecord(id = "SETTINGS", shopName = state.shopName))
+                        },
+                        modifier = Modifier.testTag("switch_prioritize_video_ads")
+                    )
+                }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Aperçu vidéo 60s dans le cadre d'accueil", fontWeight = FontWeight.Bold, fontSize = 13.5.sp)
+                        Text(
+                            text = "Lance un aperçu visuel muet de la vidéo directement dans le modal d'accueil",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = state.carouselSettings.autoPlayVideoPreviewInCarousel,
+                        onCheckedChange = { checked ->
+                            val updated = state.carouselSettings.copy(autoPlayVideoPreviewInCarousel = checked)
+                            state.carouselSettings = updated
+                            ShopAdStorage.saveCarouselSettings(context, updated)
+                            onPublished(partnerShopEntries.firstOrNull() ?: ShopAdRecord(id = "SETTINGS", shopName = state.shopName))
+                        },
+                        modifier = Modifier.testTag("switch_autoplay_inline_video")
+                    )
+                }
+            }
+        }
+
+        Button(
+            onClick = {
+                ShopAdStorage.saveCarouselSettings(context, state.carouselSettings)
+                onPublished(partnerShopEntries.firstOrNull() ?: ShopAdRecord(id = "SETTINGS", shopName = state.shopName))
+                Toast.makeText(context, "Réglages de défilement enregistrés !", Toast.LENGTH_SHORT).show()
+                onDismiss()
+            },
+            colors = ButtonDefaults.buttonColors(containerColor = KonabBlue),
+            shape = RoundedCornerShape(14.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp)
+                .testTag("btn_save_scroll_settings")
+        ) {
+            Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Appliquer au modal d'accueil", fontWeight = FontWeight.Bold)
         }
     }
 }

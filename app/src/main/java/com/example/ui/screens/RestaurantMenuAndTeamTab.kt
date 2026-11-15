@@ -188,7 +188,8 @@ fun RestaurantTeamSyncTab(
     activeStaff: RestaurantStaffAccount?,
     onSwitchActiveStaff: (RestaurantStaffAccount) -> Unit,
     onSaveStaff: (RestaurantStaffAccount) -> Unit,
-    onDeleteStaff: (String) -> Unit
+    onDeleteStaff: (String) -> Unit,
+    canManageTeam: Boolean = true
 ) {
     var editingStaff by remember { mutableStateOf<RestaurantStaffAccount?>(null) }
     var showCreateStaffDialog by remember { mutableStateOf(false) }
@@ -224,18 +225,33 @@ fun RestaurantTeamSyncTab(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         lineHeight = 16.sp
                     )
-                    Button(
-                        onClick = { showCreateStaffDialog = true },
-                        colors = ButtonDefaults.buttonColors(containerColor = KonabBlue),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(48.dp)
-                            .testTag("btn_add_restaurant_staff")
-                    ) {
-                        Icon(Icons.Default.PersonAdd, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("+ Ajouter un membre d'équipe", fontWeight = FontWeight.Bold)
+                    if (canManageTeam) {
+                        Button(
+                            onClick = { showCreateStaffDialog = true },
+                            colors = ButtonDefaults.buttonColors(containerColor = KonabBlue),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp)
+                                .testTag("btn_add_restaurant_staff")
+                        ) {
+                            Icon(Icons.Default.PersonAdd, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("+ Ajouter un membre d'équipe", fontWeight = FontWeight.Bold)
+                        }
+                    } else {
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "Mode consultation : seul le Gérant peut ajouter, modifier ou supprimer des comptes et codes PIN.",
+                                fontSize = 11.5.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
+                            )
+                        }
                     }
                 }
             }
@@ -303,29 +319,31 @@ fun RestaurantTeamSyncTab(
                         }
 
                         Row {
-                            IconButton(
-                                onClick = {
-                                    revealedPinIds = if (isPinShown) revealedPinIds - member.id else revealedPinIds + member.id
-                                },
-                                modifier = Modifier.minimumInteractiveComponentSize()
-                            ) {
-                                Icon(
-                                    imageVector = if (isPinShown) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                    contentDescription = if (isPinShown) "Masquer le PIN" else "Afficher le PIN"
-                                )
-                            }
-                            IconButton(
-                                onClick = { editingStaff = member },
-                                modifier = Modifier.minimumInteractiveComponentSize()
-                            ) {
-                                Icon(Icons.Default.Edit, contentDescription = "Modifier ${member.name}", tint = KonabBlue)
-                            }
-                            if (member.role != RestaurantStaffRole.MANAGER) {
+                            if (canManageTeam) {
                                 IconButton(
-                                    onClick = { onDeleteStaff(member.id) },
+                                    onClick = {
+                                        revealedPinIds = if (isPinShown) revealedPinIds - member.id else revealedPinIds + member.id
+                                    },
                                     modifier = Modifier.minimumInteractiveComponentSize()
                                 ) {
-                                    Icon(Icons.Default.DeleteOutline, contentDescription = "Supprimer ${member.name}", tint = KonabRed)
+                                    Icon(
+                                        imageVector = if (isPinShown) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                        contentDescription = if (isPinShown) "Masquer le PIN" else "Afficher le PIN"
+                                    )
+                                }
+                                IconButton(
+                                    onClick = { editingStaff = member },
+                                    modifier = Modifier.minimumInteractiveComponentSize()
+                                ) {
+                                    Icon(Icons.Default.Edit, contentDescription = "Modifier ${member.name}", tint = KonabBlue)
+                                }
+                                if (member.role != RestaurantStaffRole.MANAGER) {
+                                    IconButton(
+                                        onClick = { onDeleteStaff(member.id) },
+                                        modifier = Modifier.minimumInteractiveComponentSize()
+                                    ) {
+                                        Icon(Icons.Default.DeleteOutline, contentDescription = "Supprimer ${member.name}", tint = KonabRed)
+                                    }
                                 }
                             }
                         }

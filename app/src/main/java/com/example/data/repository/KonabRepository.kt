@@ -12,12 +12,27 @@ import com.example.data.local.datastore.KonabDataStore
 import com.example.data.local.datastore.LocalAdminAccount
 import com.example.data.remote.supabase.ConnectedShopSession
 import com.example.data.remote.supabase.MultiShopSnapshot
+import com.example.data.remote.supabase.MultiShopStorage
 import kotlinx.coroutines.flow.first
+import java.util.concurrent.atomic.AtomicLong
+import kotlin.math.abs
 
 class KonabRepository(
     private val dao: KonabDao,
     private val dataStore: KonabDataStore
 ) {
+    companion object {
+        private val monotonicSeq = AtomicLong(0L)
+
+        fun nextUniqueLocalId(): Long {
+            val base = maxOf(1_000_000_000_000L, System.currentTimeMillis() * 1000L)
+            while (true) {
+                val prev = monotonicSeq.get()
+                val next = maxOf(base, prev + 1L)
+                if (monotonicSeq.compareAndSet(prev, next)) return next
+            }
+        }
+    }
 
     val adminAccount: Flow<LocalAdminAccount> = dataStore.adminAccountFlow
     val isSetupCompleted: Flow<Boolean> = dataStore.isSetupCompletedFlow
@@ -52,7 +67,10 @@ class KonabRepository(
 
     suspend fun insertProducts(products: List<ProductEntity>) = dao.insertProducts(products)
 
-    suspend fun insertProduct(product: ProductEntity): Long = dao.insertProduct(product)
+    suspend fun insertProduct(product: ProductEntity): Long {
+        val withId = if (product.id <= 0L) product.copy(id = nextUniqueLocalId()) else product
+        return dao.insertProduct(withId)
+    }
 
     suspend fun updateProduct(product: ProductEntity) = dao.updateProduct(product)
 
@@ -66,11 +84,17 @@ class KonabRepository(
 
     suspend fun getAllSaleItemsOnce(): List<SaleItemEntity> = dao.getAllSaleItemsOnce()
 
-    suspend fun insertCustomer(customer: CustomerEntity): Long = dao.insertCustomer(customer)
+    suspend fun insertCustomer(customer: CustomerEntity): Long {
+        val withId = if (customer.id <= 0L) customer.copy(id = nextUniqueLocalId()) else customer
+        return dao.insertCustomer(withId)
+    }
 
     suspend fun updateCustomer(customer: CustomerEntity) = dao.updateCustomer(customer)
 
-    suspend fun insertSupplier(supplier: SupplierEntity): Long = dao.insertSupplier(supplier)
+    suspend fun insertSupplier(supplier: SupplierEntity): Long {
+        val withId = if (supplier.id <= 0L) supplier.copy(id = nextUniqueLocalId()) else supplier
+        return dao.insertSupplier(withId)
+    }
 
     suspend fun updateSupplier(supplier: SupplierEntity) = dao.updateSupplier(supplier)
 
@@ -84,8 +108,10 @@ class KonabRepository(
         operatorName: String = "Gérant",
         relatedId: Long? = null
     ): Long {
+        val id = nextUniqueLocalId()
         return dao.insertCashMovement(
             CashMovementEntity(
+                id = id,
                 type = type,
                 amount = amount,
                 reason = reason,
@@ -97,7 +123,9 @@ class KonabRepository(
     }
 
     suspend fun openCashSession(openingBalance: Long, openedBy: String): Long {
+        val sessionId = nextUniqueLocalId()
         val session = CashSessionEntity(
+            id = sessionId,
             openedAt = System.currentTimeMillis(),
             openingBalance = openingBalance,
             status = "OPEN",
@@ -154,12 +182,15 @@ class KonabRepository(
         val totalCostPrice = items.sumOf { it.unitBuyPrice * it.quantity }
         val datePrefix = SimpleDateFormat("yyyyMMdd", Locale.US).format(Date())
         val count = dao.getSalesCount() + 1
-        val transactionNumber = String.format("%s-%04d", datePrefix, count)
+        val generatedSaleId = nextUniqueLocalId()
+        val deviceTag = ((generatedSaleId ushr 4) and 0xFFL).toInt()
+        val transactionNumber = String.format(Locale.US, "%s-%04d-%02X", datePrefix, count, deviceTag)
 
         val paymentStatus = if (isCredit) "CRÉDIT" else "PAYÉ"
         val amountPaid = if (isCredit) 0L else totalAmount
 
         val sale = SaleEntity(
+            id = generatedSaleId,
             transactionNumber = transactionNumber,
             timestamp = System.currentTimeMillis(),
             customerId = customerId,
@@ -180,7 +211,10 @@ class KonabRepository(
 
         // Save items and decrease stock
         val itemsWithSaleId = items.map { item ->
-            item.copy(saleId = saleId)
+            item.copy(
+                id = if (item.id <= 0L) nextUniqueLocalId() else item.id,
+                saleId = saleId
+            )
         }
         dao.insertSaleItems(itemsWithSaleId)
 
@@ -355,6 +389,7 @@ class KonabRepository(
         val invoiceNumber = "ACH-$datePrefix-${System.currentTimeMillis() % 10000}"
 
         val purchase = PurchaseEntity(
+            id = nextUniqueLocalId(),
             invoiceNumber = invoiceNumber,
             timestamp = System.currentTimeMillis(),
             supplierId = supplier.id,
@@ -440,7 +475,7 @@ class KonabRepository(
         // Only populate presets if explicitly requested by user
         if (preloadDemoData) {
             val preset = BusinessTypePresets.getPreset(businessType)
-            dao.insertProducts(preset.defaultProducts)
+            dao.insertProducts(preset.defaultProducts.map { if (it.id <= 0L) it.copy(id = nextUniqueLocalId()) else it })
 
             for (c in BusinessTypePresets.getDefaultCustomers()) {
                 dao.insertCustomer(c)
@@ -580,14 +615,19 @@ class KonabRepository(
     }
 
     /**
-     * Fusionne les nouveautés distantes (produits créés ailleurs, ventes enregistrées en boutique/à distance)
+     * Fusionne les nouveautés distantes (produits, ventes, lignes de vente, caisse, sessions, fournisseurs, achats)
      * sans écraser les opérations locales non encore poussées.
      */
     suspend fun mergeRemoteUpdates(
         remoteProducts: List<ProductEntity>,
         remoteSales: List<SaleEntity>,
         remoteSaleItems: List<SaleItemEntity>,
-        remoteCustomers: List<CustomerEntity>
+        remoteCustomers: List<CustomerEntity>,
+        remoteCashSessions: List<CashSessionEntity> = emptyList(),
+        remoteCashMovements: List<CashMovementEntity> = emptyList(),
+        remoteSuppliers: List<SupplierEntity> = emptyList(),
+        remotePurchases: List<PurchaseEntity> = emptyList(),
+        shopId: Long = 0L
     ): Int {
         var mergedCount = 0
 
@@ -597,10 +637,12 @@ class KonabRepository(
             val localByName = localProducts.associateBy { it.name.trim().lowercase(Locale.ROOT) }
             val toInsert = mutableListOf<ProductEntity>()
             for (rp in remoteProducts) {
-                val existingById = localById[rp.id]
+                val existingById = localById[rp.id] ?: localProducts.firstOrNull {
+                    shopId > 1L && MultiShopStorage.scopedCloudId(shopId, it.id) == rp.id
+                }
                 if (existingById != null) {
-                    if (existingById != rp) {
-                        toInsert.add(rp)
+                    if (existingById != rp.copy(id = existingById.id)) {
+                        toInsert.add(rp.copy(id = existingById.id))
                     }
                 } else {
                     val existingByName = localByName[rp.name.trim().lowercase(Locale.ROOT)]
@@ -610,7 +652,8 @@ class KonabRepository(
                         existingByName.stockQuantity != rp.stockQuantity ||
                         existingByName.sellPrice != rp.sellPrice ||
                         existingByName.buyPrice != rp.buyPrice ||
-                        existingByName.isAvailable != rp.isAvailable
+                        existingByName.isAvailable != rp.isAvailable ||
+                        (rp.imageUri.isNotBlank() && existingByName.imageUri != rp.imageUri)
                     ) {
                         toInsert.add(
                             rp.copy(id = existingByName.id)
@@ -627,15 +670,53 @@ class KonabRepository(
         if (remoteCustomers.isNotEmpty()) {
             val localCustomers = dao.getAllCustomersOnce()
             val localIds = localCustomers.map { it.id }.toSet()
-            val newCustomers = remoteCustomers.filter { it.id !in localIds }
+            val localScopedIds = localCustomers.mapNotNull {
+                if (shopId > 1L) MultiShopStorage.scopedCloudId(shopId, it.id) else null
+            }.toSet()
+            val newCustomers = remoteCustomers.filter { it.id !in localIds && it.id !in localScopedIds }
             if (newCustomers.isNotEmpty()) {
                 dao.insertCustomers(newCustomers)
                 mergedCount += newCustomers.size
             }
         }
 
+        if (remoteSuppliers.isNotEmpty()) {
+            val localSuppliers = dao.getAllSuppliersOnce()
+            val localIds = localSuppliers.map { it.id }.toSet()
+            val localScopedIds = localSuppliers.mapNotNull {
+                if (shopId > 1L) MultiShopStorage.scopedCloudId(shopId, it.id) else null
+            }.toSet()
+            val newSuppliers = remoteSuppliers.filter { it.id !in localIds && it.id !in localScopedIds }
+            if (newSuppliers.isNotEmpty()) {
+                dao.insertSuppliers(newSuppliers)
+                mergedCount += newSuppliers.size
+            }
+        }
+
+        if (remotePurchases.isNotEmpty()) {
+            val localPurchases = dao.getAllPurchasesOnce()
+            val localIds = localPurchases.map { it.id }.toSet()
+            val localScopedIds = localPurchases.mapNotNull {
+                if (shopId > 1L) MultiShopStorage.scopedCloudId(shopId, it.id) else null
+            }.toSet()
+            val localInvoices = localPurchases.map { it.invoiceNumber.trim() }.toSet()
+            val newPurchases = remotePurchases.filter {
+                it.id !in localIds &&
+                    it.id !in localScopedIds &&
+                    (it.invoiceNumber.isBlank() || it.invoiceNumber.trim() !in localInvoices)
+            }
+            if (newPurchases.isNotEmpty()) {
+                dao.insertPurchases(newPurchases)
+                mergedCount += newPurchases.size
+            }
+        }
+
         if (remoteSales.isNotEmpty()) {
             val localSales = dao.getAllSalesOnce()
+            val localById = localSales.associateBy { it.id }
+            val localByScopedId = if (shopId > 1L) {
+                localSales.associateBy { MultiShopStorage.scopedCloudId(shopId, it.id) }
+            } else emptyMap()
             val localByTx = localSales.associateBy { it.transactionNumber.trim() }
             val localItemsBySaleId = dao.getAllSaleItemsOnce().groupBy { it.saleId }
             val remoteItemsBySaleId = remoteSaleItems.groupBy { it.saleId }
@@ -644,10 +725,15 @@ class KonabRepository(
             val itemsToInsert = mutableListOf<SaleItemEntity>()
 
             for (rs in remoteSales) {
-                val existing = localByTx[rs.transactionNumber.trim()]
+                val existing = localById[rs.id]
+                    ?: localByScopedId[rs.id]
+                    ?: localByTx[rs.transactionNumber.trim()]
+                val remItems = remoteItemsBySaleId[rs.id].orEmpty().ifEmpty {
+                    if (shopId > 1L) remoteItemsBySaleId[MultiShopStorage.scopedCloudId(shopId, rs.id)].orEmpty() else emptyList()
+                }
                 if (existing == null) {
                     salesToInsert.add(rs)
-                    itemsToInsert.addAll(remoteItemsBySaleId[rs.id].orEmpty())
+                    itemsToInsert.addAll(remItems.map { it.copy(saleId = rs.id) })
                 } else {
                     if (rs.isCancelled && !existing.isCancelled) {
                         salesToInsert.add(
@@ -659,12 +745,17 @@ class KonabRepository(
                                 cancelledBy = rs.cancelledBy
                             )
                         )
+                    } else if (existing.paymentStatus == "CRÉDIT" && rs.paymentStatus == "PAYÉ" && !rs.isCancelled) {
+                        salesToInsert.add(
+                            existing.copy(
+                                paymentStatus = rs.paymentStatus,
+                                amountPaid = rs.amountPaid,
+                                paymentMethod = rs.paymentMethod
+                            )
+                        )
                     }
-                    if (localItemsBySaleId[existing.id].isNullOrEmpty()) {
-                        val remItems = remoteItemsBySaleId[rs.id].orEmpty()
-                        if (remItems.isNotEmpty()) {
-                            itemsToInsert.addAll(remItems.map { it.copy(saleId = existing.id) })
-                        }
+                    if (localItemsBySaleId[existing.id].isNullOrEmpty() && remItems.isNotEmpty()) {
+                        itemsToInsert.addAll(remItems.map { it.copy(saleId = existing.id) })
                     }
                 }
             }
@@ -675,6 +766,59 @@ class KonabRepository(
             }
             if (itemsToInsert.isNotEmpty()) {
                 dao.insertSaleItems(itemsToInsert)
+            }
+        }
+
+        if (remoteCashSessions.isNotEmpty()) {
+            val localSessions = dao.getAllCashSessionsOnce()
+            val sessionsToInsert = mutableListOf<CashSessionEntity>()
+            for (rcs in remoteCashSessions) {
+                val existing = localSessions.firstOrNull { ls ->
+                    ls.id == rcs.id ||
+                        (shopId > 1L && MultiShopStorage.scopedCloudId(shopId, ls.id) == rcs.id) ||
+                        (abs(ls.openedAt - rcs.openedAt) < 2000L && ls.openedBy.equals(rcs.openedBy, ignoreCase = true))
+                }
+                if (existing == null) {
+                    sessionsToInsert.add(rcs)
+                } else if (existing.status != "CLOSED" && rcs.status == "CLOSED") {
+                    sessionsToInsert.add(
+                        existing.copy(
+                            closedAt = rcs.closedAt,
+                            closingActualBalance = rcs.closingActualBalance,
+                            closingExpectedBalance = rcs.closingExpectedBalance,
+                            difference = rcs.difference,
+                            status = "CLOSED",
+                            closedBy = rcs.closedBy,
+                            closingNotes = rcs.closingNotes
+                        )
+                    )
+                }
+            }
+            if (sessionsToInsert.isNotEmpty()) {
+                dao.insertCashSessions(sessionsToInsert)
+                mergedCount += sessionsToInsert.size
+            }
+        }
+
+        if (remoteCashMovements.isNotEmpty()) {
+            val localMovements = dao.getAllCashMovementsOnce()
+            val movementsToInsert = mutableListOf<CashMovementEntity>()
+            for (rm in remoteCashMovements) {
+                val alreadyLocal = localMovements.any { lm ->
+                    lm.id == rm.id ||
+                        (shopId > 1L && MultiShopStorage.scopedCloudId(shopId, lm.id) == rm.id) ||
+                        (abs(lm.timestamp - rm.timestamp) < 1500L &&
+                            lm.type == rm.type &&
+                            lm.amount == rm.amount &&
+                            lm.reason == rm.reason)
+                }
+                if (!alreadyLocal) {
+                    movementsToInsert.add(rm)
+                }
+            }
+            if (movementsToInsert.isNotEmpty()) {
+                dao.insertCashMovements(movementsToInsert)
+                mergedCount += movementsToInsert.size
             }
         }
 

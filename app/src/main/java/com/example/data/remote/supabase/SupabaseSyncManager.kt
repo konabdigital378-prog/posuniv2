@@ -292,6 +292,10 @@ class SupabaseSyncManager(
 
         val deployerId = activeAgent.id.trim().uppercase()
         val effectiveAdminPhone = adminPhone.trim().ifBlank { phone.trim() }
+        val effectiveTeamCfg = if (businessType.equals("Restaurant", ignoreCase = true)) {
+            restaurantTeam ?: RestaurantTeamConfig()
+        } else null
+        val effectiveCashierPin = effectiveTeamCfg?.cashierPin?.trim()?.ifBlank { "0000" } ?: "0000"
         var cloudId = prepareCloudShopIdForNewShop(cleanName)
         val profile = ShopProfileEntity(
             id = 1,
@@ -303,7 +307,7 @@ class SupabaseSyncManager(
             currency = currency,
             businessType = businessType,
             adminPin = adminPin,
-            cashierPin = "0000",
+            cashierPin = effectiveCashierPin,
             subscriptionTier = subscriptionTier,
             isConfigured = true,
             receiptFooter = "Merci pour votre confiance ! À très bientôt !",
@@ -371,6 +375,13 @@ class SupabaseSyncManager(
             logoIcon = logoIcon,
             logoColor = logoColorHex
         )
+        if (effectiveCashierPin != "0000") {
+            try {
+                repository.getShopProfileOnce()?.let { currentProf ->
+                    repository.saveShopProfile(currentProf.copy(cashierPin = effectiveCashierPin))
+                }
+            } catch (_: Exception) {}
+        }
         BiometricSecurityHelper.setShopConfiguredCache(context, true)
         AgentDeploymentStorage.markCreatedShopOnDevice(context, cleanName, deployerId)
 
@@ -426,7 +437,7 @@ class SupabaseSyncManager(
                 adminName = adminName.trim().ifBlank { "Gérant" },
                 adminPhone = effectiveAdminPhone,
                 adminPin = adminPin,
-                cashierPin = "0000",
+                cashierPin = effectiveCashierPin,
                 subscriptionTier = subscriptionTier,
                 deployerId = deployerId,
                 lastSyncedAt = System.currentTimeMillis()
@@ -438,7 +449,7 @@ class SupabaseSyncManager(
         } catch (_: Exception) {}
 
         if (businessType.equals("Restaurant", ignoreCase = true)) {
-            val teamCfg = restaurantTeam ?: RestaurantTeamConfig()
+            val teamCfg = effectiveTeamCfg ?: RestaurantTeamConfig()
             val createdStaff = RestaurantStorage.ensureDefaultRestaurantTeam(
                 context = context,
                 shopId = cloudId,
@@ -837,7 +848,7 @@ class SupabaseSyncManager(
                     count += apiClient.pushRestaurantOrders(orders, activeCloudShopId).getOrDefault(0)
                 }
                 val menuIds = RestaurantStorage.getMenuOfDayProductIds(context, activeCloudShopId)
-                if (menuIds.isNotEmpty()) {
+                if (menuIds.isNotEmpty() || shop?.businessType.equals("Restaurant", ignoreCase = true)) {
                     apiClient.pushMenuOfDay(activeCloudShopId, menuIds)
                 }
             }
@@ -1040,6 +1051,14 @@ class SupabaseSyncManager(
                 saveCloudShopId(cachedSession.cloudShopId, cachedSession.shopName)
                 MultiShopStorage.setActiveCloudShopId(context, cachedSession.cloudShopId)
                 BiometricSecurityHelper.setShopConfiguredCache(context, true)
+                val cachedStaff = MultiShopStorage.findConnectedStaffForCredentials(context, cachedSession, cleanPin)
+                if (cachedStaff != null) {
+                    RestaurantStorage.setActiveStaff(context, cachedSession.cloudShopId, cachedStaff.id)
+                } else {
+                    val mgr = RestaurantStorage.getStaffAccounts(context, cachedSession.cloudShopId)
+                        .firstOrNull { it.role == RestaurantStaffRole.MANAGER && it.isActive }
+                    RestaurantStorage.setActiveStaff(context, cachedSession.cloudShopId, mgr?.id)
+                }
                 val msg = "Connecté hors-ligne à « ${cachedSession.shopName} »"
                 _syncState.value = _syncState.value.copy(isSyncing = false, isError = false, statusMessage = msg)
                 return@withLock Result.success(cachedSession)
@@ -1157,12 +1176,21 @@ class SupabaseSyncManager(
             emptyList()
         }
         val remoteCustomers = apiClient.fetchCustomers(shopId).getOrDefault(emptyList())
+        val remoteCashSessions = apiClient.fetchCashSessions(shopId).getOrDefault(emptyList())
+        val remoteCashMovements = apiClient.fetchCashMovements(shopId).getOrDefault(emptyList())
+        val remoteSuppliers = apiClient.fetchSuppliers(shopId).getOrDefault(emptyList())
+        val remotePurchases = apiClient.fetchPurchases(shopId).getOrDefault(emptyList())
 
         val merged = repository.mergeRemoteUpdates(
             remoteProducts = remoteProducts,
             remoteSales = remoteSales,
             remoteSaleItems = remoteSaleItems,
-            remoteCustomers = remoteCustomers
+            remoteCustomers = remoteCustomers,
+            remoteCashSessions = remoteCashSessions,
+            remoteCashMovements = remoteCashMovements,
+            remoteSuppliers = remoteSuppliers,
+            remotePurchases = remotePurchases,
+            shopId = shopId
         )
         val restaurantMerged = if (shop.businessType.equals("Restaurant", ignoreCase = true) ||
             RestaurantStorage.getOrders(context, shopId).isNotEmpty()
@@ -1180,6 +1208,18 @@ class SupabaseSyncManager(
             MultiShopStorage.saveLocalSnapshotCache(context, snap)
         }
         return merged + restaurantMerged + coutureMerged
+    }
+
+    /**
+     * Tire uniquement les mises à jour distantes (caisse, reçus, produits, restaurant) sans bloquer les écritures locales.
+     */
+    suspend fun pullLedgerAndRestaurantNow(repository: KonabRepository): Result<Int> = shopSyncMutex.withLock {
+        if (!SupabaseConfig.isConfigured) return@withLock Result.success(0)
+        return@withLock try {
+            Result.success(pullAndMergeRemoteInternal(repository))
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
     }
 
     // --- SYNCHRONISATION TEMPS RÉEL RESTAURANT ---
@@ -1244,12 +1284,12 @@ class SupabaseSyncManager(
         return Result.success(count)
     }
 
-    suspend fun deleteRestaurantStaffCloud(staffId: String): Result<Unit> {
-        return apiClient.deleteRestaurantStaff(staffId)
+    suspend fun deleteRestaurantStaffCloud(staffId: String, shopId: Long = 0L): Result<Unit> {
+        return apiClient.deleteRestaurantStaff(staffId, shopId)
     }
 
-    suspend fun deleteRestaurantTableCloud(tableId: String): Result<Unit> {
-        return apiClient.deleteRestaurantTable(tableId)
+    suspend fun deleteRestaurantTableCloud(tableId: String, shopId: Long = 0L): Result<Unit> {
+        return apiClient.deleteRestaurantTable(tableId, shopId)
     }
 
     suspend fun fetchPublicMenuForQr(parsedQr: ParsedTableQr): Result<SupabaseApiClient.PublicRestaurantMenuBundle> {
