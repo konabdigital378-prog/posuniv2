@@ -817,7 +817,7 @@ data class PublicRestaurantListing(
 
 object RestaurantDirectoryHelper {
     private val RESTAURANT_KEYWORDS = listOf(
-        "restaurant", "restaur", "maquis", "bistro", "grill",
+        "restaurant", "restaur", "cantine", "maquis", "bistro", "grill",
         "café", "cafe", "snack", "fast food", "fast-food", "kiosque", "traiteur", "bar"
     )
 

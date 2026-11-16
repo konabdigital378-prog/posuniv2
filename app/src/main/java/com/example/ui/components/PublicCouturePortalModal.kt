@@ -201,7 +201,7 @@ fun PublicCouturePortalModal(
                         Tab(
                             selected = selectedTab == 0,
                             onClick = { selectedTab = 0 },
-                            text = { Text("Couturiers & Modèles", fontSize = 12.sp, fontWeight = FontWeight.Bold) },
+                            text = { Text("Couturiers & Modèles", fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
                             icon = { Icon(Icons.Default.Storefront, contentDescription = null, modifier = Modifier.size(18.dp)) }
                         )
                         Tab(
@@ -212,7 +212,7 @@ fun PublicCouturePortalModal(
                             },
                             text = {
                                 val badge = if (clientOrders.isNotEmpty()) " (${clientOrders.size})" else ""
-                                Text("Ma Couture$badge", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                Text("Ma Couture$badge", fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
                             },
                             icon = { Icon(Icons.Default.Timeline, contentDescription = null, modifier = Modifier.size(18.dp)) }
                         )
@@ -435,9 +435,10 @@ fun PublicCouturePortalModal(
                                             contentColor = PortalViolet
                                         ),
                                         shape = RoundedCornerShape(10.dp),
-                                        modifier = Modifier.heightIn(min = 42.dp)
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                                        modifier = Modifier.heightIn(min = 48.dp)
                                     ) {
-                                        Text("Voir modèles", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                                        Text("Modèles", fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                                     }
                                 }
                             }

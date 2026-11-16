@@ -35,6 +35,7 @@ import com.example.data.remote.supabase.CoutureModelRecord
 import com.example.data.remote.supabase.CoutureOrderRecord
 import com.example.data.remote.supabase.ParsedCoutureQr
 import com.example.data.remote.supabase.PublicCouturierListing
+import com.example.data.remote.supabase.PublicUserAccount
 import com.example.data.remote.supabase.SupabaseApiClient
 import com.example.ui.theme.KonabGreen
 import com.example.ui.theme.KonabOrange
@@ -52,6 +53,7 @@ fun CustomerCoutureCatalogModal(
     isLoading: Boolean,
     errorMessage: String?,
     activeClient: CoutureClientAccount?,
+    currentPublicUser: PublicUserAccount? = null,
     onRetry: () -> Unit,
     onSubmitRequest: (
         bundle: SupabaseApiClient.PublicCoutureCatalogBundle,
@@ -222,14 +224,21 @@ fun CustomerCoutureCatalogModal(
                                     showBookingSheet = true
                                 },
                                 shape = RoundedCornerShape(12.dp),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                                 modifier = Modifier
                                     .weight(1f)
-                                    .height(48.dp)
+                                    .heightIn(min = 48.dp)
                                     .testTag("btn_couture_bring_own_model")
                             ) {
                                 Icon(Icons.Default.Style, contentDescription = null, modifier = Modifier.size(17.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("J'ai mon propre modèle", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                                Text(
+                                    "J'ai mon propre modèle",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
                             }
                         }
                     }
@@ -462,9 +471,16 @@ fun CustomerCoutureCatalogModal(
                                                         },
                                                         colors = ButtonDefaults.buttonColors(containerColor = CatalogViolet),
                                                         shape = RoundedCornerShape(10.dp),
-                                                        modifier = Modifier.fillMaxWidth().height(42.dp)
+                                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                                        modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp)
                                                     ) {
-                                                        Text("Choisir ce modèle", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                                                        Text(
+                                                            "Choisir modèle",
+                                                            fontSize = 11.5.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            maxLines = 1,
+                                                            overflow = TextOverflow.Ellipsis
+                                                        )
                                                     }
                                                 }
                                             }
@@ -544,6 +560,7 @@ fun CustomerCoutureCatalogModal(
             chosenModel = bookingTargetModel,
             isCustomModel = bookingIsCustom,
             activeClient = activeClient,
+            currentPublicUser = currentPublicUser,
             onSubmit = { customLabel, first, last, phone, notes, doneCb ->
                 onSubmitRequest(
                     bundle,
@@ -573,6 +590,7 @@ private fun CoutureClientBookingDialog(
     chosenModel: CoutureModelRecord?,
     isCustomModel: Boolean,
     activeClient: CoutureClientAccount?,
+    currentPublicUser: PublicUserAccount? = null,
     onSubmit: (
         customModelLabel: String,
         firstName: String,
@@ -583,9 +601,18 @@ private fun CoutureClientBookingDialog(
     ) -> Unit,
     onDismiss: () -> Unit
 ) {
-    var firstName by remember { mutableStateOf(activeClient?.firstName ?: "") }
-    var lastName by remember { mutableStateOf(activeClient?.lastName ?: "") }
-    var phone by remember { mutableStateOf(activeClient?.phone ?: "") }
+    val fallbackParts = remember(currentPublicUser?.fullName) {
+        currentPublicUser?.fullName.orEmpty().trim().split(" ", limit = 2)
+    }
+    var firstName by remember {
+        mutableStateOf(activeClient?.firstName?.ifBlank { null } ?: fallbackParts.getOrNull(0).orEmpty())
+    }
+    var lastName by remember {
+        mutableStateOf(activeClient?.lastName?.ifBlank { null } ?: fallbackParts.getOrNull(1).orEmpty())
+    }
+    var phone by remember {
+        mutableStateOf(activeClient?.phone?.ifBlank { null } ?: currentPublicUser?.phone.orEmpty())
+    }
     var customModelTitle by remember { mutableStateOf("") }
     var notes by remember { mutableStateOf("") }
     var isSubmitting by remember { mutableStateOf(false) }

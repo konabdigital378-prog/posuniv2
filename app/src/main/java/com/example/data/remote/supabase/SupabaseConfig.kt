@@ -604,6 +604,118 @@ CREATE TABLE IF NOT EXISTS public.couture_clients (
 );
 CREATE INDEX IF NOT EXISTS idx_couture_clients_phone ON public.couture_clients(phone);
 
+-- 22. Table des Entreprises de Ramassage de Poubelles (Waste Collector Businesses)
+CREATE TABLE IF NOT EXISTS public.waste_businesses (
+    id TEXT PRIMARY KEY,
+    business_name TEXT NOT NULL,
+    manager_name TEXT DEFAULT 'Responsable',
+    phone TEXT DEFAULT '',
+    city TEXT DEFAULT 'Ouagadougou',
+    pin TEXT DEFAULT '1234',
+    default_monthly_fee BIGINT DEFAULT 2500,
+    default_passages_per_cycle INTEGER DEFAULT 8,
+    created_at BIGINT DEFAULT 0,
+    updated_at BIGINT DEFAULT 0
+);
+
+-- 23. Table des Clients, Prospects & Familles (Cartes de passage Poubelles)
+CREATE TABLE IF NOT EXISTS public.waste_clients (
+    id TEXT PRIMARY KEY,
+    business_id TEXT NOT NULL,
+    business_name TEXT DEFAULT '',
+    business_phone TEXT DEFAULT '',
+    family_name TEXT NOT NULL,
+    contact_name TEXT DEFAULT '',
+    phone TEXT DEFAULT '',
+    neighborhood TEXT DEFAULT '',
+    status TEXT DEFAULT 'CLIENT_ACTIF',
+    pickup_days_label TEXT DEFAULT 'Lun • Jeu',
+    monthly_fee BIGINT DEFAULT 2500,
+    target_passages INTEGER DEFAULT 8,
+    passages_logs_json TEXT NOT NULL DEFAULT '[]',
+    payment_history_json TEXT NOT NULL DEFAULT '[]',
+    last_billing_notified_at BIGINT DEFAULT 0,
+    created_at BIGINT DEFAULT 0,
+    updated_at BIGINT DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_waste_clients_business_id ON public.waste_clients(business_id);
+CREATE INDEX IF NOT EXISTS idx_waste_clients_phone ON public.waste_clients(phone);
+
+-- 24. Table des Business / Organisatrices Tontine
+CREATE TABLE IF NOT EXISTS public.tontine_businesses (
+    id TEXT PRIMARY KEY,
+    business_name TEXT NOT NULL,
+    organizer_name TEXT DEFAULT 'Organisatrice',
+    phone TEXT DEFAULT '',
+    city TEXT DEFAULT 'Ouagadougou',
+    pin TEXT DEFAULT '1234',
+    created_at BIGINT DEFAULT 0,
+    updated_at BIGINT DEFAULT 0
+);
+
+-- 25. Table des Groupes / Plans de Tontine
+CREATE TABLE IF NOT EXISTS public.tontine_groups (
+    id TEXT PRIMARY KEY,
+    business_id TEXT NOT NULL,
+    business_name TEXT DEFAULT '',
+    business_phone TEXT DEFAULT '',
+    title TEXT NOT NULL,
+    daily_amount BIGINT DEFAULT 1000,
+    total_days INTEGER DEFAULT 30,
+    frequency_label TEXT DEFAULT 'Journalier • Carte 30 jours',
+    is_active BOOLEAN DEFAULT true,
+    created_at BIGINT DEFAULT 0,
+    updated_at BIGINT DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_tontine_groups_business_id ON public.tontine_groups(business_id);
+
+-- 26. Table des Cartes Numériques 30 Jours des Membres Tontine
+CREATE TABLE IF NOT EXISTS public.tontine_cards (
+    id TEXT PRIMARY KEY,
+    business_id TEXT NOT NULL,
+    business_name TEXT DEFAULT '',
+    business_phone TEXT DEFAULT '',
+    group_id TEXT NOT NULL,
+    group_title TEXT DEFAULT '',
+    member_name TEXT NOT NULL,
+    member_phone TEXT DEFAULT '',
+    daily_amount BIGINT DEFAULT 1000,
+    total_days INTEGER DEFAULT 30,
+    payout_turn_number INTEGER DEFAULT 1,
+    check_marks_json TEXT NOT NULL DEFAULT '[]',
+    status TEXT DEFAULT 'EN_COURS',
+    validated_at BIGINT DEFAULT 0,
+    validation_message TEXT DEFAULT '',
+    paid_at BIGINT DEFAULT 0,
+    created_at BIGINT DEFAULT 0,
+    updated_at BIGINT DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_tontine_cards_business_id ON public.tontine_cards(business_id);
+CREATE INDEX IF NOT EXISTS idx_tontine_cards_member_phone ON public.tontine_cards(member_phone);
+
+-- 27. Table des Utilisateurs Publics (Identification, Compte Client & Carte d'Activité)
+CREATE TABLE IF NOT EXISTS public.app_users (
+    id TEXT PRIMARY KEY,
+    full_name TEXT NOT NULL,
+    phone TEXT NOT NULL,
+    city TEXT DEFAULT 'Conakry',
+    neighborhood TEXT DEFAULT '',
+    pin TEXT DEFAULT '0000',
+    photo_uri TEXT DEFAULT '',
+    preferred_activity TEXT DEFAULT 'UTILISATEUR',
+    created_at BIGINT DEFAULT 0,
+    updated_at BIGINT DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_app_users_phone ON public.app_users(phone);
+
+-- Migrations additives sans perte de données pour les tables existantes (Deployer ID & Photo Profil)
+ALTER TABLE IF EXISTS public.waste_businesses ADD COLUMN IF NOT EXISTS deployer_id TEXT DEFAULT '';
+ALTER TABLE IF EXISTS public.waste_businesses ADD COLUMN IF NOT EXISTS photo_uri TEXT DEFAULT '';
+ALTER TABLE IF EXISTS public.waste_clients ADD COLUMN IF NOT EXISTS photo_uri TEXT DEFAULT '';
+ALTER TABLE IF EXISTS public.tontine_businesses ADD COLUMN IF NOT EXISTS deployer_id TEXT DEFAULT '';
+ALTER TABLE IF EXISTS public.tontine_businesses ADD COLUMN IF NOT EXISTS photo_uri TEXT DEFAULT '';
+ALTER TABLE IF EXISTS public.tontine_cards ADD COLUMN IF NOT EXISTS photo_uri TEXT DEFAULT '';
+
 -- Activation de RLS (Row Level Security) avec accès lecture/écriture pour la clé anon
 ALTER TABLE public.shop_profile ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.products ENABLE ROW LEVEL SECURITY;
@@ -627,6 +739,12 @@ ALTER TABLE public.restaurant_menu_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.couture_models ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.couture_orders ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.couture_clients ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.waste_businesses ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.waste_clients ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.tontine_businesses ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.tontine_groups ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.tontine_cards ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.app_users ENABLE ROW LEVEL SECURITY;
 
 -- Drop existing policies if they already exist to prevent "policy already exists" errors
 DROP POLICY IF EXISTS "Allow anon read/write for shop_profile" ON public.shop_profile;
@@ -651,6 +769,12 @@ DROP POLICY IF EXISTS "Allow anon read/write for restaurant_menu_items" ON publi
 DROP POLICY IF EXISTS "Allow anon read/write for couture_models" ON public.couture_models;
 DROP POLICY IF EXISTS "Allow anon read/write for couture_orders" ON public.couture_orders;
 DROP POLICY IF EXISTS "Allow anon read/write for couture_clients" ON public.couture_clients;
+DROP POLICY IF EXISTS "Allow anon read/write for waste_businesses" ON public.waste_businesses;
+DROP POLICY IF EXISTS "Allow anon read/write for waste_clients" ON public.waste_clients;
+DROP POLICY IF EXISTS "Allow anon read/write for tontine_businesses" ON public.tontine_businesses;
+DROP POLICY IF EXISTS "Allow anon read/write for tontine_groups" ON public.tontine_groups;
+DROP POLICY IF EXISTS "Allow anon read/write for tontine_cards" ON public.tontine_cards;
+DROP POLICY IF EXISTS "Allow anon read/write for app_users" ON public.app_users;
 
 CREATE POLICY "Allow anon read/write for shop_profile" ON public.shop_profile FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow anon read/write for products" ON public.products FOR ALL USING (true) WITH CHECK (true);
@@ -674,16 +798,39 @@ CREATE POLICY "Allow anon read/write for restaurant_menu_items" ON public.restau
 CREATE POLICY "Allow anon read/write for couture_models" ON public.couture_models FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow anon read/write for couture_orders" ON public.couture_orders FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow anon read/write for couture_clients" ON public.couture_clients FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow anon read/write for waste_businesses" ON public.waste_businesses FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow anon read/write for waste_clients" ON public.waste_clients FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow anon read/write for tontine_businesses" ON public.tontine_businesses FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow anon read/write for tontine_groups" ON public.tontine_groups FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow anon read/write for tontine_cards" ON public.tontine_cards FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow anon read/write for app_users" ON public.app_users FOR ALL USING (true) WITH CHECK (true);
 
--- Bucket Storage public pour héberger les logos et vidéos publicitaires (60s)
+-- Buckets Storage publics pour héberger les logos des boutiques (shop-logos) et les médias vitrines (shop-ads)
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('shop-logos', 'shop-logos', true)
+ON CONFLICT (id) DO UPDATE SET public = true;
+
 INSERT INTO storage.buckets (id, name, public)
 VALUES ('shop-ads', 'shop-ads', true)
-ON CONFLICT (id) DO NOTHING;
+ON CONFLICT (id) DO UPDATE SET public = true;
+
+DROP POLICY IF EXISTS "Allow public read shop-logos" ON storage.objects;
+DROP POLICY IF EXISTS "Allow anon upload shop-logos" ON storage.objects;
+DROP POLICY IF EXISTS "Allow anon update shop-logos" ON storage.objects;
+DROP POLICY IF EXISTS "Allow anon delete shop-logos" ON storage.objects;
+CREATE POLICY "Allow public read shop-logos" ON storage.objects FOR SELECT USING (bucket_id = 'shop-logos');
+CREATE POLICY "Allow anon upload shop-logos" ON storage.objects FOR INSERT WITH CHECK (bucket_id = 'shop-logos');
+CREATE POLICY "Allow anon update shop-logos" ON storage.objects FOR UPDATE USING (bucket_id = 'shop-logos') WITH CHECK (bucket_id = 'shop-logos');
+CREATE POLICY "Allow anon delete shop-logos" ON storage.objects FOR DELETE USING (bucket_id = 'shop-logos');
 
 DROP POLICY IF EXISTS "Allow public read shop-ads" ON storage.objects;
 DROP POLICY IF EXISTS "Allow anon upload shop-ads" ON storage.objects;
+DROP POLICY IF EXISTS "Allow anon update shop-ads" ON storage.objects;
+DROP POLICY IF EXISTS "Allow anon delete shop-ads" ON storage.objects;
 CREATE POLICY "Allow public read shop-ads" ON storage.objects FOR SELECT USING (bucket_id = 'shop-ads');
 CREATE POLICY "Allow anon upload shop-ads" ON storage.objects FOR INSERT WITH CHECK (bucket_id = 'shop-ads');
+CREATE POLICY "Allow anon update shop-ads" ON storage.objects FOR UPDATE USING (bucket_id = 'shop-ads') WITH CHECK (bucket_id = 'shop-ads');
+CREATE POLICY "Allow anon delete shop-ads" ON storage.objects FOR DELETE USING (bucket_id = 'shop-ads');
         """.trimIndent()
     }
 }

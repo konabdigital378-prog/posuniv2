@@ -127,7 +127,7 @@ fun PublicRestaurantDirectoryModal(
 
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = selectedRestaurant?.name ?: "Restaurants sur Konab",
+                                text = selectedRestaurant?.name ?: "Restaurants & Cantines",
                                 fontFamily = OutfitFontFamily,
                                 fontWeight = FontWeight.Black,
                                 fontSize = 18.sp,
@@ -139,7 +139,7 @@ fun PublicRestaurantDirectoryModal(
                                 text = if (selectedRestaurant != null) {
                                     "konab.menu/${selectedRestaurant!!.toWebSlug()}"
                                 } else {
-                                    "${restaurants.size} restaurant(s) inscrits • Sélectionnez le vôtre"
+                                    "${restaurants.size} établissement(s) • Sélectionnez le vôtre"
                                 },
                                 fontSize = 12.sp,
                                 color = Color(0xFFFFEDD5),
@@ -205,7 +205,7 @@ fun PublicRestaurantDirectoryModal(
                             KonabSearchField(
                                 value = searchQuery,
                                 onValueChange = { searchQuery = it },
-                                placeholder = "Rechercher un restaurant, ville, spécialité...",
+                                placeholder = "Rechercher cantine, restaurant, ville...",
                                 modifier = Modifier.testTag("input_restaurant_directory_search")
                             )
 

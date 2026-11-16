@@ -203,30 +203,31 @@ fun WasteManagementModal(
                 Spacer(modifier = Modifier.height(14.dp))
 
                 // Navigation Tabs
-                TabRow(
+                ScrollableTabRow(
                     selectedTabIndex = selectedTab,
                     containerColor = MaterialTheme.colorScheme.surface,
-                    contentColor = KonabBlue
+                    contentColor = KonabBlue,
+                    edgePadding = 12.dp
                 ) {
                     Tab(
                         selected = selectedTab == 0,
                         onClick = { selectedTab = 0 },
-                        text = { Text("Planning", fontWeight = if (selectedTab == 0) FontWeight.Bold else FontWeight.Medium, fontSize = 12.sp) }
+                        text = { Text("Planning", fontWeight = if (selectedTab == 0) FontWeight.Bold else FontWeight.Medium, fontSize = 12.sp, maxLines = 1, softWrap = false) }
                     )
                     Tab(
                         selected = selectedTab == 1,
                         onClick = { selectedTab = 1 },
-                        text = { Text("Payer", fontWeight = if (selectedTab == 1) FontWeight.Bold else FontWeight.Medium, fontSize = 12.sp) }
+                        text = { Text("Payer", fontWeight = if (selectedTab == 1) FontWeight.Bold else FontWeight.Medium, fontSize = 12.sp, maxLines = 1, softWrap = false) }
                     )
                     Tab(
                         selected = selectedTab == 2,
                         onClick = { selectedTab = 2 },
-                        text = { Text("Historique (${payments.size})", fontWeight = if (selectedTab == 2) FontWeight.Bold else FontWeight.Medium, fontSize = 12.sp) }
+                        text = { Text("Historique (${payments.size})", fontWeight = if (selectedTab == 2) FontWeight.Bold else FontWeight.Medium, fontSize = 12.sp, maxLines = 1, softWrap = false) }
                     )
                     Tab(
                         selected = selectedTab == 3,
                         onClick = { selectedTab = 3 },
-                        text = { Text("Prestataire", fontWeight = if (selectedTab == 3) FontWeight.Bold else FontWeight.Medium, fontSize = 12.sp) }
+                        text = { Text("Prestataire", fontWeight = if (selectedTab == 3) FontWeight.Bold else FontWeight.Medium, fontSize = 12.sp, maxLines = 1, softWrap = false) }
                     )
                 }
 

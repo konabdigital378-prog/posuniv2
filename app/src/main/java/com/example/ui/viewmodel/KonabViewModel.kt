@@ -284,6 +284,75 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
         _activeCoutureClient.value = CoutureStorage.getClientAccount(app)
     }
 
+    // --- ÉTAT PORTAIL GESTION POUBELLES (ÉBOUEURS PRO & FAMILLES) ---
+    private val _wasteBusinesses = MutableStateFlow(WasteCollectorStorage.getBusinesses(application))
+    val wasteBusinesses: StateFlow<List<WasteBusinessProfile>> = _wasteBusinesses.asStateFlow()
+
+    private val _wasteClients = MutableStateFlow(WasteCollectorStorage.getClients(application))
+    val wasteClients: StateFlow<List<WasteHouseholdClient>> = _wasteClients.asStateFlow()
+
+    private val _activeWasteBusinessId = MutableStateFlow(WasteCollectorStorage.getActiveBusinessId(application))
+    val activeWasteBusinessId: StateFlow<String?> = _activeWasteBusinessId.asStateFlow()
+
+    private val _isSyncingWaste = MutableStateFlow(false)
+    val isSyncingWaste: StateFlow<Boolean> = _isSyncingWaste.asStateFlow()
+
+    private val _pendingWasteQrTarget = MutableStateFlow<ParsedWasteQr?>(null)
+    val pendingWasteQrTarget: StateFlow<ParsedWasteQr?> = _pendingWasteQrTarget.asStateFlow()
+
+    private val _wasteFamilyQuery = MutableStateFlow(WasteCollectorStorage.getSavedFamilyQuery(application))
+    val wasteFamilyQuery: StateFlow<String> = _wasteFamilyQuery.asStateFlow()
+
+    fun reloadWasteLocalState() {
+        val app = getApplication<Application>()
+        _wasteBusinesses.value = WasteCollectorStorage.getBusinesses(app)
+        _wasteClients.value = WasteCollectorStorage.getClients(app)
+        _activeWasteBusinessId.value = WasteCollectorStorage.getActiveBusinessId(app)
+        _wasteFamilyQuery.value = WasteCollectorStorage.getSavedFamilyQuery(app)
+    }
+
+    // --- ÉTAT PORTAIL TONTINE NUMÉRIQUE (CARTES 30 JOURS) ---
+    private val _tontineBusinesses = MutableStateFlow(TontineStorage.getBusinesses(application))
+    val tontineBusinesses: StateFlow<List<TontineBusinessProfile>> = _tontineBusinesses.asStateFlow()
+
+    private val _tontineGroups = MutableStateFlow(TontineStorage.getGroups(application))
+    val tontineGroups: StateFlow<List<TontineGroup>> = _tontineGroups.asStateFlow()
+
+    private val _tontineCards = MutableStateFlow(TontineStorage.getCards(application))
+    val tontineCards: StateFlow<List<TontineMemberCard>> = _tontineCards.asStateFlow()
+
+    private val _activeTontineBusinessId = MutableStateFlow(TontineStorage.getActiveBusinessId(application))
+    val activeTontineBusinessId: StateFlow<String?> = _activeTontineBusinessId.asStateFlow()
+
+    private val _isSyncingTontine = MutableStateFlow(false)
+    val isSyncingTontine: StateFlow<Boolean> = _isSyncingTontine.asStateFlow()
+
+    private val _pendingTontineQrTarget = MutableStateFlow<ParsedTontineQr?>(null)
+    val pendingTontineQrTarget: StateFlow<ParsedTontineQr?> = _pendingTontineQrTarget.asStateFlow()
+
+    private val _tontineMemberQuery = MutableStateFlow(TontineStorage.getSavedMemberPhone(application))
+    val tontineMemberQuery: StateFlow<String> = _tontineMemberQuery.asStateFlow()
+
+    fun reloadTontineLocalState() {
+        val app = getApplication<Application>()
+        _tontineBusinesses.value = TontineStorage.getBusinesses(app)
+        _tontineGroups.value = TontineStorage.getGroups(app)
+        _tontineCards.value = TontineStorage.getCards(app)
+        _activeTontineBusinessId.value = TontineStorage.getActiveBusinessId(app)
+        _tontineMemberQuery.value = TontineStorage.getSavedMemberPhone(app)
+    }
+
+    // --- ÉTAT UTILISATEUR PUBLIC (COMPTE CONAKRY WEB / KONAB POS) ---
+    private val _currentPublicUser = MutableStateFlow(PublicUserStorage.getActiveUser(application))
+    val currentPublicUser: StateFlow<PublicUserAccount?> = _currentPublicUser.asStateFlow()
+
+    private val _isSyncingPublicUser = MutableStateFlow(false)
+    val isSyncingPublicUser: StateFlow<Boolean> = _isSyncingPublicUser.asStateFlow()
+
+    fun reloadPublicUserState() {
+        _currentPublicUser.value = PublicUserStorage.getActiveUser(getApplication())
+    }
+
     init {
         com.example.util.NotificationHelper.createNotificationChannels(application)
 
@@ -882,7 +951,11 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
             repository.saveShopProfile(finalUpdated)
             withContext(kotlinx.coroutines.Dispatchers.IO) {
                 try {
-                    supabaseSyncManager.pushShopProfileDirectly(finalUpdated, isNewShop = false)
+                    supabaseSyncManager.pushShopProfileDirectly(
+                        profile = finalUpdated,
+                        isNewShop = false,
+                        repository = repository
+                    )
                 } catch (e: Exception) {
                     android.util.Log.e("KonabPOS", "Erreur pushShopProfileDirectly: ${e.message}", e)
                 }
@@ -2507,9 +2580,15 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // --- ROUTAGE QR UNIFIÉ (RESTAURANT OU COUTURE) & PORTAIL CLIENT COUTURE ---
+    // --- ROUTAGE QR UNIFIÉ (RESTAURANT, COUTURE, POUBELLES, TONTINE) & PORTAILS ---
 
     fun openAnyQrScan(rawQr: String): Boolean {
+        if (WasteQrParser.parseWasteQrUri(rawQr) != null) {
+            return openWasteQrFromScan(rawQr)
+        }
+        if (TontineQrParser.parseTontineQrUri(rawQr) != null) {
+            return openTontineQrFromScan(rawQr)
+        }
         if (CoutureQrParser.parseCoutureQrUri(rawQr) != null) {
             return openCoutureQrFromScan(rawQr)
         }
@@ -2790,5 +2869,700 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
         }
+    }
+
+    // =========================================================================
+    // PORTAIL GESTION POUBELLES / SALUBRITÉ (ÉBOUEURS PRO & FAMILLES)
+    // =========================================================================
+
+    fun refreshWastePortalFromCloud(onDone: () -> Unit = {}) {
+        _isSyncingWaste.value = true
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            supabaseSyncManager.fetchAllWastePortalState()
+            withContext(kotlinx.coroutines.Dispatchers.Main) {
+                reloadWasteLocalState()
+                _isSyncingWaste.value = false
+                onDone()
+            }
+        }
+    }
+
+    fun selectWasteBusiness(businessId: String?) {
+        val app = getApplication<Application>()
+        WasteCollectorStorage.setActiveBusinessId(app, businessId)
+        _activeWasteBusinessId.value = businessId
+    }
+
+    fun saveWasteBusiness(
+        businessName: String,
+        managerName: String,
+        phone: String,
+        city: String,
+        pin: String,
+        defaultFee: Long,
+        defaultPassages: Int,
+        existingId: String? = null,
+        photoUri: String = "",
+        onError: (String) -> Unit = {},
+        onResult: (WasteBusinessProfile) -> Unit = {}
+    ) {
+        val cleanName = businessName.trim()
+        if (cleanName.isBlank()) {
+            onError("Veuillez renseigner le nom de l'entreprise.")
+            return
+        }
+        val activeAgent = AgentDeploymentStorage.getSavedAgentSession(getApplication())
+        if (existingId == null && activeAgent == null) {
+            onError("Règle Konab POS : Passez par un Agent Déployeur connecté pour créer une organisation.")
+            return
+        }
+        val now = System.currentTimeMillis()
+        val existing = _wasteBusinesses.value.firstOrNull { it.id == existingId }
+        val resolvedPhoto = photoUri.trim().ifBlank { existing?.photoUri.orEmpty() }
+        val profile = (existing ?: WasteBusinessProfile(
+            id = "WBZ-$now-${(10..99).random()}",
+            businessName = cleanName,
+            deployerId = activeAgent?.id.orEmpty(),
+            createdAt = now
+        )).copy(
+            businessName = cleanName,
+            managerName = managerName.trim().ifBlank { "Responsable" },
+            phone = phone.trim(),
+            city = city.trim().ifBlank { "Conakry" },
+            pin = pin.trim().ifBlank { "1234" },
+            defaultMonthlyFee = defaultFee.coerceAtLeast(0L),
+            defaultPassagesPerCycle = defaultPassages.coerceIn(1, 31),
+            deployerId = existing?.deployerId?.ifBlank { activeAgent?.id.orEmpty() } ?: activeAgent?.id.orEmpty(),
+            photoUri = resolvedPhoto,
+            updatedAt = now
+        )
+        WasteCollectorStorage.upsertBusiness(getApplication(), profile)
+        reloadWasteLocalState()
+        onResult(profile)
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            supabaseSyncManager.syncWasteBusinessNow(profile)
+            withContext(kotlinx.coroutines.Dispatchers.Main) {
+                reloadWasteLocalState()
+            }
+        }
+    }
+
+    fun saveWasteClient(
+        business: WasteBusinessProfile,
+        familyName: String,
+        contactName: String,
+        phone: String,
+        neighborhood: String,
+        status: WasteClientStatus,
+        pickupDaysLabel: String,
+        monthlyFee: Long,
+        targetPassages: Int,
+        existingClient: WasteHouseholdClient? = null,
+        photoUri: String = "",
+        onResult: (WasteHouseholdClient) -> Unit = {}
+    ) {
+        val cleanFamily = familyName.trim()
+        if (cleanFamily.isBlank()) return
+        val now = System.currentTimeMillis()
+        val generatedId = existingClient?.id ?: "FAM-${(now % 1_000_000L).toString().padStart(6, '0')}-${(10..99).random()}"
+        val resolvedPhoto = photoUri.trim().ifBlank { existingClient?.photoUri.orEmpty() }
+        val record = (existingClient ?: WasteHouseholdClient(
+            id = generatedId,
+            businessId = business.id,
+            businessName = business.businessName,
+            businessPhone = business.phone,
+            familyName = cleanFamily,
+            createdAt = now
+        )).copy(
+            businessId = business.id,
+            businessName = business.businessName,
+            businessPhone = business.phone,
+            familyName = cleanFamily,
+            contactName = contactName.trim(),
+            phone = phone.trim(),
+            neighborhood = neighborhood.trim(),
+            status = status,
+            pickupDaysLabel = pickupDaysLabel.trim().ifBlank { "Lun • Jeu" },
+            monthlyFee = monthlyFee.coerceAtLeast(0L),
+            targetPassages = targetPassages.coerceIn(1, 31),
+            photoUri = resolvedPhoto,
+            updatedAt = now
+        )
+        WasteCollectorStorage.upsertClient(getApplication(), record)
+        reloadWasteLocalState()
+        onResult(record)
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            supabaseSyncManager.syncWasteClientNow(record)
+            withContext(kotlinx.coroutines.Dispatchers.Main) {
+                reloadWasteLocalState()
+            }
+        }
+    }
+
+    fun updateWasteClientPhoto(client: WasteHouseholdClient, newPhotoUri: String) {
+        val updated = client.copy(photoUri = newPhotoUri.trim(), updatedAt = System.currentTimeMillis())
+        WasteCollectorStorage.upsertClient(getApplication(), updated)
+        reloadWasteLocalState()
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            supabaseSyncManager.syncWasteClientNow(updated)
+            withContext(kotlinx.coroutines.Dispatchers.Main) {
+                reloadWasteLocalState()
+            }
+        }
+    }
+
+    fun checkWastePickup(
+        client: WasteHouseholdClient,
+        collectorName: String = "Équipe collecte",
+        note: String = "",
+        onResult: (WasteHouseholdClient) -> Unit = {}
+    ) {
+        val now = System.currentTimeMillis()
+        val newLog = WastePickupLog(
+            id = "PK-$now-${(10..99).random()}",
+            timestamp = now,
+            collectorName = collectorName.trim().ifBlank { "Équipe collecte" },
+            note = note.trim()
+        )
+        val updated = client.copy(
+            status = if (client.status == WasteClientStatus.PROSPECT) WasteClientStatus.CLIENT_ACTIF else client.status,
+            passagesLogs = (client.passagesLogs + newLog).sortedBy { it.timestamp },
+            updatedAt = now
+        )
+        WasteCollectorStorage.upsertClient(getApplication(), updated)
+        reloadWasteLocalState()
+        onResult(updated)
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            supabaseSyncManager.syncWasteClientNow(updated)
+        }
+    }
+
+    fun uncheckLastWastePickup(client: WasteHouseholdClient) {
+        if (client.passagesLogs.isEmpty()) return
+        val updated = client.copy(
+            passagesLogs = client.passagesLogs.dropLast(1),
+            updatedAt = System.currentTimeMillis()
+        )
+        WasteCollectorStorage.upsertClient(getApplication(), updated)
+        reloadWasteLocalState()
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            supabaseSyncManager.syncWasteClientNow(updated)
+        }
+    }
+
+    fun markWasteBillingNotified(client: WasteHouseholdClient) {
+        val updated = client.copy(
+            lastBillingNotifiedAt = System.currentTimeMillis(),
+            updatedAt = System.currentTimeMillis()
+        )
+        WasteCollectorStorage.upsertClient(getApplication(), updated)
+        reloadWasteLocalState()
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            supabaseSyncManager.syncWasteClientNow(updated)
+        }
+    }
+
+    fun recordWasteCyclePayment(
+        client: WasteHouseholdClient,
+        amountPaid: Long,
+        note: String = "",
+        onResult: (WasteHouseholdClient) -> Unit = {}
+    ) {
+        val now = System.currentTimeMillis()
+        val payment = WasteCyclePayment(
+            id = "PAY-$now-${(10..99).random()}",
+            amount = amountPaid.coerceAtLeast(0L),
+            paidAt = now,
+            passagesCompleted = client.passagesLogs.size,
+            cycleTarget = client.targetPassages,
+            pickupTimestamps = client.passagesLogs.map { it.timestamp },
+            note = note.trim()
+        )
+        val updated = client.copy(
+            status = WasteClientStatus.CLIENT_ACTIF,
+            passagesLogs = emptyList(),
+            paymentHistory = listOf(payment) + client.paymentHistory,
+            lastBillingNotifiedAt = 0L,
+            updatedAt = now
+        )
+        WasteCollectorStorage.upsertClient(getApplication(), updated)
+        reloadWasteLocalState()
+        onResult(updated)
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            supabaseSyncManager.syncWasteClientNow(updated)
+        }
+    }
+
+    fun deleteWasteClient(clientId: String) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            supabaseSyncManager.deleteWasteClientCloud(clientId)
+            withContext(kotlinx.coroutines.Dispatchers.Main) {
+                reloadWasteLocalState()
+            }
+        }
+    }
+
+    fun setWasteFamilyQuery(query: String) {
+        WasteCollectorStorage.saveFamilyQuery(getApplication(), query)
+        _wasteFamilyQuery.value = query.trim()
+    }
+
+    fun openWasteQrFromScan(rawQr: String): Boolean {
+        val parsed = WasteQrParser.parseWasteQrUri(rawQr) ?: return false
+        if (parsed.clientId.isNotBlank()) {
+            setWasteFamilyQuery(parsed.clientId)
+        }
+        _pendingWasteQrTarget.value = parsed
+        refreshWastePortalFromCloud()
+        return true
+    }
+
+    fun dismissWasteQrTarget() {
+        _pendingWasteQrTarget.value = null
+    }
+
+    // =========================================================================
+    // PORTAIL TONTINE NUMÉRIQUE (BUSINESS, GROUPES & CARTE 30 JOURS)
+    // =========================================================================
+
+    fun refreshTontinePortalFromCloud(onDone: () -> Unit = {}) {
+        _isSyncingTontine.value = true
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            supabaseSyncManager.fetchAllTontinePortalState()
+            withContext(kotlinx.coroutines.Dispatchers.Main) {
+                reloadTontineLocalState()
+                _isSyncingTontine.value = false
+                onDone()
+            }
+        }
+    }
+
+    fun selectTontineBusiness(businessId: String?) {
+        TontineStorage.setActiveBusinessId(getApplication(), businessId)
+        _activeTontineBusinessId.value = businessId
+    }
+
+    fun saveTontineBusiness(
+        businessName: String,
+        organizerName: String,
+        phone: String,
+        city: String,
+        pin: String,
+        existingId: String? = null,
+        photoUri: String = "",
+        onError: (String) -> Unit = {},
+        onResult: (TontineBusinessProfile) -> Unit = {}
+    ) {
+        val cleanName = businessName.trim()
+        if (cleanName.isBlank()) {
+            onError("Veuillez renseigner le nom du business Tontine.")
+            return
+        }
+        val activeAgent = AgentDeploymentStorage.getSavedAgentSession(getApplication())
+        if (existingId == null && activeAgent == null) {
+            onError("Règle Konab POS : Passez par un Agent Déployeur connecté pour créer une organisation.")
+            return
+        }
+        val now = System.currentTimeMillis()
+        val existing = _tontineBusinesses.value.firstOrNull { it.id == existingId }
+        val resolvedPhoto = photoUri.trim().ifBlank { existing?.photoUri.orEmpty() }
+        val biz = (existing ?: TontineBusinessProfile(
+            id = "TBZ-$now-${(10..99).random()}",
+            businessName = cleanName,
+            deployerId = activeAgent?.id.orEmpty(),
+            createdAt = now
+        )).copy(
+            businessName = cleanName,
+            organizerName = organizerName.trim().ifBlank { "Organisatrice" },
+            phone = phone.trim(),
+            city = city.trim().ifBlank { "Conakry" },
+            pin = pin.trim().ifBlank { "1234" },
+            deployerId = existing?.deployerId?.ifBlank { activeAgent?.id.orEmpty() } ?: activeAgent?.id.orEmpty(),
+            photoUri = resolvedPhoto,
+            updatedAt = now
+        )
+        TontineStorage.upsertBusiness(getApplication(), biz)
+        reloadTontineLocalState()
+        onResult(biz)
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            supabaseSyncManager.syncTontineBusinessNow(biz)
+            withContext(kotlinx.coroutines.Dispatchers.Main) {
+                reloadTontineLocalState()
+            }
+        }
+    }
+
+    fun saveTontineGroup(
+        business: TontineBusinessProfile,
+        title: String,
+        dailyAmount: Long,
+        totalDays: Int = 30,
+        frequencyLabel: String = "Journalier • Carte 30 jours",
+        existingId: String? = null,
+        onResult: (TontineGroup) -> Unit = {}
+    ) {
+        val cleanTitle = title.trim()
+        if (cleanTitle.isBlank()) return
+        val now = System.currentTimeMillis()
+        val existing = _tontineGroups.value.firstOrNull { it.id == existingId }
+        val group = (existing ?: TontineGroup(
+            id = "TGR-$now-${(10..99).random()}",
+            businessId = business.id,
+            businessName = business.businessName,
+            businessPhone = business.phone,
+            title = cleanTitle,
+            createdAt = now
+        )).copy(
+            businessId = business.id,
+            businessName = business.businessName,
+            businessPhone = business.phone,
+            title = cleanTitle,
+            dailyAmount = dailyAmount.coerceAtLeast(100L),
+            totalDays = totalDays.coerceIn(1, 31),
+            frequencyLabel = frequencyLabel.trim().ifBlank { "Journalier • Carte $totalDays jours" },
+            updatedAt = now
+        )
+        TontineStorage.upsertGroup(getApplication(), group)
+        reloadTontineLocalState()
+        onResult(group)
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            supabaseSyncManager.syncTontineGroupNow(group)
+        }
+    }
+
+    fun saveTontineMemberCard(
+        group: TontineGroup,
+        memberName: String,
+        memberPhone: String,
+        payoutTurnNumber: Int = 1,
+        existingCard: TontineMemberCard? = null,
+        photoUri: String = "",
+        onResult: (TontineMemberCard) -> Unit = {}
+    ) {
+        val cleanName = memberName.trim()
+        val cleanPhone = memberPhone.trim()
+        if (cleanName.isBlank() || cleanPhone.isBlank()) return
+        val now = System.currentTimeMillis()
+        val resolvedPhoto = photoUri.trim().ifBlank { existingCard?.photoUri.orEmpty() }
+        val card = (existingCard ?: TontineMemberCard(
+            id = "TC-${(now % 1_000_000L).toString().padStart(6, '0')}-${(10..99).random()}",
+            businessId = group.businessId,
+            businessName = group.businessName,
+            businessPhone = group.businessPhone,
+            groupId = group.id,
+            groupTitle = group.title,
+            memberName = cleanName,
+            memberPhone = cleanPhone,
+            dailyAmount = group.dailyAmount,
+            totalDays = group.totalDays,
+            payoutTurnNumber = payoutTurnNumber.coerceAtLeast(1),
+            createdAt = now
+        )).copy(
+            businessId = group.businessId,
+            businessName = group.businessName,
+            businessPhone = group.businessPhone,
+            groupId = group.id,
+            groupTitle = group.title,
+            memberName = cleanName,
+            memberPhone = cleanPhone,
+            dailyAmount = group.dailyAmount,
+            totalDays = group.totalDays,
+            payoutTurnNumber = payoutTurnNumber.coerceAtLeast(1),
+            photoUri = resolvedPhoto,
+            updatedAt = now
+        )
+        TontineStorage.upsertCard(getApplication(), card)
+        reloadTontineLocalState()
+        onResult(card)
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            supabaseSyncManager.syncTontineCardNow(card)
+            withContext(kotlinx.coroutines.Dispatchers.Main) {
+                reloadTontineLocalState()
+            }
+        }
+    }
+
+    fun updateTontineCardPhoto(card: TontineMemberCard, newPhotoUri: String) {
+        val updated = card.copy(photoUri = newPhotoUri.trim(), updatedAt = System.currentTimeMillis())
+        TontineStorage.upsertCard(getApplication(), updated)
+        reloadTontineLocalState()
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            supabaseSyncManager.syncTontineCardNow(updated)
+            withContext(kotlinx.coroutines.Dispatchers.Main) {
+                reloadTontineLocalState()
+            }
+        }
+    }
+
+    fun toggleTontineDayCheck(
+        card: TontineMemberCard,
+        dayNumber: Int,
+        checkedBy: String = "Organisatrice",
+        onResult: (TontineMemberCard) -> Unit = {}
+    ) {
+        if (dayNumber !in 1..card.totalDays) return
+        val now = System.currentTimeMillis()
+        val alreadyChecked = card.isDayChecked(dayNumber)
+        val newMarks = if (alreadyChecked) {
+            card.checkMarks.filterNot { it.dayNumber == dayNumber }
+        } else {
+            (card.checkMarks + TontineCheckMark(
+                dayNumber = dayNumber,
+                checkedAt = now,
+                amount = card.dailyAmount,
+                checkedBy = checkedBy.ifBlank { "Organisatrice" }
+            )).sortedBy { it.dayNumber }
+        }
+        val updated = card.copy(
+            checkMarks = newMarks,
+            updatedAt = now
+        )
+        TontineStorage.upsertCard(getApplication(), updated)
+        reloadTontineLocalState()
+        onResult(updated)
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            supabaseSyncManager.syncTontineCardNow(updated)
+        }
+    }
+
+    fun checkNextTontineDay(
+        card: TontineMemberCard,
+        checkedBy: String = "Organisatrice",
+        onResult: (TontineMemberCard) -> Unit = {}
+    ) {
+        val nextDay = card.nextUncheckedDay() ?: return
+        toggleTontineDayCheck(card, nextDay, checkedBy, onResult)
+    }
+
+    fun validateTontineCardSettled(
+        card: TontineMemberCard,
+        customMessage: String = "",
+        onResult: (TontineMemberCard) -> Unit = {}
+    ) {
+        val now = System.currentTimeMillis()
+        val finalMsg = customMessage.trim().ifBlank { card.buildSettledMessage() }
+        val updated = card.copy(
+            status = TontineCardStatus.SOLDEE_A_PAYER,
+            validatedAt = now,
+            validationMessage = finalMsg,
+            updatedAt = now
+        )
+        TontineStorage.upsertCard(getApplication(), updated)
+        reloadTontineLocalState()
+        onResult(updated)
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            supabaseSyncManager.syncTontineCardNow(updated)
+        }
+    }
+
+    fun markTontineCardPaid(
+        card: TontineMemberCard,
+        onResult: (TontineMemberCard) -> Unit = {}
+    ) {
+        val now = System.currentTimeMillis()
+        val updated = card.copy(
+            status = TontineCardStatus.PAYEE,
+            paidAt = now,
+            validationMessage = card.validationMessage.ifBlank { card.buildSettledMessage() },
+            updatedAt = now
+        )
+        TontineStorage.upsertCard(getApplication(), updated)
+        reloadTontineLocalState()
+        onResult(updated)
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            supabaseSyncManager.syncTontineCardNow(updated)
+        }
+    }
+
+    fun restartNewTontineCycle(
+        card: TontineMemberCard,
+        onResult: (TontineMemberCard) -> Unit = {}
+    ) {
+        val now = System.currentTimeMillis()
+        val updated = card.copy(
+            checkMarks = emptyList(),
+            status = TontineCardStatus.EN_COURS,
+            validatedAt = 0L,
+            validationMessage = "",
+            paidAt = 0L,
+            updatedAt = now
+        )
+        TontineStorage.upsertCard(getApplication(), updated)
+        reloadTontineLocalState()
+        onResult(updated)
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            supabaseSyncManager.syncTontineCardNow(updated)
+        }
+    }
+
+    fun deleteTontineCard(cardId: String) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            supabaseSyncManager.deleteTontineCardCloud(cardId)
+            withContext(kotlinx.coroutines.Dispatchers.Main) {
+                reloadTontineLocalState()
+            }
+        }
+    }
+
+    fun setTontineMemberQuery(query: String) {
+        TontineStorage.saveMemberPhone(getApplication(), query)
+        _tontineMemberQuery.value = query.trim()
+    }
+
+    fun openTontineQrFromScan(rawQr: String): Boolean {
+        val parsed = TontineQrParser.parseTontineQrUri(rawQr) ?: return false
+        if (parsed.cardId.isNotBlank()) {
+            setTontineMemberQuery(parsed.cardId)
+        }
+        _pendingTontineQrTarget.value = parsed
+        refreshTontinePortalFromCloud()
+        return true
+    }
+
+    fun dismissTontineQrTarget() {
+        _pendingTontineQrTarget.value = null
+    }
+
+    // =========================================================================
+    // UTILISATEUR PUBLIC (IDENTIFICATION, BASE DE DONNÉES SUPABASE & SERVICES)
+    // =========================================================================
+
+    private fun propagatePublicUserContext(user: PublicUserAccount) {
+        val app = getApplication<Application>()
+        if (user.phone.isNotBlank()) {
+            if (WasteCollectorStorage.getSavedFamilyQuery(app).isBlank()) {
+                WasteCollectorStorage.saveFamilyQuery(app, user.phone)
+                _wasteFamilyQuery.value = user.phone
+            }
+            if (TontineStorage.getSavedMemberPhone(app).isBlank()) {
+                TontineStorage.saveMemberPhone(app, user.phone)
+                _tontineMemberQuery.value = user.phone
+            }
+            val nameParts = user.fullName.trim().split(" ", limit = 2)
+            val first = nameParts.getOrNull(0).orEmpty()
+            val last = nameParts.getOrNull(1).orEmpty()
+            CoutureStorage.saveClientAccount(
+                app,
+                CoutureClientAccount(
+                    id = user.id,
+                    firstName = first,
+                    lastName = last,
+                    phone = user.phone,
+                    city = user.city.ifBlank { "Conakry" }
+                )
+            )
+            _activeCoutureClient.value = CoutureStorage.getClientAccount(app)
+        }
+    }
+
+    fun registerPublicUser(
+        fullName: String,
+        phone: String,
+        city: String,
+        neighborhood: String,
+        pin: String,
+        photoUri: String = "",
+        preferredActivity: String = "UTILISATEUR",
+        onResult: (Boolean, String) -> Unit = { _, _ -> }
+    ) {
+        val cleanName = fullName.trim()
+        val cleanPhone = phone.trim()
+        val cleanPin = pin.trim().ifBlank { "0000" }
+        if (cleanName.isBlank()) {
+            onResult(false, "Veuillez indiquer votre nom complet.")
+            return
+        }
+        if (PublicUserStorage.normalizePhone(cleanPhone).length < 6) {
+            onResult(false, "Numéro de téléphone invalide.")
+            return
+        }
+        val app = getApplication<Application>()
+        val existing = PublicUserStorage.findByPhoneOrId(PublicUserStorage.getAllUsers(app), cleanPhone)
+        val now = System.currentTimeMillis()
+        val account = PublicUserAccount(
+            id = existing?.id ?: "USR-${(now % 1_000_000L).toString().padStart(6, '0')}-${(10..99).random()}",
+            fullName = cleanName,
+            phone = cleanPhone,
+            city = city.trim().ifBlank { "Conakry" },
+            neighborhood = neighborhood.trim(),
+            pin = cleanPin,
+            photoUri = photoUri.trim().ifBlank { existing?.photoUri.orEmpty() },
+            preferredActivity = preferredActivity.ifBlank { "UTILISATEUR" },
+            createdAt = existing?.createdAt ?: now,
+            updatedAt = now
+        )
+        val savedLocal = PublicUserStorage.upsertUser(app, account, makeActive = true)
+        _currentPublicUser.value = savedLocal
+        propagatePublicUserContext(savedLocal)
+        _isSyncingPublicUser.value = true
+
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val synced = supabaseSyncManager.syncPublicUserNow(savedLocal).getOrDefault(savedLocal)
+            withContext(kotlinx.coroutines.Dispatchers.Main) {
+                _currentPublicUser.value = synced
+                _isSyncingPublicUser.value = false
+                onResult(true, "Compte utilisateur créé et ajouté à la base de données !")
+            }
+        }
+    }
+
+    fun loginPublicUser(
+        phoneOrId: String,
+        pin: String,
+        onResult: (Boolean, String) -> Unit = { _, _ -> }
+    ) {
+        val cleanQuery = phoneOrId.trim()
+        val cleanPin = pin.trim()
+        if (cleanQuery.isBlank() || cleanPin.isBlank()) {
+            onResult(false, "Renseignez votre téléphone/ID et votre code PIN.")
+            return
+        }
+        _isSyncingPublicUser.value = true
+        val app = getApplication<Application>()
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val allUsers = supabaseSyncManager.fetchPublicUsersFromCloud().getOrDefault(PublicUserStorage.getAllUsers(app))
+            val matched = PublicUserStorage.findByPhoneOrId(allUsers, cleanQuery)
+            withContext(kotlinx.coroutines.Dispatchers.Main) {
+                _isSyncingPublicUser.value = false
+                if (matched == null) {
+                    onResult(false, "Aucun compte trouvé pour « $cleanQuery ». Créez un compte ci-contre.")
+                } else if (matched.pin != cleanPin) {
+                    onResult(false, "Code PIN incorrect pour ce compte.")
+                } else {
+                    PublicUserStorage.setActiveUser(app, matched)
+                    _currentPublicUser.value = matched
+                    propagatePublicUserContext(matched)
+                    onResult(true, "Bienvenue ${matched.fullName} !")
+                }
+            }
+        }
+    }
+
+    fun updatePublicUserPhoto(photoUri: String) {
+        val current = _currentPublicUser.value ?: return
+        val updated = current.copy(photoUri = photoUri.trim(), updatedAt = System.currentTimeMillis())
+        PublicUserStorage.upsertUser(getApplication(), updated, makeActive = true)
+        _currentPublicUser.value = updated
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val synced = supabaseSyncManager.syncPublicUserNow(updated).getOrDefault(updated)
+            withContext(kotlinx.coroutines.Dispatchers.Main) {
+                _currentPublicUser.value = synced
+            }
+        }
+    }
+
+    fun updatePublicUserPreferredActivity(activity: String) {
+        val current = _currentPublicUser.value ?: return
+        val updated = current.copy(preferredActivity = activity, updatedAt = System.currentTimeMillis())
+        PublicUserStorage.upsertUser(getApplication(), updated, makeActive = true)
+        _currentPublicUser.value = updated
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            supabaseSyncManager.syncPublicUserNow(updated)
+        }
+    }
+
+    fun logoutPublicUser() {
+        PublicUserStorage.clearSession(getApplication())
+        _currentPublicUser.value = null
     }
 }

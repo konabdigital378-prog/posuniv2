@@ -10,6 +10,7 @@ import com.example.util.BiometricSecurityHelper
 import com.example.util.CouturePhotoHelper
 import com.example.util.LicenseHelper
 import com.example.util.NotificationHelper
+import com.example.util.ShopLogoHelper
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -96,6 +97,56 @@ class SupabaseSyncManager(
         val bType = businessType.orEmpty()
         return RestaurantDirectoryHelper.isRestaurantShop(bType) ||
             com.example.util.BusinessTypePresets.getPreset(bType).sectorFeatures.hasTables
+    }
+
+    /**
+     * Converts a local file:/// or content:// (or offline Base64 Data URI) shop logo into a
+     * permanent public Supabase Storage HTTPS URL (`shop-logos` bucket, with `shop-ads` fallback),
+     * seeds the persistent offline disk cache, or keeps a portable Base64 Data URI fallback.
+     */
+    suspend fun resolvePortableLogoUri(logoUri: String?, shopId: Long): String? {
+        val clean = ShopLogoHelper.normalizeLogoUri(logoUri) ?: return null
+        if (clean.startsWith("data:image/", ignoreCase = true)) {
+            if (SupabaseConfig.isConfigured) {
+                val bmp = ShopLogoHelper.decodeDataUriBitmap(clean)
+                if (bmp != null) {
+                    val tmpFile = File(context.cacheDir, "tmp_logo_promote_${System.currentTimeMillis()}.jpg")
+                    try {
+                        java.io.FileOutputStream(tmpFile).use { out ->
+                            bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 86, out)
+                        }
+                        val upRes = apiClient.uploadShopLogoMedia(tmpFile, shopId, "image/jpeg")
+                        if (upRes.isSuccess) {
+                            val url = upRes.getOrThrow()
+                            if (url.isNotBlank()) {
+                                ShopLogoHelper.seedCachedLogoFromFile(context, url, tmpFile)
+                                return url
+                            }
+                        }
+                    } catch (_: Exception) {
+                    } finally {
+                        bmp.recycle()
+                        tmpFile.delete()
+                    }
+                }
+            }
+            return clean
+        }
+        if (!ShopLogoHelper.isLocalUnpublishedLogoUri(clean)) {
+            return clean
+        }
+        val file = ShopLogoHelper.getUploadableLogoFile(context, clean)
+        if (file != null && SupabaseConfig.isConfigured) {
+            val upRes = apiClient.uploadShopLogoMedia(file, shopId, "image/jpeg")
+            if (upRes.isSuccess) {
+                val url = upRes.getOrThrow()
+                if (url.isNotBlank()) {
+                    ShopLogoHelper.seedCachedLogoFromFile(context, url, file)
+                    return url
+                }
+            }
+        }
+        return ShopLogoHelper.encodeLogoToPortableDataUri(context, clean) ?: clean
     }
 
     fun clearCredentials() {
@@ -550,19 +601,27 @@ class SupabaseSyncManager(
      * Pousse immédiatement et directement un profil de boutique vers Supabase.
      * Exige d'abord un compte Agent Déployeur créé et vérifie l'unicité du nom de la boutique.
      */
-    suspend fun pushShopProfileDirectly(profile: ShopProfileEntity, isNewShop: Boolean = false): Result<Unit> =
+    suspend fun pushShopProfileDirectly(
+        profile: ShopProfileEntity,
+        isNewShop: Boolean = false,
+        repository: KonabRepository? = null
+    ): Result<Unit> =
         shopSyncMutex.withLock {
-            pushShopProfileInternal(profile, isNewShop).map { }
+            pushShopProfileInternal(profile, isNewShop, repository).map { }
         }
 
-    private suspend fun pushShopProfileInternal(profile: ShopProfileEntity, isNewShop: Boolean = false): Result<Long> {
+    private suspend fun pushShopProfileInternal(
+        profile: ShopProfileEntity,
+        isNewShop: Boolean = false,
+        repository: KonabRepository? = null
+    ): Result<Long> {
         if (!SupabaseConfig.isConfigured) {
             return Result.failure(IllegalStateException("Supabase non configuré"))
         }
         val activeAgent = AgentDeploymentStorage.getSavedAgentSession(context)
         val effectiveDeployerId = profile.deployerId?.trim()?.uppercase()?.takeIf { it.isNotBlank() }
             ?: activeAgent?.id?.trim()?.uppercase()
-        if (effectiveDeployerId.isNullOrBlank()) {
+        if (isNewShop && effectiveDeployerId.isNullOrBlank()) {
             val msg = "Veuillez d'abord créer ou connecter un compte Agent Déployeur avant de créer une boutique."
             _syncState.value = _syncState.value.copy(isSyncing = false, isError = true, statusMessage = msg)
             return Result.failure(IllegalStateException(msg))
@@ -580,7 +639,16 @@ class SupabaseSyncManager(
         } else {
             getOrCreateCloudShopId()
         }
-        val profileWithAgent = profile.copy(deployerId = effectiveDeployerId)
+        val resolvedLogo = resolvePortableLogoUri(profile.logoUri, cloudId)
+        val profileWithAgent = profile.copy(
+            deployerId = effectiveDeployerId ?: profile.deployerId,
+            logoUri = resolvedLogo
+        )
+        if (repository != null && resolvedLogo != profile.logoUri) {
+            try {
+                repository.saveShopProfile(profileWithAgent)
+            } catch (_: Exception) {}
+        }
 
         val adminAcc = try {
             KonabDataStore(context).adminAccountFlow.firstOrNull()
@@ -605,7 +673,9 @@ class SupabaseSyncManager(
         if (pushRes.isSuccess) {
             val canonicalId = pushRes.getOrDefault(cloudId)
             saveCloudShopId(canonicalId, profileWithAgent.name)
-            AgentDeploymentStorage.markCreatedShopOnDevice(context, profileWithAgent.name, effectiveDeployerId)
+            if (!effectiveDeployerId.isNullOrBlank()) {
+                AgentDeploymentStorage.markCreatedShopOnDevice(context, profileWithAgent.name, effectiveDeployerId)
+            }
             MultiShopStorage.saveConnectedShop(
                 context,
                 ConnectedShopSession(
@@ -681,7 +751,11 @@ class SupabaseSyncManager(
                     ?: activeAgent?.id?.trim()?.uppercase()
                 if (!deployerId.isNullOrBlank()) {
                     val cloudId = getOrCreateCloudShopId()
-                    val shopWithDeployer = shop.copy(deployerId = deployerId)
+                    val resolvedLogo = resolvePortableLogoUri(shop.logoUri, cloudId)
+                    val shopWithDeployer = shop.copy(deployerId = deployerId, logoUri = resolvedLogo)
+                    if (resolvedLogo != shop.logoUri) {
+                        try { repository.saveShopProfile(shopWithDeployer) } catch (_: Exception) {}
+                    }
                     val pushRes = apiClient.pushShopProfile(
                         profile = shopWithDeployer,
                         cloudShopId = cloudId,
@@ -771,9 +845,17 @@ class SupabaseSyncManager(
                 ?: activeAgent?.id?.trim()?.uppercase()
             var activeCloudShopId = getOrCreateCloudShopId()
 
-            if (shop != null && shop.isConfigured && !deployerId.isNullOrBlank()) {
+            if (shop != null && shop.isConfigured && shop.name.isNotBlank()) {
+                val resolvedLogo = resolvePortableLogoUri(shop.logoUri, activeCloudShopId)
+                val preparedShop = shop.copy(
+                    deployerId = deployerId ?: shop.deployerId,
+                    logoUri = resolvedLogo
+                )
+                if (resolvedLogo != shop.logoUri || (deployerId != null && deployerId != shop.deployerId)) {
+                    try { repository.saveShopProfile(preparedShop) } catch (_: Exception) {}
+                }
                 val res = apiClient.pushShopProfile(
-                    profile = shop.copy(deployerId = deployerId),
+                    profile = preparedShop,
                     cloudShopId = activeCloudShopId,
                     isNewShop = false,
                     adminName = admin.adminName,
@@ -922,10 +1004,26 @@ class SupabaseSyncManager(
         val cashMovements = apiClient.fetchCashMovements(shopId, shopName = shopName).getOrDefault(emptyList())
         val cashSessions = apiClient.fetchCashSessions(shopId, shopName = shopName).getOrDefault(emptyList())
 
+        val latestRemoteProfile = try {
+            apiClient.fetchShopProfileById(shopId).getOrNull() ?: match.profile
+        } catch (_: Exception) {
+            match.profile
+        }
+        val normalizedLogo = ShopLogoHelper.normalizeLogoUri(latestRemoteProfile.logoUri)
+            ?.takeUnless { ShopLogoHelper.isLocalUnpublishedLogoUri(it) && ShopLogoHelper.getLocalFileIfExists(it) == null }
+        if (normalizedLogo != null && ShopLogoHelper.isRemoteHttpUrl(normalizedLogo)) {
+            try { ShopLogoHelper.cacheRemoteLogoBlocking(context, normalizedLogo, apiClient.httpClient) } catch (_: Exception) {}
+        }
+        val hydratedProfile = latestRemoteProfile.copy(logoUri = normalizedLogo)
+        val hydratedSession = match.session.copy(
+            logoUri = normalizedLogo,
+            lastSyncedAt = System.currentTimeMillis()
+        )
+
         return Result.success(
             MultiShopSnapshot(
-                session = match.session.copy(lastSyncedAt = System.currentTimeMillis()),
-                shopProfile = match.profile,
+                session = hydratedSession,
+                shopProfile = hydratedProfile,
                 products = products,
                 customers = customers,
                 sales = sales,
@@ -1205,6 +1303,27 @@ class SupabaseSyncManager(
         val shopId = getOrCreateCloudShopId()
         if (shopId <= 1L) return 0
 
+        var profileUpdates = 0
+        try {
+            val remoteProfile = apiClient.fetchShopProfileById(shopId).getOrNull()
+            if (remoteProfile != null && remoteProfile.name.isNotBlank()) {
+                val remoteLogo = ShopLogoHelper.normalizeLogoUri(remoteProfile.logoUri)
+                val localIsUnpublished = ShopLogoHelper.isLocalUnpublishedLogoUri(shop.logoUri) &&
+                    ShopLogoHelper.getLocalFileIfExists(shop.logoUri) != null
+                val remoteIsUsable = remoteLogo != null && !ShopLogoHelper.isLocalUnpublishedLogoUri(remoteLogo)
+                if (remoteIsUsable && ShopLogoHelper.isRemoteHttpUrl(remoteLogo)) {
+                    try { ShopLogoHelper.cacheRemoteLogoBlocking(context, remoteLogo!!, apiClient.httpClient) } catch (_: Exception) {}
+                }
+                if (!localIsUnpublished && remoteIsUsable && remoteLogo != shop.logoUri) {
+                    repository.saveShopProfile(shop.copy(logoUri = remoteLogo))
+                    profileUpdates++
+                } else if (!localIsUnpublished && remoteLogo == null && !shop.logoUri.isNullOrBlank()) {
+                    repository.saveShopProfile(shop.copy(logoUri = null))
+                    profileUpdates++
+                }
+            }
+        } catch (_: Exception) {}
+
         val remoteProducts = apiClient.fetchProducts(shopId, shopName = shop.name).getOrDefault(emptyList())
         val remoteSales = apiClient.fetchSales(shopId, shopName = shop.name).getOrDefault(emptyList())
         val remoteSaleIds = remoteSales.map { it.id }.toSet()
@@ -1250,7 +1369,7 @@ class SupabaseSyncManager(
             MultiShopStorage.saveConnectedShop(context, snap.session)
             MultiShopStorage.saveLocalSnapshotCache(context, snap)
         }
-        return merged + restaurantMerged + coutureMerged
+        return merged + restaurantMerged + coutureMerged + profileUpdates
     }
 
     /**
@@ -1944,5 +2063,171 @@ class SupabaseSyncManager(
             return Result.failure(IllegalStateException("Connexion Supabase requise pour envoyer la demande au couturier."))
         }
         return apiClient.pushCoutureOrders(listOf(order.copy(shopId = shopId)), shopId)
+    }
+
+    // --- PORTAIL GESTION POUBELLES / SALUBRITÉ ---
+
+    suspend fun fetchAllWastePortalState(): Result<Pair<List<WasteBusinessProfile>, List<WasteHouseholdClient>>> {
+        val localBusinesses = WasteCollectorStorage.getBusinesses(context)
+        val localClients = WasteCollectorStorage.getClients(context)
+        if (!SupabaseConfig.isConfigured) {
+            return Result.success(localBusinesses to localClients)
+        }
+        return try {
+            val remoteBizRes = apiClient.fetchWasteBusinesses()
+            val remoteCliRes = apiClient.fetchWasteClients()
+            val mergedBiz = if (remoteBizRes.isSuccess) {
+                WasteCollectorStorage.mergeBusinessesFromCloud(context, remoteBizRes.getOrDefault(emptyList()))
+            } else {
+                localBusinesses
+            }
+            val mergedCli = if (remoteCliRes.isSuccess) {
+                WasteCollectorStorage.mergeClientsFromCloud(context, remoteCliRes.getOrDefault(emptyList()))
+            } else {
+                localClients
+            }
+            Result.success(mergedBiz to mergedCli)
+        } catch (e: Exception) {
+            Result.success(localBusinesses to localClients)
+        }
+    }
+
+    private suspend fun uploadActivityCardPhotoIfNeeded(uri: String, subfolder: String): String {
+        val clean = uri.trim()
+        if (clean.isBlank() || clean.startsWith("http://") || clean.startsWith("https://")) {
+            return clean
+        }
+        if (!SupabaseConfig.isConfigured) return clean
+        val directFile = java.io.File(clean.removePrefix("file://")).takeIf { it.exists() && it.length() > 0L }
+            ?: CouturePhotoHelper.getUploadableFileForUri(context, clean)
+            ?: return clean
+        val remotePath = "cards/$subfolder/${directFile.name}"
+        val upRes = apiClient.uploadAdMedia(directFile, remotePath, "image/jpeg")
+        return if (upRes.isSuccess) upRes.getOrThrow() else clean
+    }
+
+    suspend fun syncWasteBusinessNow(biz: WasteBusinessProfile): Result<WasteBusinessProfile> {
+        val resolvedPhoto = uploadActivityCardPhotoIfNeeded(biz.photoUri, "waste-biz")
+        val prepared = if (resolvedPhoto != biz.photoUri) biz.copy(photoUri = resolvedPhoto) else biz
+        val saved = WasteCollectorStorage.upsertBusiness(context, prepared)
+        if (SupabaseConfig.isConfigured) {
+            apiClient.pushWasteBusinesses(listOf(saved))
+        }
+        return Result.success(saved)
+    }
+
+    suspend fun syncWasteClientNow(client: WasteHouseholdClient): Result<WasteHouseholdClient> {
+        val resolvedPhoto = uploadActivityCardPhotoIfNeeded(client.photoUri, "waste-clients")
+        val prepared = if (resolvedPhoto != client.photoUri) client.copy(photoUri = resolvedPhoto) else client
+        val saved = WasteCollectorStorage.upsertClient(context, prepared)
+        if (SupabaseConfig.isConfigured) {
+            apiClient.pushWasteClients(listOf(saved))
+        }
+        return Result.success(saved)
+    }
+
+    suspend fun deleteWasteClientCloud(clientId: String): Result<Unit> {
+        WasteCollectorStorage.deleteClient(context, clientId)
+        if (SupabaseConfig.isConfigured) {
+            apiClient.deleteWasteClient(clientId)
+        }
+        return Result.success(Unit)
+    }
+
+    // --- PORTAIL TONTINE NUMÉRIQUE (CARTES 30 JOURS) ---
+
+    suspend fun fetchAllTontinePortalState(): Result<Triple<List<TontineBusinessProfile>, List<TontineGroup>, List<TontineMemberCard>>> {
+        val localBiz = TontineStorage.getBusinesses(context)
+        val localGroups = TontineStorage.getGroups(context)
+        val localCards = TontineStorage.getCards(context)
+        if (!SupabaseConfig.isConfigured) {
+            return Result.success(Triple(localBiz, localGroups, localCards))
+        }
+        return try {
+            val remoteBizRes = apiClient.fetchTontineBusinesses()
+            val remoteGroupsRes = apiClient.fetchTontineGroups()
+            val remoteCardsRes = apiClient.fetchTontineCards()
+            val mergedBiz = if (remoteBizRes.isSuccess) {
+                TontineStorage.mergeBusinessesFromCloud(context, remoteBizRes.getOrDefault(emptyList()))
+            } else {
+                localBiz
+            }
+            val mergedGroups = if (remoteGroupsRes.isSuccess) {
+                TontineStorage.mergeGroupsFromCloud(context, remoteGroupsRes.getOrDefault(emptyList()))
+            } else {
+                localGroups
+            }
+            val mergedCards = if (remoteCardsRes.isSuccess) {
+                TontineStorage.mergeCardsFromCloud(context, remoteCardsRes.getOrDefault(emptyList()))
+            } else {
+                localCards
+            }
+            Result.success(Triple(mergedBiz, mergedGroups, mergedCards))
+        } catch (e: Exception) {
+            Result.success(Triple(localBiz, localGroups, localCards))
+        }
+    }
+
+    suspend fun syncTontineBusinessNow(biz: TontineBusinessProfile): Result<TontineBusinessProfile> {
+        val resolvedPhoto = uploadActivityCardPhotoIfNeeded(biz.photoUri, "tontine-biz")
+        val prepared = if (resolvedPhoto != biz.photoUri) biz.copy(photoUri = resolvedPhoto) else biz
+        val saved = TontineStorage.upsertBusiness(context, prepared)
+        if (SupabaseConfig.isConfigured) {
+            apiClient.pushTontineBusinesses(listOf(saved))
+        }
+        return Result.success(saved)
+    }
+
+    suspend fun syncTontineGroupNow(group: TontineGroup): Result<TontineGroup> {
+        val saved = TontineStorage.upsertGroup(context, group)
+        if (SupabaseConfig.isConfigured) {
+            apiClient.pushTontineGroups(listOf(saved))
+        }
+        return Result.success(saved)
+    }
+
+    suspend fun syncTontineCardNow(card: TontineMemberCard): Result<TontineMemberCard> {
+        val resolvedPhoto = uploadActivityCardPhotoIfNeeded(card.photoUri, "tontine-cards")
+        val prepared = if (resolvedPhoto != card.photoUri) card.copy(photoUri = resolvedPhoto) else card
+        val saved = TontineStorage.upsertCard(context, prepared)
+        if (SupabaseConfig.isConfigured) {
+            apiClient.pushTontineCards(listOf(saved))
+        }
+        return Result.success(saved)
+    }
+
+    suspend fun deleteTontineCardCloud(cardId: String): Result<Unit> {
+        TontineStorage.deleteCard(context, cardId)
+        if (SupabaseConfig.isConfigured) {
+            apiClient.deleteTontineCard(cardId)
+        }
+        return Result.success(Unit)
+    }
+
+    // --- UTILISATEURS PUBLICS (COMPTE & CARTE CONAKRY WEB / KONAB POS) ---
+
+    suspend fun syncPublicUserNow(user: PublicUserAccount): Result<PublicUserAccount> {
+        val resolvedPhoto = uploadActivityCardPhotoIfNeeded(user.photoUri, "app-users")
+        val prepared = if (resolvedPhoto != user.photoUri) user.copy(photoUri = resolvedPhoto) else user
+        val saved = PublicUserStorage.upsertUser(context, prepared, makeActive = true)
+        if (SupabaseConfig.isConfigured) {
+            apiClient.pushAppUsers(listOf(saved))
+        }
+        return Result.success(saved)
+    }
+
+    suspend fun fetchPublicUsersFromCloud(): Result<List<PublicUserAccount>> {
+        val local = PublicUserStorage.getAllUsers(context)
+        if (!SupabaseConfig.isConfigured) return Result.success(local)
+        return try {
+            val remote = apiClient.fetchAppUsers()
+            if (remote.isSuccess) {
+                Result.success(PublicUserStorage.mergeUsersFromCloud(context, remote.getOrDefault(emptyList())))
+            } else {
+                Result.success(local)
+            }
+        } catch (_: Exception) {
+            Result.success(local)
+        }
     }
 }

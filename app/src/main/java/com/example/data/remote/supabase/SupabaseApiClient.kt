@@ -23,6 +23,8 @@ class SupabaseApiClient(
         .build()
 ) {
 
+    internal val httpClient: OkHttpClient get() = client
+
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
 
     private fun buildRequest(
@@ -989,7 +991,9 @@ class SupabaseApiClient(
 
     private fun parseShopProfile(o: JSONObject): ShopProfileEntity {
         val rawLogo = if (o.has("logo_uri") && !o.isNull("logo_uri")) {
-            o.optString("logo_uri", "").trim().ifBlank { null }
+            o.optString("logo_uri", "").trim().takeIf {
+                it.isNotBlank() && !it.equals("null", ignoreCase = true) && !it.equals("undefined", ignoreCase = true)
+            }
         } else null
         val remoteAdminPin = if (o.has("admin_pin") && !o.isNull("admin_pin")) {
             o.optString("admin_pin", "").trim().ifBlank { "1234" }
@@ -1147,10 +1151,10 @@ class SupabaseApiClient(
         if (cleanName.isBlank()) {
             return@withContext Result.failure(IllegalArgumentException("Le nom de la boutique est obligatoire."))
         }
-        val cleanDeployerId = profile.deployerId?.trim()?.uppercase()
-        if (cleanDeployerId.isNullOrBlank()) {
+        val cleanDeployerId = profile.deployerId?.trim()?.uppercase().orEmpty()
+        if (isNewShop && cleanDeployerId.isBlank()) {
             return@withContext Result.failure(
-                IllegalStateException("Un compte Agent Déployeur est obligatoire pour créer ou synchroniser une boutique.")
+                IllegalStateException("Un compte Agent Déployeur est obligatoire pour créer une nouvelle boutique.")
             )
         }
 
@@ -1217,8 +1221,8 @@ class SupabaseApiClient(
                 put("receipt_footer", profile.receiptFooter)
                 put("subscription_tier", profile.subscriptionTier)
                 put("deployer_id", cleanDeployerId)
-                if (includeLogo && !profile.logoUri.isNullOrBlank()) {
-                    put("logo_uri", profile.logoUri)
+                if (includeLogo) {
+                    put("logo_uri", profile.logoUri?.trim().orEmpty())
                 }
                 if (includeManagerCreds) {
                     put("admin_name", effectiveAdminName)
@@ -1244,7 +1248,7 @@ class SupabaseApiClient(
                 }
             }
 
-            var includeLogo = !profile.logoUri.isNullOrBlank()
+            var includeLogo = true
             var includeCreds = true
             var (ok, codeAndBody) = executePush(includeLogo = includeLogo, includeManagerCreds = includeCreds)
             if (!ok && codeAndBody.first == 400) {
@@ -1295,6 +1299,21 @@ class SupabaseApiClient(
         if (!SupabaseConfig.isConfigured) return@withContext Result.success(null)
         try {
             executeRequest("shop_profile?select=*&order=updated_at.desc&limit=1") { response ->
+                if (!response.isSuccessful) return@withContext Result.success(null)
+                val body = response.body?.string() ?: "[]"
+                val jsonArr = JSONArray(body)
+                if (jsonArr.length() == 0) return@withContext Result.success(null)
+                Result.success(parseShopProfile(jsonArr.getJSONObject(0)))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun fetchShopProfileById(shopId: Long): Result<ShopProfileEntity?> = withContext(Dispatchers.IO) {
+        if (!SupabaseConfig.isConfigured || shopId <= 1L) return@withContext Result.success(null)
+        try {
+            executeRequest("shop_profile?id=eq.$shopId&select=*&limit=1") { response ->
                 if (!response.isSuccessful) return@withContext Result.success(null)
                 val body = response.body?.string() ?: "[]"
                 val jsonArr = JSONArray(body)
@@ -1843,7 +1862,8 @@ class SupabaseApiClient(
         }
     }
 
-    suspend fun uploadAdMedia(
+    private suspend fun uploadToStorageBucket(
+        bucket: String,
         file: File,
         remotePath: String,
         contentType: String
@@ -1856,44 +1876,64 @@ class SupabaseApiClient(
         }
         try {
             val cleanBase = SupabaseConfig.rawUrl.trimEnd('/')
+            val cleanBucket = bucket.trim().trim('/')
             val cleanPath = remotePath.trimStart('/')
-            val uploadUrl = "$cleanBase/storage/v1/object/shop-ads/$cleanPath"
+            val uploadUrl = "$cleanBase/storage/v1/object/$cleanBucket/$cleanPath"
+            val publicUrl = "$cleanBase/storage/v1/object/public/$cleanBucket/$cleanPath"
             val mediaType = contentType.toMediaType()
-            fun buildUploadReq(forceAnon: Boolean): Request {
+            fun buildUploadReq(forceAnon: Boolean, usePut: Boolean = false): Request {
                 val authToken = if (forceAnon) {
                     SupabaseConfig.rawAnonKey
                 } else {
                     SupabaseAuthManager.currentToken ?: SupabaseConfig.rawAnonKey
                 }
-                return Request.Builder()
+                val builder = Request.Builder()
                     .url(uploadUrl)
                     .addHeader("apikey", SupabaseConfig.rawAnonKey)
                     .addHeader("Authorization", "Bearer $authToken")
                     .addHeader("x-upsert", "true")
-                    .post(file.asRequestBody(mediaType))
-                    .build()
+                return if (usePut) {
+                    builder.put(file.asRequestBody(mediaType)).build()
+                } else {
+                    builder.post(file.asRequestBody(mediaType)).build()
+                }
             }
 
             val hadUserToken = SupabaseAuthManager.currentToken != null
             var shouldRetryAnon = false
-            client.newCall(buildUploadReq(forceAnon = false)).execute().use { resp ->
+            var shouldRetryPut = false
+            client.newCall(buildUploadReq(forceAnon = false, usePut = false)).execute().use { resp ->
                 if (resp.isSuccessful) {
-                    return@withContext Result.success("$cleanBase/storage/v1/object/public/shop-ads/$cleanPath")
+                    return@withContext Result.success(publicUrl)
                 } else if (resp.code == 401 && hadUserToken) {
                     SupabaseAuthManager.clearExpiredSessionIfNeeded()
                     shouldRetryAnon = true
+                } else if (resp.code == 409) {
+                    shouldRetryPut = true
                 } else {
                     val err = resp.body?.string() ?: ""
                     return@withContext Result.failure(IOException("Échec upload média (${resp.code}): $err"))
                 }
             }
             if (shouldRetryAnon) {
-                client.newCall(buildUploadReq(forceAnon = true)).execute().use { resp ->
+                client.newCall(buildUploadReq(forceAnon = true, usePut = false)).execute().use { resp ->
                     if (resp.isSuccessful) {
-                        return@withContext Result.success("$cleanBase/storage/v1/object/public/shop-ads/$cleanPath")
+                        return@withContext Result.success(publicUrl)
+                    } else if (resp.code == 409) {
+                        shouldRetryPut = true
                     } else {
                         val err = resp.body?.string() ?: ""
                         return@withContext Result.failure(IOException("Échec upload média (${resp.code}): $err"))
+                    }
+                }
+            }
+            if (shouldRetryPut) {
+                client.newCall(buildUploadReq(forceAnon = shouldRetryAnon, usePut = true)).execute().use { resp ->
+                    if (resp.isSuccessful) {
+                        return@withContext Result.success(publicUrl)
+                    } else {
+                        val err = resp.body?.string() ?: ""
+                        return@withContext Result.failure(IOException("Échec mise à jour média (${resp.code}): $err"))
                     }
                 }
             }
@@ -1901,6 +1941,43 @@ class SupabaseApiClient(
         } catch (e: Exception) {
             Result.failure(e)
         }
+    }
+
+    suspend fun uploadAdMedia(
+        file: File,
+        remotePath: String,
+        contentType: String
+    ): Result<String> = uploadToStorageBucket(
+        bucket = "shop-ads",
+        file = file,
+        remotePath = remotePath,
+        contentType = contentType
+    )
+
+    /**
+     * Uploads a compressed shop logo JPEG into the dedicated public `shop-logos` Storage bucket,
+     * falling back to `shop-ads` if `shop-logos` has not been created on the remote project yet.
+     */
+    suspend fun uploadShopLogoMedia(
+        file: File,
+        shopId: Long,
+        contentType: String = "image/jpeg"
+    ): Result<String> {
+        val safeShopId = shopId.coerceAtLeast(1L)
+        val fileName = "shop_${safeShopId}_${System.currentTimeMillis()}.jpg"
+        val primary = uploadToStorageBucket(
+            bucket = "shop-logos",
+            file = file,
+            remotePath = fileName,
+            contentType = contentType
+        )
+        if (primary.isSuccess) return primary
+        return uploadToStorageBucket(
+            bucket = "shop-ads",
+            file = file,
+            remotePath = "shop-logos/$fileName",
+            contentType = contentType
+        )
     }
 
     // --- RESTAURANT MULTI-USER SYNC, STAFF, TABLES, MENU DU JOUR & ORDERS ---
@@ -2982,6 +3059,251 @@ class SupabaseApiClient(
                     products = products
                 )
             )
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    // --- GESTION POUBELLES / SALUBRITÉ (ÉBOUEURS & FAMILLES) ---
+
+    suspend fun pushWasteBusinesses(list: List<WasteBusinessProfile>): Result<Int> = withContext(Dispatchers.IO) {
+        if (!SupabaseConfig.isConfigured || list.isEmpty()) return@withContext Result.success(0)
+        try {
+            val arr = JSONArray().apply { list.forEach { put(it.toJson()) } }
+            executeRequest(
+                endpoint = "waste_businesses?on_conflict=id",
+                method = "POST",
+                bodyString = arr.toString(),
+                extraHeaders = mapOf("Prefer" to "resolution=merge-duplicates")
+            ) { resp ->
+                if (resp.isSuccessful) Result.success(list.size)
+                else Result.failure(IOException("Échec sync business salubrité (${resp.code})"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun fetchWasteBusinesses(): Result<List<WasteBusinessProfile>> = withContext(Dispatchers.IO) {
+        if (!SupabaseConfig.isConfigured) return@withContext Result.success(emptyList())
+        try {
+            executeRequest("waste_businesses?select=*&order=updated_at.desc&limit=500") { resp ->
+                if (!resp.isSuccessful) return@withContext Result.failure(IOException("Erreur lecture business salubrité (${resp.code})"))
+                val arr = JSONArray(resp.body?.string() ?: "[]")
+                val out = (0 until arr.length()).map { WasteBusinessProfile.fromJson(arr.getJSONObject(it)) }
+                Result.success(out)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun pushWasteClients(list: List<WasteHouseholdClient>): Result<Int> = withContext(Dispatchers.IO) {
+        if (!SupabaseConfig.isConfigured || list.isEmpty()) return@withContext Result.success(0)
+        try {
+            val arr = JSONArray().apply { list.forEach { put(it.toJson()) } }
+            executeRequest(
+                endpoint = "waste_clients?on_conflict=id",
+                method = "POST",
+                bodyString = arr.toString(),
+                extraHeaders = mapOf("Prefer" to "resolution=merge-duplicates")
+            ) { resp ->
+                if (resp.isSuccessful) Result.success(list.size)
+                else Result.failure(IOException("Échec sync clients poubelles (${resp.code})"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun fetchWasteClients(businessId: String? = null): Result<List<WasteHouseholdClient>> = withContext(Dispatchers.IO) {
+        if (!SupabaseConfig.isConfigured) return@withContext Result.success(emptyList())
+        try {
+            val cleanBiz = businessId?.trim()?.takeIf { it.isNotBlank() }
+            val endpoint = if (cleanBiz != null) {
+                val enc = java.net.URLEncoder.encode(cleanBiz, "UTF-8")
+                "waste_clients?business_id=eq.$enc&select=*&order=updated_at.desc&limit=1000"
+            } else {
+                "waste_clients?select=*&order=updated_at.desc&limit=1000"
+            }
+            executeRequest(endpoint) { resp ->
+                if (!resp.isSuccessful) return@withContext Result.failure(IOException("Erreur lecture clients poubelles (${resp.code})"))
+                val arr = JSONArray(resp.body?.string() ?: "[]")
+                val out = (0 until arr.length()).map { WasteHouseholdClient.fromJson(arr.getJSONObject(it)) }
+                Result.success(out)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun deleteWasteClient(clientId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        if (!SupabaseConfig.isConfigured || clientId.isBlank()) return@withContext Result.success(Unit)
+        try {
+            val enc = java.net.URLEncoder.encode(clientId, "UTF-8")
+            executeRequest(endpoint = "waste_clients?id=eq.$enc", method = "DELETE") { resp ->
+                if (resp.isSuccessful) Result.success(Unit)
+                else Result.failure(IOException("Erreur suppression client poubelles (${resp.code})"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    // --- TONTINE NUMÉRIQUE (BUSINESS, GROUPES & CARTES 30 JOURS) ---
+
+    suspend fun pushTontineBusinesses(list: List<TontineBusinessProfile>): Result<Int> = withContext(Dispatchers.IO) {
+        if (!SupabaseConfig.isConfigured || list.isEmpty()) return@withContext Result.success(0)
+        try {
+            val arr = JSONArray().apply { list.forEach { put(it.toJson()) } }
+            executeRequest(
+                endpoint = "tontine_businesses?on_conflict=id",
+                method = "POST",
+                bodyString = arr.toString(),
+                extraHeaders = mapOf("Prefer" to "resolution=merge-duplicates")
+            ) { resp ->
+                if (resp.isSuccessful) Result.success(list.size)
+                else Result.failure(IOException("Échec sync business tontine (${resp.code})"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun fetchTontineBusinesses(): Result<List<TontineBusinessProfile>> = withContext(Dispatchers.IO) {
+        if (!SupabaseConfig.isConfigured) return@withContext Result.success(emptyList())
+        try {
+            executeRequest("tontine_businesses?select=*&order=updated_at.desc&limit=500") { resp ->
+                if (!resp.isSuccessful) return@withContext Result.failure(IOException("Erreur lecture business tontine (${resp.code})"))
+                val arr = JSONArray(resp.body?.string() ?: "[]")
+                val out = (0 until arr.length()).map { TontineBusinessProfile.fromJson(arr.getJSONObject(it)) }
+                Result.success(out)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun pushTontineGroups(list: List<TontineGroup>): Result<Int> = withContext(Dispatchers.IO) {
+        if (!SupabaseConfig.isConfigured || list.isEmpty()) return@withContext Result.success(0)
+        try {
+            val arr = JSONArray().apply { list.forEach { put(it.toJson()) } }
+            executeRequest(
+                endpoint = "tontine_groups?on_conflict=id",
+                method = "POST",
+                bodyString = arr.toString(),
+                extraHeaders = mapOf("Prefer" to "resolution=merge-duplicates")
+            ) { resp ->
+                if (resp.isSuccessful) Result.success(list.size)
+                else Result.failure(IOException("Échec sync groupes tontine (${resp.code})"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun fetchTontineGroups(businessId: String? = null): Result<List<TontineGroup>> = withContext(Dispatchers.IO) {
+        if (!SupabaseConfig.isConfigured) return@withContext Result.success(emptyList())
+        try {
+            val cleanBiz = businessId?.trim()?.takeIf { it.isNotBlank() }
+            val endpoint = if (cleanBiz != null) {
+                val enc = java.net.URLEncoder.encode(cleanBiz, "UTF-8")
+                "tontine_groups?business_id=eq.$enc&select=*&order=updated_at.desc&limit=1000"
+            } else {
+                "tontine_groups?select=*&order=updated_at.desc&limit=1000"
+            }
+            executeRequest(endpoint) { resp ->
+                if (!resp.isSuccessful) return@withContext Result.failure(IOException("Erreur lecture groupes tontine (${resp.code})"))
+                val arr = JSONArray(resp.body?.string() ?: "[]")
+                val out = (0 until arr.length()).map { TontineGroup.fromJson(arr.getJSONObject(it)) }
+                Result.success(out)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun pushTontineCards(list: List<TontineMemberCard>): Result<Int> = withContext(Dispatchers.IO) {
+        if (!SupabaseConfig.isConfigured || list.isEmpty()) return@withContext Result.success(0)
+        try {
+            val arr = JSONArray().apply { list.forEach { put(it.toJson()) } }
+            executeRequest(
+                endpoint = "tontine_cards?on_conflict=id",
+                method = "POST",
+                bodyString = arr.toString(),
+                extraHeaders = mapOf("Prefer" to "resolution=merge-duplicates")
+            ) { resp ->
+                if (resp.isSuccessful) Result.success(list.size)
+                else Result.failure(IOException("Échec sync cartes tontine (${resp.code})"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun fetchTontineCards(businessId: String? = null): Result<List<TontineMemberCard>> = withContext(Dispatchers.IO) {
+        if (!SupabaseConfig.isConfigured) return@withContext Result.success(emptyList())
+        try {
+            val cleanBiz = businessId?.trim()?.takeIf { it.isNotBlank() }
+            val endpoint = if (cleanBiz != null) {
+                val enc = java.net.URLEncoder.encode(cleanBiz, "UTF-8")
+                "tontine_cards?business_id=eq.$enc&select=*&order=updated_at.desc&limit=1500"
+            } else {
+                "tontine_cards?select=*&order=updated_at.desc&limit=1500"
+            }
+            executeRequest(endpoint) { resp ->
+                if (!resp.isSuccessful) return@withContext Result.failure(IOException("Erreur lecture cartes tontine (${resp.code})"))
+                val arr = JSONArray(resp.body?.string() ?: "[]")
+                val out = (0 until arr.length()).map { TontineMemberCard.fromJson(arr.getJSONObject(it)) }
+                Result.success(out)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun deleteTontineCard(cardId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        if (!SupabaseConfig.isConfigured || cardId.isBlank()) return@withContext Result.success(Unit)
+        try {
+            val enc = java.net.URLEncoder.encode(cardId, "UTF-8")
+            executeRequest(endpoint = "tontine_cards?id=eq.$enc", method = "DELETE") { resp ->
+                if (resp.isSuccessful) Result.success(Unit)
+                else Result.failure(IOException("Erreur suppression carte tontine (${resp.code})"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    // --- UTILISATEURS PUBLICS (IDENTIFICATION & COMPTE CLIENT) ---
+
+    suspend fun pushAppUsers(list: List<PublicUserAccount>): Result<Int> = withContext(Dispatchers.IO) {
+        if (!SupabaseConfig.isConfigured || list.isEmpty()) return@withContext Result.success(0)
+        try {
+            val arr = JSONArray().apply { list.forEach { put(it.toJson()) } }
+            executeRequest(
+                endpoint = "app_users?on_conflict=id",
+                method = "POST",
+                bodyString = arr.toString(),
+                extraHeaders = mapOf("Prefer" to "resolution=merge-duplicates")
+            ) { resp ->
+                if (resp.isSuccessful) Result.success(list.size)
+                else Result.failure(IOException("Échec sync utilisateur (${resp.code})"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun fetchAppUsers(): Result<List<PublicUserAccount>> = withContext(Dispatchers.IO) {
+        if (!SupabaseConfig.isConfigured) return@withContext Result.success(emptyList())
+        try {
+            executeRequest("app_users?select=*&order=updated_at.desc&limit=500") { resp ->
+                if (!resp.isSuccessful) return@withContext Result.failure(IOException("Erreur lecture utilisateurs (${resp.code})"))
+                val arr = JSONArray(resp.body?.string() ?: "[]")
+                val out = (0 until arr.length()).map { PublicUserAccount.fromJson(arr.getJSONObject(it)) }
+                Result.success(out)
+            }
         } catch (e: Exception) {
             Result.failure(e)
         }

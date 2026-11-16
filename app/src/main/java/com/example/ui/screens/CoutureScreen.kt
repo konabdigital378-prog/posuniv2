@@ -265,23 +265,26 @@ fun CoutureScreen(
                 }
             }
 
-            TabRow(selectedTabIndex = selectedTab) {
+            ScrollableTabRow(
+                selectedTabIndex = selectedTab,
+                edgePadding = 12.dp
+            ) {
                 Tab(
                     selected = selectedTab == 0,
                     onClick = { selectedTab = 0 },
-                    text = { Text("Mesures (${openOrdersCount})", fontSize = 12.sp, fontWeight = FontWeight.Bold) },
+                    text = { Text("Mesures (${openOrdersCount})", fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false) },
                     icon = { Icon(Icons.Default.Straighten, contentDescription = null, modifier = Modifier.size(18.dp)) }
                 )
                 Tab(
                     selected = selectedTab == 1,
                     onClick = { selectedTab = 1 },
-                    text = { Text("Modèles & Tissus", fontSize = 12.sp, fontWeight = FontWeight.Bold) },
+                    text = { Text("Modèles & Tissus", fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false) },
                     icon = { Icon(Icons.Default.Checkroom, contentDescription = null, modifier = Modifier.size(18.dp)) }
                 )
                 Tab(
                     selected = selectedTab == 2,
                     onClick = { selectedTab = 2 },
-                    text = { Text("QR Catalogue", fontSize = 12.sp, fontWeight = FontWeight.Bold) },
+                    text = { Text("QR Catalogue", fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false) },
                     icon = { Icon(Icons.Default.QrCode2, contentDescription = null, modifier = Modifier.size(18.dp)) }
                 )
             }

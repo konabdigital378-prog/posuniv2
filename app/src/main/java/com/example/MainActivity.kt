@@ -28,10 +28,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.data.remote.supabase.AgentDeploymentStorage
 import com.example.data.remote.supabase.CoutureDirectoryHelper
 import com.example.data.remote.supabase.CoutureQrParser
 import com.example.data.remote.supabase.RestaurantOrderItem
 import com.example.data.remote.supabase.RestaurantOrderStatus
+import com.example.data.remote.supabase.TontineStorage
+import com.example.data.remote.supabase.WasteCollectorStorage
 import com.example.ui.components.CustomerCoutureCatalogModal
 import com.example.ui.components.CustomerQrMenuModal
 import com.example.ui.components.KonabBottomBar
@@ -41,6 +44,10 @@ import com.example.ui.components.LocalKonabWidthClass
 import com.example.ui.components.PinLockDialog
 import com.example.ui.components.PublicCouturePortalModal
 import com.example.ui.components.PublicRestaurantDirectoryModal
+import com.example.ui.components.PublicUserPortalModal
+import com.example.ui.components.RealBarcodeScannerModal
+import com.example.ui.components.TontinePortalModal
+import com.example.ui.components.WasteCollectorPortalModal
 import com.example.ui.components.widthClassFromDp
 import com.example.ui.navigation.KonabScreen
 import com.example.ui.screens.*
@@ -127,8 +134,49 @@ class MainActivity : FragmentActivity() {
                 val clientCoutureOrders by viewModel.clientCoutureOrders.collectAsStateWithLifecycle()
                 val isLoadingClientCoutureOrders by viewModel.isLoadingClientCoutureOrders.collectAsStateWithLifecycle()
 
+                // Synchronized Waste Collector Portal State
+                val wasteBusinesses by viewModel.wasteBusinesses.collectAsStateWithLifecycle()
+                val wasteClients by viewModel.wasteClients.collectAsStateWithLifecycle()
+                val activeWasteBusinessId by viewModel.activeWasteBusinessId.collectAsStateWithLifecycle()
+                val isSyncingWaste by viewModel.isSyncingWaste.collectAsStateWithLifecycle()
+                val pendingWasteQrTarget by viewModel.pendingWasteQrTarget.collectAsStateWithLifecycle()
+                val wasteFamilyQuery by viewModel.wasteFamilyQuery.collectAsStateWithLifecycle()
+
+                // Synchronized Tontine 30-Day Portal State
+                val tontineBusinesses by viewModel.tontineBusinesses.collectAsStateWithLifecycle()
+                val tontineGroups by viewModel.tontineGroups.collectAsStateWithLifecycle()
+                val tontineCards by viewModel.tontineCards.collectAsStateWithLifecycle()
+                val activeTontineBusinessId by viewModel.activeTontineBusinessId.collectAsStateWithLifecycle()
+                val isSyncingTontine by viewModel.isSyncingTontine.collectAsStateWithLifecycle()
+                val pendingTontineQrTarget by viewModel.pendingTontineQrTarget.collectAsStateWithLifecycle()
+                val tontineMemberQuery by viewModel.tontineMemberQuery.collectAsStateWithLifecycle()
+
+                // Public User Identification State
+                val currentPublicUser by viewModel.currentPublicUser.collectAsStateWithLifecycle()
+                val isSyncingPublicUser by viewModel.isSyncingPublicUser.collectAsStateWithLifecycle()
+
                 var showPublicRestaurantDirectory by remember { mutableStateOf(false) }
                 var showPublicCouturePortal by remember { mutableStateOf(false) }
+                var showWastePortal by remember { mutableStateOf(false) }
+                var showTontinePortal by remember { mutableStateOf(false) }
+                var showUserPortal by remember { mutableStateOf(false) }
+                var showGlobalQrScanner by remember { mutableStateOf(false) }
+                var agentLoginTrigger by remember { mutableIntStateOf(0) }
+
+                val activeDeployerAgent = remember(currentScreen, agentLoginTrigger, showWastePortal, showTontinePortal) {
+                    AgentDeploymentStorage.getSavedAgentSession(context)
+                }
+
+                LaunchedEffect(pendingWasteQrTarget) {
+                    if (pendingWasteQrTarget != null) {
+                        showWastePortal = true
+                    }
+                }
+                LaunchedEffect(pendingTontineQrTarget) {
+                    if (pendingTontineQrTarget != null) {
+                        showTontinePortal = true
+                    }
+                }
 
                 val isRestaurantMode = remember(shopProfile?.businessType) {
                     val bType = shopProfile?.businessType.orEmpty()
@@ -250,6 +298,8 @@ class MainActivity : FragmentActivity() {
                                         shopProfile = shopProfile,
                                         connectedShops = connectedShops,
                                         activeCloudShopId = activeCloudShopId,
+                                        currentPublicUser = currentPublicUser,
+                                        openAgentLoginTrigger = agentLoginTrigger,
                                         onConnectMultiShopRemote = { id, pin, cb ->
                                             viewModel.loginToShopWithManagerCredentials(id, pin, cb)
                                         },
@@ -260,10 +310,13 @@ class MainActivity : FragmentActivity() {
                                             if (!viewModel.openAnyQrScan(rawQr)) {
                                                 Toast.makeText(
                                                     context,
-                                                    "Ce QR code n'est ni un Menu Restaurant ni un Catalogue Couture Konab.",
+                                                    "QR code non reconnu (Restaurant, Couture, Poubelles ou Tontine Konab).",
                                                     Toast.LENGTH_LONG
                                                 ).show()
                                             }
+                                        },
+                                        onOpenUserPortal = {
+                                            showUserPortal = true
                                         },
                                         onOpenRestaurantDirectory = {
                                             viewModel.loadPublicRestaurantsDirectory()
@@ -274,6 +327,16 @@ class MainActivity : FragmentActivity() {
                                             viewModel.refreshClientCoutureProgress()
                                             showPublicCouturePortal = true
                                         },
+                                        onOpenWastePortal = {
+                                            viewModel.refreshWastePortalFromCloud()
+                                            showWastePortal = true
+                                        },
+                                        onOpenTontinePortal = {
+                                            viewModel.refreshTontinePortalFromCloud()
+                                            showTontinePortal = true
+                                        },
+                                        wasteClientsCount = wasteClients.size,
+                                        tontineCardsCount = tontineCards.size,
                                         onEnterShop = {
                                             viewModel.reloadRestaurantLocalState()
                                             viewModel.reloadCoutureLocalState()
@@ -704,6 +767,8 @@ class MainActivity : FragmentActivity() {
                     bundle = publicQrMenuBundle,
                     isLoading = isLoadingQrMenu,
                     errorMessage = qrMenuError,
+                    defaultCustomerName = currentPublicUser?.fullName.orEmpty(),
+                    defaultCustomerPhone = currentPublicUser?.phone.orEmpty(),
                     onRetry = {
                         viewModel.openQrMenuFromScan(
                             com.example.data.remote.supabase.RestaurantQrParser.buildTableQrUri(
@@ -769,6 +834,7 @@ class MainActivity : FragmentActivity() {
                     isLoading = isLoadingCoutureCatalog,
                     errorMessage = coutureCatalogError,
                     activeClient = activeCoutureClient,
+                    currentPublicUser = currentPublicUser,
                     onRetry = {
                         viewModel.openCoutureQrFromScan(
                             CoutureQrParser.buildCatalogQrUri(
@@ -797,6 +863,243 @@ class MainActivity : FragmentActivity() {
                         showPublicCouturePortal = true
                     },
                     onDismiss = { viewModel.dismissCoutureCatalog() }
+                )
+            }
+
+            // Waste Collector & Family Portal Overlay (Gestion Poubelles)
+            if (showWastePortal) {
+                WasteCollectorPortalModal(
+                    businesses = wasteBusinesses,
+                    clients = wasteClients,
+                    activeBusinessId = activeWasteBusinessId,
+                    isSyncing = isSyncingWaste,
+                    familyQuery = wasteFamilyQuery,
+                    pendingQrTarget = pendingWasteQrTarget,
+                    activeAgent = activeDeployerAgent,
+                    currentPublicUser = currentPublicUser,
+                    onRequestAgentLogin = {
+                        showWastePortal = false
+                        agentLoginTrigger++
+                    },
+                    onRefreshCloud = { viewModel.refreshWastePortalFromCloud() },
+                    onSelectBusiness = { viewModel.selectWasteBusiness(it) },
+                    onSaveBusiness = { name, manager, phone, city, pin, fee, passages, existingId, photoUri, onDone ->
+                        viewModel.saveWasteBusiness(
+                            businessName = name,
+                            managerName = manager,
+                            phone = phone,
+                            city = city,
+                            pin = pin,
+                            defaultFee = fee,
+                            defaultPassages = passages,
+                            existingId = existingId,
+                            photoUri = photoUri,
+                            onError = { err -> Toast.makeText(context, err, Toast.LENGTH_LONG).show() },
+                            onResult = onDone
+                        )
+                    },
+                    onSaveClient = { biz, famName, contact, phone, hood, status, days, fee, targetPassages, existing, photoUri, onDone ->
+                        viewModel.saveWasteClient(
+                            business = biz,
+                            familyName = famName,
+                            contactName = contact,
+                            phone = phone,
+                            neighborhood = hood,
+                            status = status,
+                            pickupDaysLabel = days,
+                            monthlyFee = fee,
+                            targetPassages = targetPassages,
+                            existingClient = existing,
+                            photoUri = photoUri,
+                            onResult = onDone
+                        )
+                    },
+                    onUpdateClientPhoto = { client, newPhoto ->
+                        viewModel.updateWasteClientPhoto(client, newPhoto)
+                    },
+                    onCheckPickup = { client, collector, note ->
+                        viewModel.checkWastePickup(client, collector, note)
+                    },
+                    onUncheckLastPickup = { client ->
+                        viewModel.uncheckLastWastePickup(client)
+                    },
+                    onMarkBillingNotified = { client ->
+                        viewModel.markWasteBillingNotified(client)
+                    },
+                    onRecordPayment = { client, amount, note ->
+                        viewModel.recordWasteCyclePayment(client, amount, note)
+                    },
+                    onDeleteClient = { id ->
+                        viewModel.deleteWasteClient(id)
+                    },
+                    onUpdateFamilyQuery = { q ->
+                        viewModel.setWasteFamilyQuery(q)
+                    },
+                    onScanWasteQr = { rawQr ->
+                        viewModel.openWasteQrFromScan(rawQr)
+                    },
+                    onDismissQrTarget = { viewModel.dismissWasteQrTarget() },
+                    onDismiss = {
+                        viewModel.dismissWasteQrTarget()
+                        showWastePortal = false
+                    }
+                )
+            }
+
+            // Digital 30-Day Tontine Portal Overlay
+            if (showTontinePortal) {
+                TontinePortalModal(
+                    businesses = tontineBusinesses,
+                    groups = tontineGroups,
+                    cards = tontineCards,
+                    activeBusinessId = activeTontineBusinessId,
+                    isSyncing = isSyncingTontine,
+                    memberQuery = tontineMemberQuery,
+                    pendingQrTarget = pendingTontineQrTarget,
+                    activeAgent = activeDeployerAgent,
+                    currentPublicUser = currentPublicUser,
+                    onRequestAgentLogin = {
+                        showTontinePortal = false
+                        agentLoginTrigger++
+                    },
+                    onRefreshCloud = { viewModel.refreshTontinePortalFromCloud() },
+                    onSelectBusiness = { viewModel.selectTontineBusiness(it) },
+                    onSaveBusiness = { bizName, organizer, phone, city, pin, existingId, photoUri, onDone ->
+                        viewModel.saveTontineBusiness(
+                            businessName = bizName,
+                            organizerName = organizer,
+                            phone = phone,
+                            city = city,
+                            pin = pin,
+                            existingId = existingId,
+                            photoUri = photoUri,
+                            onError = { err -> Toast.makeText(context, err, Toast.LENGTH_LONG).show() },
+                            onResult = onDone
+                        )
+                    },
+                    onSaveGroup = { biz, title, dailyAmt, days, freq, existingId, onDone ->
+                        viewModel.saveTontineGroup(biz, title, dailyAmt, days, freq, existingId, onDone)
+                    },
+                    onSaveMemberCard = { grp, mName, mPhone, turn, existing, photoUri, onDone ->
+                        viewModel.saveTontineMemberCard(
+                            group = grp,
+                            memberName = mName,
+                            memberPhone = mPhone,
+                            payoutTurnNumber = turn,
+                            existingCard = existing,
+                            photoUri = photoUri,
+                            onResult = onDone
+                        )
+                    },
+                    onUpdateCardPhoto = { card, newPhoto ->
+                        viewModel.updateTontineCardPhoto(card, newPhoto)
+                    },
+                    onToggleDayCheck = { card, day, checkedBy ->
+                        viewModel.toggleTontineDayCheck(card, day, checkedBy)
+                    },
+                    onCheckNextDay = { card, checkedBy ->
+                        viewModel.checkNextTontineDay(card, checkedBy)
+                    },
+                    onValidateSettled = { card, msg ->
+                        viewModel.validateTontineCardSettled(card, msg)
+                    },
+                    onMarkPaid = { card ->
+                        viewModel.markTontineCardPaid(card)
+                    },
+                    onRestartNewCycle = { card ->
+                        viewModel.restartNewTontineCycle(card)
+                    },
+                    onDeleteCard = { id ->
+                        viewModel.deleteTontineCard(id)
+                    },
+                    onUpdateMemberQuery = { q ->
+                        viewModel.setTontineMemberQuery(q)
+                    },
+                    onScanTontineQr = { rawQr ->
+                        viewModel.openTontineQrFromScan(rawQr)
+                    },
+                    onDismissQrTarget = { viewModel.dismissTontineQrTarget() },
+                    onDismiss = {
+                        viewModel.dismissTontineQrTarget()
+                        showTontinePortal = false
+                    }
+                )
+            }
+
+            // Public User Identification, Supabase Account & Activity Card Overlay
+            if (showUserPortal) {
+                val userWasteMatches = remember(wasteClients, currentPublicUser?.phone) {
+                    val q = currentPublicUser?.phone.orEmpty()
+                    if (q.isBlank()) 0 else WasteCollectorStorage.findClientsForFamily(wasteClients, q).size
+                }
+                val userTontineMatches = remember(tontineCards, currentPublicUser?.phone) {
+                    val q = currentPublicUser?.phone.orEmpty()
+                    if (q.isBlank()) 0 else TontineStorage.findCardsForMember(tontineCards, q).size
+                }
+                PublicUserPortalModal(
+                    activeUser = currentPublicUser,
+                    isSyncing = isSyncingPublicUser,
+                    wasteCardsCount = userWasteMatches,
+                    tontineCardsCount = userTontineMatches,
+                    onRegisterUser = { fullName, phone, city, hood, pin, photoUri, activity, onResult ->
+                        viewModel.registerPublicUser(fullName, phone, city, hood, pin, photoUri, activity, onResult)
+                    },
+                    onLoginUser = { phoneOrId, pin, onResult ->
+                        viewModel.loginPublicUser(phoneOrId, pin, onResult)
+                    },
+                    onUpdatePhoto = { photo ->
+                        viewModel.updatePublicUserPhoto(photo)
+                    },
+                    onUpdatePreferredTheme = { theme ->
+                        viewModel.updatePublicUserPreferredActivity(theme.name)
+                    },
+                    onLogoutUser = {
+                        viewModel.logoutPublicUser()
+                    },
+                    onOpenRestaurants = {
+                        showUserPortal = false
+                        viewModel.loadPublicRestaurantsDirectory()
+                        showPublicRestaurantDirectory = true
+                    },
+                    onOpenCouture = {
+                        showUserPortal = false
+                        viewModel.loadPublicCoutureDirectory()
+                        viewModel.refreshClientCoutureProgress()
+                        showPublicCouturePortal = true
+                    },
+                    onOpenWastePortal = {
+                        showUserPortal = false
+                        viewModel.refreshWastePortalFromCloud()
+                        showWastePortal = true
+                    },
+                    onOpenTontinePortal = {
+                        showUserPortal = false
+                        viewModel.refreshTontinePortalFromCloud()
+                        showTontinePortal = true
+                    },
+                    onOpenScanner = {
+                        showUserPortal = false
+                        showGlobalQrScanner = true
+                    },
+                    onDismiss = { showUserPortal = false }
+                )
+            }
+
+            if (showGlobalQrScanner) {
+                RealBarcodeScannerModal(
+                    title = "Scanner QR Universel Konab",
+                    subtitle = "Cantine, Restaurant, Couture, Carte Poubelle ou Tontine 30j",
+                    onDismiss = { showGlobalQrScanner = false },
+                    onBarcodeScanned = { scanned ->
+                        showGlobalQrScanner = false
+                        if (!viewModel.openAnyQrScan(scanned)) {
+                            Toast.makeText(
+                                context,
+                                "QR code non reconnu sur Konab POS.",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    }
                 )
             }
                         }

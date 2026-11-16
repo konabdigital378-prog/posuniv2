@@ -39,7 +39,14 @@ object BackupRestoreHelper {
                 put("isConfigured", profile.isConfigured)
                 put("taxRate", profile.taxRate)
                 put("receiptFooter", profile.receiptFooter)
-                if (profile.logoUri != null) put("logoUri", profile.logoUri)
+                if (!profile.logoUri.isNullOrBlank()) {
+                    val portableLogo = ShopLogoHelper.encodeLogoToPortableDataUri(
+                        context = context,
+                        logoUri = profile.logoUri,
+                        includeRemoteCached = true
+                    ) ?: profile.logoUri
+                    put("logoUri", portableLogo)
+                }
                 put("invoiceHeaderStyle", profile.invoiceHeaderStyle)
                 put("invoicePaperSize", profile.invoicePaperSize)
                 put("invoiceShowLogo", profile.invoiceShowLogo)

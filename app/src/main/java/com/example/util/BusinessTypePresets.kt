@@ -91,9 +91,9 @@ object BusinessTypePresets {
 
             "Restaurant" -> BusinessTypeInfo(
                 id = "Restaurant",
-                title = "Restaurant, Maquis & Bar",
+                title = "Restaurant, Cantine & Maquis",
                 iconName = "restaurant",
-                description = "Plats chauds, grillades, boissons fraîches locales et desserts",
+                description = "Restaurants, cantines, plats chauds, grillades et boissons locales",
                 defaultCategories = listOf("Plats chauds", "Grillades", "Boissons locales", "Accompagnements"),
                 quickUnits = listOf("plat", "portion", "bouteille", "verre", "tasse", "lot"),
                 sectorFeatures = SectorFeatures(hasTables = true, hasSpeedCashShortcuts = true),

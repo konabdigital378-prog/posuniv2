@@ -148,11 +148,7 @@ class RestaurantManagementTest {
             tableName = "Table VIP 2"
         )
         // Longer payload (>133 bytes) forces Version 7 (2 blocks + version info bits)
-        val longPayload = RestaurantQrParser.buildTableQrUri(
-            shopId = 9988776655L,
-            shopName = "Grand Restaurant Gastronomique Du Plateau Centrale",
-            tableName = "Salon Privé Terrasse Panorama 14"
-        )
+        val longPayload = "https://konabpos.bf/app?menu=1&shopId=9988776655&shop=Grand%20Restaurant%20Gastronomique%20Burkina%20Faso&table=Salon%20Prive%20Terrasse%20Panorama%20VIP%2014"
         assertTrue("Expected >133 bytes to exercise multi-block V7+", longPayload.toByteArray(Charsets.UTF_8).size > 133)
 
         listOf(

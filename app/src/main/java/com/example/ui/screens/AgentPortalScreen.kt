@@ -585,33 +585,34 @@ private fun AgentPortalConnectedBody(
             }
         }
 
-        PrimaryTabRow(
+        ScrollableTabRow(
             selectedTabIndex = state.selectedPortalTab,
             containerColor = MaterialTheme.colorScheme.surface,
-            contentColor = Color(0xFFFF7900)
+            contentColor = Color(0xFFFF7900),
+            edgePadding = 12.dp
         ) {
             Tab(
                 selected = state.selectedPortalTab == 0,
                 onClick = { state.selectedPortalTab = 0 },
-                text = { Text("Abonnement", fontWeight = FontWeight.Bold, fontSize = 11.5.sp) },
+                text = { Text("Abonnement", fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1, softWrap = false) },
                 icon = { Icon(Icons.Default.WorkspacePremium, contentDescription = null, modifier = Modifier.size(17.dp)) }
             )
             Tab(
                 selected = state.selectedPortalTab == 1,
                 onClick = { state.selectedPortalTab = 1 },
-                text = { Text("Configuration", fontWeight = FontWeight.Bold, fontSize = 11.5.sp) },
+                text = { Text("Configuration", fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1, softWrap = false) },
                 icon = { Icon(Icons.Default.Storefront, contentDescription = null, modifier = Modifier.size(17.dp)) }
             )
             Tab(
                 selected = state.selectedPortalTab == 2,
                 onClick = { state.selectedPortalTab = 2 },
-                text = { Text("Catalogue", fontWeight = FontWeight.Bold, fontSize = 11.5.sp) },
+                text = { Text("Catalogue", fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1, softWrap = false) },
                 icon = { Icon(Icons.Default.Inventory2, contentDescription = null, modifier = Modifier.size(17.dp)) }
             )
             Tab(
                 selected = state.selectedPortalTab == 3,
                 onClick = { state.selectedPortalTab = 3 },
-                text = { Text("Boutiques", fontWeight = FontWeight.Bold, fontSize = 11.5.sp) },
+                text = { Text("Boutiques", fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1, softWrap = false) },
                 icon = { Icon(Icons.AutoMirrored.Filled.ReceiptLong, contentDescription = null, modifier = Modifier.size(17.dp)) }
             )
         }

@@ -54,6 +54,8 @@ fun CustomerQrMenuModal(
     bundle: SupabaseApiClient.PublicRestaurantMenuBundle?,
     isLoading: Boolean,
     errorMessage: String?,
+    defaultCustomerName: String = "",
+    defaultCustomerPhone: String = "",
     onRetry: () -> Unit,
     onSubmitOrder: (
         bundle: SupabaseApiClient.PublicRestaurantMenuBundle,
@@ -73,8 +75,8 @@ fun CustomerQrMenuModal(
 
     var searchQuery by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf("Tous") }
-    var customerName by remember { mutableStateOf("") }
-    var customerPhone by remember { mutableStateOf("") }
+    var customerName by remember(defaultCustomerName) { mutableStateOf(defaultCustomerName) }
+    var customerPhone by remember(defaultCustomerPhone) { mutableStateOf(defaultCustomerPhone) }
     var generalNotes by remember { mutableStateOf("") }
     var selectedQty by remember(target, bundle?.shopId) { mutableStateOf<Map<Long, Int>>(emptyMap()) }
     var itemNotes by remember(target, bundle?.shopId) { mutableStateOf<Map<Long, String>>(emptyMap()) }
