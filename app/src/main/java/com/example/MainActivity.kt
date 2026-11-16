@@ -66,6 +66,7 @@ class MainActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        com.example.util.KonabCoilSetup.init(applicationContext)
         incomingQrUriState.value = intent?.dataString
         enableEdgeToEdge()
         setContent {
@@ -351,7 +352,7 @@ class MainActivity : FragmentActivity() {
                                             } else {
                                                 viewModel.resetTo(KonabScreen.DASHBOARD)
                                             }
-                                            viewModel.refreshActiveShopFromCloud()
+                                            viewModel.refreshActiveShopFromCloud(force = false)
                                         },
                                         onComplete = { name, slogan, phone, address, city, currency, logoIcon, type, adminName, adminPhone, pin, preloadDemo, subscriptionTier ->
                                             viewModel.completeOnboarding(
@@ -556,6 +557,7 @@ class MainActivity : FragmentActivity() {
                                         saleItems = allSaleItems,
                                         products = products,
                                         cashMovements = cashMovements,
+                                        onRefreshReports = { viewModel.refreshLedgerNow() },
                                         onBack = { viewModel.navigateBack() }
                                     )
                                 }
@@ -1036,13 +1038,56 @@ class MainActivity : FragmentActivity() {
                     val q = currentPublicUser?.phone.orEmpty()
                     if (q.isBlank()) 0 else TontineStorage.findCardsForMember(tontineCards, q).size
                 }
+                val knownShopNames = remember(shopProfile?.name, connectedShops) {
+                    buildList {
+                        shopProfile?.name?.trim()?.takeIf { it.isNotBlank() }?.let { add(it) }
+                        connectedShops.forEach { cs ->
+                            cs.shopName.trim().takeIf { it.isNotBlank() }?.let { add(it) }
+                        }
+                        com.example.data.remote.supabase.ShopAdStorage.getCachedShops(context).forEach { s ->
+                            s.name.trim().takeIf { it.isNotBlank() }?.let { add(it) }
+                        }
+                    }.distinct()
+                }
                 PublicUserPortalModal(
                     activeUser = currentPublicUser,
                     isSyncing = isSyncingPublicUser,
                     wasteCardsCount = userWasteMatches,
                     tontineCardsCount = userTontineMatches,
-                    onRegisterUser = { fullName, phone, city, hood, pin, photoUri, activity, onResult ->
-                        viewModel.registerPublicUser(fullName, phone, city, hood, pin, photoUri, activity, onResult)
+                    availableShopNames = knownShopNames,
+                    onRegisterUser = { fullName, phone, city, hood, pin, photoUri, activity, isSeekingAcc, accDetails, isShopMember, memberShopName, memberShopRole, onResult ->
+                        viewModel.registerPublicUser(
+                            fullName = fullName,
+                            phone = phone,
+                            city = city,
+                            neighborhood = hood,
+                            pin = pin,
+                            photoUri = photoUri,
+                            preferredActivity = activity,
+                            isSeekingAccompaniment = isSeekingAcc,
+                            accompanimentDetails = accDetails,
+                            isShopMember = isShopMember,
+                            memberShopName = memberShopName,
+                            memberShopRole = memberShopRole,
+                            onResult = onResult
+                        )
+                    },
+                    onUpdateProfile = { fullName, phone, city, hood, newPin, photoUri, activity, isSeekingAcc, accDetails, isShopMember, memberShopName, memberShopRole, onResult ->
+                        viewModel.updatePublicUserProfile(
+                            fullName = fullName,
+                            phone = phone,
+                            city = city,
+                            neighborhood = hood,
+                            newPin = newPin,
+                            photoUri = photoUri,
+                            preferredActivity = activity,
+                            isSeekingAccompaniment = isSeekingAcc,
+                            accompanimentDetails = accDetails,
+                            isShopMember = isShopMember,
+                            memberShopName = memberShopName,
+                            memberShopRole = memberShopRole,
+                            onResult = onResult
+                        )
                     },
                     onLoginUser = { phoneOrId, pin, onResult ->
                         viewModel.loginPublicUser(phoneOrId, pin, onResult)

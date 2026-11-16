@@ -269,22 +269,26 @@ fun ConapesAgentIdCard(
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .aspectRatio(AgentIdCardHelper.CR80_ASPECT_RATIO),
+            .heightIn(min = 216.dp),
         shape = RoundedCornerShape(16.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
         border = BorderStroke(1.5.dp, Color(0xFF06245E).copy(alpha = 0.85f)),
         colors = CardDefaults.cardColors(containerColor = Color(0xFFF8FAFC))
     ) {
-        Box(
+        BoxWithConstraints(
             modifier = Modifier
-                .fillMaxSize()
+                .fillMaxWidth()
                 .background(
                     Brush.linearGradient(
                         colors = listOf(Color(0xFFFFFFFF), Color(0xFFF1F5F9))
                     )
                 )
         ) {
-            Column(modifier = Modifier.fillMaxSize()) {
+            val isCompactCard = maxWidth < 330.dp
+            val avatarSize = if (isCompactCard) 52.dp else 64.dp
+            val qrSize = if (isCompactCard) 58.dp else 72.dp
+
+            Column(modifier = Modifier.fillMaxWidth()) {
                 // Header Navy CONAPES
                 Box(
                     modifier = Modifier
@@ -373,11 +377,11 @@ fun ConapesAgentIdCard(
                 // Body (Photo + Details + QR Code)
                 Row(
                     modifier = Modifier
-                        .weight(1f)
                         .fillMaxWidth()
-                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                        .heightIn(min = 118.dp)
+                        .padding(horizontal = if (isCompactCard) 8.dp else 10.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    horizontalArrangement = Arrangement.spacedBy(if (isCompactCard) 8.dp else 10.dp)
                 ) {
                     // Left: Photo + Reference ID
                     Column(
@@ -387,13 +391,13 @@ fun ConapesAgentIdCard(
                         AgentPhotoAvatar(
                             name = agent.name,
                             photoUri = effectivePhoto,
-                            size = 64.dp,
+                            size = avatarSize,
                             shape = RoundedCornerShape(10.dp),
                             borderColor = Color(0xFF073B9A)
                         )
                         Text(
                             text = refCode,
-                            fontSize = 8.5.sp,
+                            fontSize = if (isCompactCard) 7.5.sp else 8.5.sp,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.ExtraBold,
                             color = Color(0xFF06245E),
@@ -442,7 +446,7 @@ fun ConapesAgentIdCard(
                         Spacer(modifier = Modifier.height(2.dp))
 
                         Text(
-                            text = "ZONE : ${agent.zone.ifBlank { "National" }}",
+                            text = "ZONE : ${agent.zone.ifBlank { "Non définie" }}",
                             fontSize = 9.5.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = Color(0xFF334155),
@@ -455,7 +459,8 @@ fun ConapesAgentIdCard(
                                 fontSize = 9.5.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color(0xFF0F172A),
-                                maxLines = 1
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }
@@ -475,7 +480,7 @@ fun ConapesAgentIdCard(
                             Image(
                                 bitmap = qrBitmap.asImageBitmap(),
                                 contentDescription = "QR Code KONAB POS ${agent.id}",
-                                modifier = Modifier.size(72.dp)
+                                modifier = Modifier.size(qrSize)
                             )
                             Text(
                                 text = "RÉF. QR",
@@ -492,7 +497,7 @@ fun ConapesAgentIdCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(Color(0xFF06245E))
-                        .padding(horizontal = 12.dp, vertical = 4.dp)
+                        .padding(horizontal = 12.dp, vertical = 5.dp)
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -502,13 +507,17 @@ fun ConapesAgentIdCard(
                         Text(
                             text = "Émise le $issuedDate • ${agent.id.uppercase(Locale.ROOT)}",
                             color = Color.White,
-                            fontSize = 8.sp
+                            fontSize = 8.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f).padding(end = 6.dp)
                         )
                         Text(
-                            text = "85,6 × 54 mm • Réseau KONAB POS",
+                            text = "85,6 × 54 mm • KONAB POS",
                             color = Color(0xFFFDE68A),
                             fontSize = 8.sp,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1
                         )
                     }
                 }

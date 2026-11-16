@@ -698,23 +698,33 @@ CREATE TABLE IF NOT EXISTS public.app_users (
     id TEXT PRIMARY KEY,
     full_name TEXT NOT NULL,
     phone TEXT NOT NULL,
-    city TEXT DEFAULT 'Conakry',
+    city TEXT DEFAULT '',
     neighborhood TEXT DEFAULT '',
-    pin TEXT DEFAULT '0000',
+    pin TEXT DEFAULT '',
     photo_uri TEXT DEFAULT '',
     preferred_activity TEXT DEFAULT 'UTILISATEUR',
+    is_seeking_accompaniment BOOLEAN DEFAULT false,
+    accompaniment_details TEXT DEFAULT '',
+    is_shop_member BOOLEAN DEFAULT false,
+    member_shop_name TEXT DEFAULT '',
+    member_shop_role TEXT DEFAULT '',
     created_at BIGINT DEFAULT 0,
     updated_at BIGINT DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_app_users_phone ON public.app_users(phone);
 
--- Migrations additives sans perte de données pour les tables existantes (Deployer ID & Photo Profil)
+-- Migrations additives sans perte de données pour les tables existantes (Deployer ID, Photo & Profil Utilisateur)
 ALTER TABLE IF EXISTS public.waste_businesses ADD COLUMN IF NOT EXISTS deployer_id TEXT DEFAULT '';
 ALTER TABLE IF EXISTS public.waste_businesses ADD COLUMN IF NOT EXISTS photo_uri TEXT DEFAULT '';
 ALTER TABLE IF EXISTS public.waste_clients ADD COLUMN IF NOT EXISTS photo_uri TEXT DEFAULT '';
 ALTER TABLE IF EXISTS public.tontine_businesses ADD COLUMN IF NOT EXISTS deployer_id TEXT DEFAULT '';
 ALTER TABLE IF EXISTS public.tontine_businesses ADD COLUMN IF NOT EXISTS photo_uri TEXT DEFAULT '';
 ALTER TABLE IF EXISTS public.tontine_cards ADD COLUMN IF NOT EXISTS photo_uri TEXT DEFAULT '';
+ALTER TABLE IF EXISTS public.app_users ADD COLUMN IF NOT EXISTS is_seeking_accompaniment BOOLEAN DEFAULT false;
+ALTER TABLE IF EXISTS public.app_users ADD COLUMN IF NOT EXISTS accompaniment_details TEXT DEFAULT '';
+ALTER TABLE IF EXISTS public.app_users ADD COLUMN IF NOT EXISTS is_shop_member BOOLEAN DEFAULT false;
+ALTER TABLE IF EXISTS public.app_users ADD COLUMN IF NOT EXISTS member_shop_name TEXT DEFAULT '';
+ALTER TABLE IF EXISTS public.app_users ADD COLUMN IF NOT EXISTS member_shop_role TEXT DEFAULT '';
 
 -- Activation de RLS (Row Level Security) avec accès lecture/écriture pour la clé anon
 ALTER TABLE public.shop_profile ENABLE ROW LEVEL SECURITY;

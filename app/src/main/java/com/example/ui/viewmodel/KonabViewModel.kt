@@ -158,28 +158,28 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     val customers: StateFlow<List<CustomerEntity>> = repository.allCustomers
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     val debtors: StateFlow<List<CustomerEntity>> = repository.debtorCustomers
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     val suppliers: StateFlow<List<SupplierEntity>> = repository.allSuppliers
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val recentSales: StateFlow<List<SaleEntity>> = repository.recentSales
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     val allSales: StateFlow<List<SaleEntity>> = repository.allSales
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     val allSaleItems: StateFlow<List<SaleItemEntity>> = repository.allSaleItems
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     val cashMovements: StateFlow<List<CashMovementEntity>> = repository.allCashMovements
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     val activeCashSession: StateFlow<CashSessionEntity?> = repository.activeCashSession
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     val allPurchases: StateFlow<List<PurchaseEntity>> = repository.allPurchases
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -188,7 +188,7 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val unreadNotificationsCount: StateFlow<Int> = repository.unreadNotificationsCount
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 0)
 
     // Navigation State (démarre sur le menu principal: Entrer dans ma boutique / Espace Agent)
     private val _screenStack = MutableStateFlow<List<KonabScreen>>(listOf(KonabScreen.ONBOARDING))
@@ -896,10 +896,13 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun refreshActiveShopFromCloud(onResult: (Boolean, String) -> Unit = { _, _ -> }) {
+    fun refreshActiveShopFromCloud(
+        onResult: (Boolean, String) -> Unit = { _, _ -> },
+        force: Boolean = true
+    ) {
         viewModelScope.launch {
             val res = withContext(kotlinx.coroutines.Dispatchers.IO) {
-                supabaseSyncManager.refreshActiveShopFromCloud(repository)
+                supabaseSyncManager.refreshActiveShopFromCloud(repository, force = force)
             }
             reloadConnectedShopsState()
             reloadRestaurantLocalState()
@@ -1416,7 +1419,11 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
             while (isActive) {
                 val isResto = isRestaurantType(shopProfile.value?.businessType)
                 val isCouture = CoutureDirectoryHelper.isCoutureShop(shopProfile.value?.businessType)
-                kotlinx.coroutines.delay(if (isResto || isCouture) 15_000L else 45_000L)
+                kotlinx.coroutines.delay(if (isResto || isCouture) 90_000L else 120_000L)
+                val activeScreen = _screenStack.value.lastOrNull() ?: KonabScreen.ONBOARDING
+                if (_isLocked.value || activeScreen == KonabScreen.ONBOARDING) {
+                    continue
+                }
                 if (supabaseSyncManager.isAutoSyncEnabled() && SupabaseConfig.isConfigured) {
                     try {
                         val previousById = _restaurantOrders.value.associateBy { it.id }
@@ -1978,7 +1985,7 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 val previousById = _restaurantOrders.value.associateBy { it.id }
                 if (SupabaseConfig.isConfigured && shopId > 1L) {
-                    supabaseSyncManager.pullLedgerAndRestaurantNow(repository)
+                    supabaseSyncManager.pullRestaurantOrdersOnly(shopId, shopProfile.value?.name)
                 }
                 reloadRestaurantLocalState()
                 _lastRestaurantSyncAt.value = System.currentTimeMillis()
@@ -2572,7 +2579,7 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
                 if (SupabaseConfig.isConfigured && shopId > 1L) {
-                    supabaseSyncManager.pullCoutureStateNow(shopId)
+                    supabaseSyncManager.pullCoutureOrdersOnly(shopId, shopProfile.value?.name)
                 }
                 reloadCoutureLocalState()
                 _lastCoutureSyncAt.value = System.currentTimeMillis()
@@ -3448,7 +3455,7 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
                     firstName = first,
                     lastName = last,
                     phone = user.phone,
-                    city = user.city.ifBlank { "Conakry" }
+                    city = user.city.trim()
                 )
             )
             _activeCoutureClient.value = CoutureStorage.getClientAccount(app)
@@ -3463,11 +3470,16 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
         pin: String,
         photoUri: String = "",
         preferredActivity: String = "UTILISATEUR",
+        isSeekingAccompaniment: Boolean = false,
+        accompanimentDetails: String = "",
+        isShopMember: Boolean = false,
+        memberShopName: String = "",
+        memberShopRole: String = "",
         onResult: (Boolean, String) -> Unit = { _, _ -> }
     ) {
         val cleanName = fullName.trim()
         val cleanPhone = phone.trim()
-        val cleanPin = pin.trim().ifBlank { "0000" }
+        val cleanPin = pin.trim()
         if (cleanName.isBlank()) {
             onResult(false, "Veuillez indiquer votre nom complet.")
             return
@@ -3476,18 +3488,28 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
             onResult(false, "Numéro de téléphone invalide.")
             return
         }
+        if (cleanPin.length < 4) {
+            onResult(false, "Définissez un code PIN d'au moins 4 chiffres.")
+            return
+        }
         val app = getApplication<Application>()
         val existing = PublicUserStorage.findByPhoneOrId(PublicUserStorage.getAllUsers(app), cleanPhone)
         val now = System.currentTimeMillis()
+        val cleanShopMember = isShopMember && memberShopName.isNotBlank()
         val account = PublicUserAccount(
             id = existing?.id ?: "USR-${(now % 1_000_000L).toString().padStart(6, '0')}-${(10..99).random()}",
             fullName = cleanName,
             phone = cleanPhone,
-            city = city.trim().ifBlank { "Conakry" },
+            city = city.trim(),
             neighborhood = neighborhood.trim(),
             pin = cleanPin,
             photoUri = photoUri.trim().ifBlank { existing?.photoUri.orEmpty() },
             preferredActivity = preferredActivity.ifBlank { "UTILISATEUR" },
+            isSeekingAccompaniment = isSeekingAccompaniment,
+            accompanimentDetails = if (isSeekingAccompaniment) accompanimentDetails.trim() else "",
+            isShopMember = cleanShopMember,
+            memberShopName = if (cleanShopMember) memberShopName.trim() else "",
+            memberShopRole = if (cleanShopMember) memberShopRole.trim() else "",
             createdAt = existing?.createdAt ?: now,
             updatedAt = now
         )
@@ -3501,7 +3523,73 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
             withContext(kotlinx.coroutines.Dispatchers.Main) {
                 _currentPublicUser.value = synced
                 _isSyncingPublicUser.value = false
-                onResult(true, "Compte utilisateur créé et ajouté à la base de données !")
+                onResult(true, "Compte utilisateur créé et enregistré !")
+            }
+        }
+    }
+
+    fun updatePublicUserProfile(
+        fullName: String,
+        phone: String,
+        city: String,
+        neighborhood: String,
+        newPin: String = "",
+        photoUri: String? = null,
+        preferredActivity: String? = null,
+        isSeekingAccompaniment: Boolean = false,
+        accompanimentDetails: String = "",
+        isShopMember: Boolean = false,
+        memberShopName: String = "",
+        memberShopRole: String = "",
+        onResult: (Boolean, String) -> Unit = { _, _ -> }
+    ) {
+        val current = _currentPublicUser.value ?: run {
+            onResult(false, "Aucun profil actif à modifier.")
+            return
+        }
+        val cleanName = fullName.trim()
+        val cleanPhone = phone.trim()
+        val cleanNewPin = newPin.trim()
+        if (cleanName.isBlank()) {
+            onResult(false, "Le nom complet ne peut pas être vide.")
+            return
+        }
+        if (PublicUserStorage.normalizePhone(cleanPhone).length < 6) {
+            onResult(false, "Numéro de téléphone invalide.")
+            return
+        }
+        if (cleanNewPin.isNotBlank() && cleanNewPin.length < 4) {
+            onResult(false, "Le nouveau code PIN doit comporter au moins 4 chiffres.")
+            return
+        }
+        val cleanShopMember = isShopMember && memberShopName.isNotBlank()
+        val updated = current.copy(
+            fullName = cleanName,
+            phone = cleanPhone,
+            city = city.trim(),
+            neighborhood = neighborhood.trim(),
+            pin = if (cleanNewPin.isNotBlank()) cleanNewPin else current.pin,
+            photoUri = photoUri?.trim() ?: current.photoUri,
+            preferredActivity = preferredActivity?.ifBlank { current.preferredActivity } ?: current.preferredActivity,
+            isSeekingAccompaniment = isSeekingAccompaniment,
+            accompanimentDetails = if (isSeekingAccompaniment) accompanimentDetails.trim() else "",
+            isShopMember = cleanShopMember,
+            memberShopName = if (cleanShopMember) memberShopName.trim() else "",
+            memberShopRole = if (cleanShopMember) memberShopRole.trim() else "",
+            updatedAt = System.currentTimeMillis()
+        )
+        val app = getApplication<Application>()
+        val savedLocal = PublicUserStorage.upsertUser(app, updated, makeActive = true)
+        _currentPublicUser.value = savedLocal
+        propagatePublicUserContext(savedLocal)
+        _isSyncingPublicUser.value = true
+
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val synced = supabaseSyncManager.syncPublicUserNow(savedLocal).getOrDefault(savedLocal)
+            withContext(kotlinx.coroutines.Dispatchers.Main) {
+                _currentPublicUser.value = synced
+                _isSyncingPublicUser.value = false
+                onResult(true, "Profil mis à jour avec succès !")
             }
         }
     }

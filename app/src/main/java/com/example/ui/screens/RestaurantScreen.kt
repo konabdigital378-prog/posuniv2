@@ -39,6 +39,9 @@ import com.example.data.remote.supabase.RestaurantTableRecord
 import com.example.ui.components.KonabScreenTopBar
 import com.example.ui.components.RealBarcodeScannerModal
 import com.example.ui.theme.*
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import com.example.util.CurrencyFormatter
 import kotlinx.coroutines.delay
 
@@ -103,13 +106,20 @@ fun RestaurantScreen(
     var showQrScanner by remember { mutableStateOf(false) }
     var orderForCheckout by remember { mutableStateOf<RestaurantOrderRecord?>(null) }
 
-    // Real-time auto-polling for incoming QR table orders and kitchen status updates
-    LaunchedEffect(selectedTab, cloudShopId) {
-        onLivePollOrders()
-        val intervalMs = if (selectedTab == RestaurantTab.KITCHEN) 4_000L else 8_000L
-        while (true) {
-            delay(intervalMs)
-            onLivePollOrders()
+    // Lifecycle-aware polling for incoming QR table orders and kitchen status updates
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val currentPollOrders by rememberUpdatedState(onLivePollOrders)
+    val latestSyncAt by rememberUpdatedState(lastRestaurantSyncAt)
+    LaunchedEffect(selectedTab, cloudShopId, lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            if (System.currentTimeMillis() - latestSyncAt >= 10_000L) {
+                currentPollOrders()
+            }
+            val intervalMs = if (selectedTab == RestaurantTab.KITCHEN) 25_000L else 45_000L
+            while (true) {
+                delay(intervalMs)
+                currentPollOrders()
+            }
         }
     }
 

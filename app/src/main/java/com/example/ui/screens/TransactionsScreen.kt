@@ -122,11 +122,12 @@ fun TransactionsScreen(
         }.timeInMillis
 
         val weekStart = Calendar.getInstance().apply {
-            set(Calendar.DAY_OF_WEEK, firstDayOfWeek)
             set(Calendar.HOUR_OF_DAY, 0)
             set(Calendar.MINUTE, 0)
             set(Calendar.SECOND, 0)
             set(Calendar.MILLISECOND, 0)
+            val daysFromMonday = (get(Calendar.DAY_OF_WEEK) + 5) % 7
+            add(Calendar.DAY_OF_YEAR, -daysFromMonday)
         }.timeInMillis
 
         val monthStart = Calendar.getInstance().apply {

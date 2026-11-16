@@ -351,4 +351,47 @@ class ShopAdsShowcaseTest {
         assertTrue(manageable.any { it.shopName == "Salon Prestige" && it.isFallbackShopOnly })
         assertTrue(manageable.any { it.shopName == "Salon Vidéo 60s" && it.hasVideo })
     }
+
+    @Test
+    fun `canManageAd restricts ad modification strictly to its author shop or deployer`() {
+        val myShop = ShopProfileEntity(
+            id = 1,
+            name = "Ma Boutique Étoile",
+            deployerId = "AGT-100",
+            isConfigured = true
+        )
+        val myAd = ShopAdRecord(
+            id = "AD-MINE",
+            shopId = 55L,
+            shopName = "Ma Boutique Étoile",
+            deployerId = "AGT-100"
+        )
+        val otherShopAd = ShopAdRecord(
+            id = "AD-OTHER",
+            shopId = 99L,
+            shopName = "Concurrent Market",
+            deployerId = "AGT-999"
+        )
+
+        // Public user (not logged into any shop/agent) cannot edit any ad
+        assertFalse(ShopAdStorage.canManageAd(ad = myAd, currentShop = null))
+        assertFalse(ShopAdStorage.canManageAd(ad = otherShopAd, currentShop = null))
+
+        // Author shop can edit its own ad, NOT another shop's ad
+        assertTrue(ShopAdStorage.canManageAd(ad = myAd, currentShop = myShop))
+        assertFalse(ShopAdStorage.canManageAd(ad = otherShopAd, currentShop = myShop))
+
+        // Connected multi-shop manager can manage connected shop ads only
+        assertTrue(
+            ShopAdStorage.canManageAd(
+                ad = otherShopAd,
+                currentShop = myShop,
+                connectedShopNames = setOf("concurrent market")
+            )
+        )
+
+        // Deploying agent can manage ads for shops they deployed, not unrelated ones
+        assertTrue(ShopAdStorage.canManageAd(ad = myAd, currentShop = null, activeAgentId = "AGT-100"))
+        assertFalse(ShopAdStorage.canManageAd(ad = otherShopAd, currentShop = null, activeAgentId = "AGT-100"))
+    }
 }

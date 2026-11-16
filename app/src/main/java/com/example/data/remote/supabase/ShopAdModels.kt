@@ -117,7 +117,7 @@ data class AdCarouselSettings(
     val scrollIntervalSeconds: Int = 4,
     val includePartnerLogosInScroll: Boolean = true,
     val prioritizeVideoAds: Boolean = true,
-    val autoPlayVideoPreviewInCarousel: Boolean = true
+    val autoPlayVideoPreviewInCarousel: Boolean = false
 ) {
     fun toJson(): JSONObject = JSONObject().apply {
         put("auto_scroll_enabled", autoScrollEnabled)
@@ -134,7 +134,7 @@ data class AdCarouselSettings(
                 scrollIntervalSeconds = obj.optInt("scroll_interval_seconds", 4).coerceIn(2, 15),
                 includePartnerLogosInScroll = obj.optBoolean("include_partner_logos_in_scroll", true),
                 prioritizeVideoAds = obj.optBoolean("prioritize_video_ads", true),
-                autoPlayVideoPreviewInCarousel = obj.optBoolean("auto_play_video_preview", true)
+                autoPlayVideoPreviewInCarousel = obj.optBoolean("auto_play_video_preview", false)
             )
         }
     }
@@ -143,6 +143,7 @@ data class AdCarouselSettings(
 object ShopAdStorage {
     const val MAX_AD_VIDEO_DURATION_SEC = 60
     const val MAX_AD_VIDEO_DURATION_MS = 60_000L
+    const val MAX_AD_VIDEO_SIZE_BYTES = 20L * 1024L * 1024L
 
     private const val PREFS_NAME = "konab_shop_ads_prefs"
     private const val KEY_SHOP_ADS = "saved_shop_ads_json"
@@ -437,6 +438,57 @@ object ShopAdStorage {
         return list
     }
 
+    fun canManageShop(
+        shopName: String,
+        shopId: Long = 0L,
+        shopDeployerId: String? = null,
+        currentShop: ShopProfileEntity? = null,
+        activeCloudShopId: Long = 0L,
+        connectedShopNames: Set<String> = emptySet(),
+        connectedShopIds: Set<Long> = emptySet(),
+        activeAgentId: String? = null
+    ): Boolean {
+        val normTarget = AgentDeploymentStorage.normalizeShopName(shopName)
+        if (currentShop != null && currentShop.isConfigured && currentShop.name.isNotBlank()) {
+            if (normTarget.isNotBlank() && AgentDeploymentStorage.normalizeShopName(currentShop.name) == normTarget) {
+                return true
+            }
+        }
+        if (activeCloudShopId > 1L && shopId == activeCloudShopId) {
+            return true
+        }
+        if (shopId > 1L && shopId in connectedShopIds) {
+            return true
+        }
+        if (normTarget.isNotBlank() && normTarget in connectedShopNames) {
+            return true
+        }
+        if (!activeAgentId.isNullOrBlank() && !shopDeployerId.isNullOrBlank() &&
+            shopDeployerId.trim().equals(activeAgentId.trim(), ignoreCase = true)
+        ) {
+            return true
+        }
+        return false
+    }
+
+    fun canManageAd(
+        ad: ShopAdRecord,
+        currentShop: ShopProfileEntity? = null,
+        activeCloudShopId: Long = 0L,
+        connectedShopNames: Set<String> = emptySet(),
+        connectedShopIds: Set<Long> = emptySet(),
+        activeAgentId: String? = null
+    ): Boolean = canManageShop(
+        shopName = ad.shopName,
+        shopId = ad.shopId,
+        shopDeployerId = ad.deployerId,
+        currentShop = currentShop,
+        activeCloudShopId = activeCloudShopId,
+        connectedShopNames = connectedShopNames,
+        connectedShopIds = connectedShopIds,
+        activeAgentId = activeAgentId
+    )
+
     private fun collectAllPartnerShopsByName(
         registeredShops: List<ShopProfileEntity>,
         localShop: ShopProfileEntity?,
@@ -510,11 +562,26 @@ object ShopAdStorage {
             if (!adsDir.exists()) adsDir.mkdirs()
 
             val destFile = File(adsDir, "ad_video_${System.currentTimeMillis()}.mp4")
+            var totalBytes = 0L
             context.contentResolver.openInputStream(sourceUri)?.use { input ->
                 FileOutputStream(destFile).use { output ->
-                    input.copyTo(output)
+                    val buffer = ByteArray(16 * 1024)
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read <= 0) break
+                        totalBytes += read
+                        if (totalBytes > MAX_AD_VIDEO_SIZE_BYTES) {
+                            break
+                        }
+                        output.write(buffer, 0, read)
+                    }
                 }
             } ?: return null
+
+            if (totalBytes > MAX_AD_VIDEO_SIZE_BYTES) {
+                destFile.delete()
+                return null
+            }
 
             if (!destFile.exists() || destFile.length() == 0L) return null
 
@@ -539,15 +606,18 @@ object ShopAdStorage {
     fun copyAdLogoToInternalStorage(context: Context, sourceUri: Uri): Pair<String, File>? {
         return try {
             val adsDir = File(context.filesDir, "shop_ads")
-            if (!adsDir.exists()) adsDir.mkdirs()
-            val destFile = File(adsDir, "ad_logo_${System.currentTimeMillis()}.jpg")
-            context.contentResolver.openInputStream(sourceUri)?.use { input ->
-                FileOutputStream(destFile).use { output ->
-                    input.copyTo(output)
-                }
-            } ?: return null
-            if (!destFile.exists() || destFile.length() == 0L) return null
-            Uri.fromFile(destFile).toString() to destFile
+            val compressed = com.example.util.KonabImageOptimizer.compressUriToWebpFile(
+                context = context,
+                sourceUri = sourceUri,
+                destDir = adsDir,
+                fileNamePrefix = "ad_logo",
+                maxDimPx = 512,
+                quality = 80
+            )
+            if (compressed != null) {
+                return Uri.fromFile(compressed).toString() to compressed
+            }
+            null
         } catch (e: Exception) {
             android.util.Log.e("ShopAdStorage", "Erreur copie logo pub: ${e.message}", e)
             null

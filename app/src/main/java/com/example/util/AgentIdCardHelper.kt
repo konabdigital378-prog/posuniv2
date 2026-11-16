@@ -135,31 +135,19 @@ object AgentIdCardHelper {
     ): String? {
         return try {
             val dir = File(context.filesDir, "agent_photos")
-            if (!dir.exists()) dir.mkdirs()
-
             val safeKey = agentKey.replace(Regex("[^A-Za-z0-9_-]"), "_").ifBlank { "agent" }
-            val destFile = File(dir, "${safeKey}_${System.currentTimeMillis()}.jpg")
-
-            val decoded = context.contentResolver.openInputStream(sourceUri)?.use { input ->
-                BitmapFactory.decodeStream(input)
-            } ?: return null
-
-            // Scale down proportionally to max 600px on longest side
-            val maxDim = 600
-            val w = decoded.width
-            val h = decoded.height
-            val scale = if (w > maxDim || h > maxDim) {
-                maxDim.toFloat() / maxOf(w, h).toFloat()
-            } else 1f
-            val finalBmp = if (scale < 1f) {
-                Bitmap.createScaledBitmap(decoded, (w * scale).toInt().coerceAtLeast(1), (h * scale).toInt().coerceAtLeast(1), true)
-            } else decoded
-
-            FileOutputStream(destFile).use { out ->
-                finalBmp.compress(Bitmap.CompressFormat.JPEG, 90, out)
+            val webpFile = KonabImageOptimizer.compressUriToWebpFile(
+                context = context,
+                sourceUri = sourceUri,
+                destDir = dir,
+                fileNamePrefix = safeKey,
+                maxDimPx = 480,
+                quality = 80
+            )
+            if (webpFile != null) {
+                return Uri.fromFile(webpFile).toString()
             }
-            if (finalBmp !== decoded) decoded.recycle()
-            Uri.fromFile(destFile).toString()
+            null
         } catch (e: Exception) {
             android.util.Log.e("AgentIdCardHelper", "Erreur sauvegarde photo agent: ${e.message}", e)
             null

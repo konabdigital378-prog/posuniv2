@@ -58,6 +58,7 @@ import com.example.R
 import com.example.data.local.entity.ShopProfileEntity
 import com.example.data.remote.supabase.AdCarouselSettings
 import com.example.data.remote.supabase.AgentDeploymentStorage
+import com.example.data.remote.supabase.MultiShopStorage
 import com.example.data.remote.supabase.ShopAdRecord
 import com.example.data.remote.supabase.ShopAdStorage
 import com.example.data.remote.supabase.SupabaseConfig
@@ -130,7 +131,10 @@ fun ShopAdVideoSurface(
     var hasError by remember(videoUri) { mutableStateOf(false) }
 
     val exoPlayer = remember(videoUri) {
-        ExoPlayer.Builder(context).build().apply {
+        ExoPlayer.Builder(context)
+            .setMediaSourceFactory(com.example.util.KonabVideoCache.getMediaSourceFactory(context))
+            .build()
+            .apply {
             val clippedMediaItem = MediaItem.Builder()
                 .setUri(Uri.parse(videoUri))
                 .setClippingConfiguration(
@@ -257,8 +261,7 @@ fun ShopAdVideoSurface(
 @Composable
 fun ShopAdVideoPlayerDialog(
     ad: ShopAdRecord,
-    onDismiss: () -> Unit,
-    onEditAd: (() -> Unit)? = null
+    onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
     var isMuted by remember { mutableStateOf(false) }
@@ -582,20 +585,6 @@ fun ShopAdVideoPlayerDialog(
                             Text("WhatsApp", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                         }
                     }
-
-                    if (onEditAd != null) {
-                        TextButton(
-                            onClick = {
-                                onDismiss()
-                                onEditAd()
-                            },
-                            modifier = Modifier.align(Alignment.CenterHorizontally)
-                        ) {
-                            Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(15.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Configurer / Modifier cette publicité", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                        }
-                    }
                 }
             }
         }
@@ -680,27 +669,97 @@ fun ShopAdConfigModal(
 ) {
     val context = LocalContext.current
     val syncManager = remember { SupabaseSyncManager(context) }
-    val state = remember { ShopAdEditorState(context, currentShop, initialAdToEdit) }
+    val activeAgent = remember { AgentDeploymentStorage.getSavedAgentSession(context) }
+    val activeCloudShopId = remember { MultiShopStorage.getActiveCloudShopId(context) }
+    val connectedShops = remember { MultiShopStorage.getConnectedShops(context) }
+    val connectedShopNames = remember(connectedShops) {
+        connectedShops.map { AgentDeploymentStorage.normalizeShopName(it.shopName) }
+            .filter { it.isNotBlank() }
+            .toSet()
+    }
+    val connectedShopIds = remember(connectedShops) {
+        connectedShops.map { it.cloudShopId }.filter { it > 1L }.toSet()
+    }
 
-    val candidateShops = remember(currentShop, registeredShops) {
+    val effectiveDefaultSource = remember(initialAdToEdit, currentShop) {
+        if (initialAdToEdit != null) {
+            initialAdToEdit
+        } else if (currentShop != null && currentShop.isConfigured && currentShop.name.isNotBlank()) {
+            val normCurrent = AgentDeploymentStorage.normalizeShopName(currentShop.name)
+            ShopAdStorage.getAllAds(context).firstOrNull {
+                !it.isFallbackShopOnly &&
+                    AgentDeploymentStorage.normalizeShopName(it.shopName) == normCurrent
+            }
+        } else {
+            null
+        }
+    }
+    val state = remember { ShopAdEditorState(context, currentShop, effectiveDefaultSource) }
+
+    val candidateShops = remember(
+        currentShop,
+        registeredShops,
+        connectedShops,
+        activeAgent,
+        activeCloudShopId
+    ) {
         val map = LinkedHashMap<String, ShopProfileEntity>()
-        if (currentShop != null && currentShop.name.isNotBlank()) {
+        if (currentShop != null && currentShop.isConfigured && currentShop.name.isNotBlank()) {
             map[AgentDeploymentStorage.normalizeShopName(currentShop.name)] = currentShop
         }
+        connectedShops.filter { it.shopName.isNotBlank() }.forEach { session ->
+            val k = AgentDeploymentStorage.normalizeShopName(session.shopName)
+            if (!map.containsKey(k)) map[k] = session.toShopProfileEntity()
+        }
         registeredShops.filter { it.name.isNotBlank() }.forEach { s ->
-            val k = AgentDeploymentStorage.normalizeShopName(s.name)
-            if (!map.containsKey(k)) map[k] = s
+            val isOwned = ShopAdStorage.canManageShop(
+                shopName = s.name,
+                shopId = s.id.toLong(),
+                shopDeployerId = s.deployerId,
+                currentShop = currentShop,
+                activeCloudShopId = activeCloudShopId,
+                connectedShopNames = connectedShopNames,
+                connectedShopIds = connectedShopIds,
+                activeAgentId = activeAgent?.id
+            )
+            if (isOwned) {
+                val k = AgentDeploymentStorage.normalizeShopName(s.name)
+                if (!map.containsKey(k)) map[k] = s
+            }
         }
         map.values.toList()
     }
 
-    val partnerShopEntries = remember(candidateShops, state.savedAds, state.partnerShopsRevision) {
+    val partnerShopEntries = remember(
+        candidateShops,
+        state.savedAds,
+        state.partnerShopsRevision,
+        currentShop,
+        activeCloudShopId,
+        connectedShopNames,
+        connectedShopIds,
+        activeAgent
+    ) {
+        val localDeps = if (activeAgent != null) {
+            AgentDeploymentStorage.getDeploymentsForAgent(context, activeAgent.id)
+        } else {
+            emptyList()
+        }
         ShopAdStorage.buildManageablePartnerShops(
             registeredShops = candidateShops,
             ads = state.savedAds,
             localShop = currentShop,
-            localDeployments = AgentDeploymentStorage.getAllDeployments(context)
-        )
+            localDeployments = localDeps
+        ).filter { ad ->
+            ShopAdStorage.canManageAd(
+                ad = ad,
+                currentShop = currentShop,
+                activeCloudShopId = activeCloudShopId,
+                connectedShopNames = connectedShopNames,
+                connectedShopIds = connectedShopIds,
+                activeAgentId = activeAgent?.id
+            )
+        }
     }
 
     val logoPickerLauncher = rememberLauncherForActivityResult(
@@ -735,7 +794,7 @@ fun ShopAdConfigModal(
                     "Vidéo prête : ${picked.effectiveDurationSec}s / 60s max"
                 }
             } else {
-                Toast.makeText(context, "Impossible de charger la vidéo sélectionnée", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Vidéo invalide ou trop volumineuse (20 Mo max).", Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -775,7 +834,7 @@ fun ShopAdConfigModal(
                             state.partnerShopsRevision++
                             state.activeTab = 1
                         },
-                        text = { Text("Boutiques (${partnerShopEntries.size})", fontWeight = FontWeight.Bold, fontSize = 12.5.sp) },
+                        text = { Text("Mes Pubs (${partnerShopEntries.size})", fontWeight = FontWeight.Bold, fontSize = 12.5.sp) },
                         modifier = Modifier.testTag("tab_ad_partner_shops")
                     )
                     Tab(
@@ -791,6 +850,10 @@ fun ShopAdConfigModal(
                         state = state,
                         currentShop = currentShop,
                         candidateShops = candidateShops,
+                        allRegisteredShops = registeredShops,
+                        activeCloudShopId = activeCloudShopId,
+                        connectedShopNames = connectedShopNames,
+                        connectedShopIds = connectedShopIds,
                         syncManager = syncManager,
                         onPickLogo = {
                             logoPickerLauncher.launch(
@@ -877,6 +940,10 @@ private fun ColumnScope.ShopAdEditorTab(
     state: ShopAdEditorState,
     currentShop: ShopProfileEntity?,
     candidateShops: List<ShopProfileEntity>,
+    allRegisteredShops: List<ShopProfileEntity>,
+    activeCloudShopId: Long,
+    connectedShopNames: Set<String>,
+    connectedShopIds: Set<Long>,
     syncManager: SupabaseSyncManager,
     onPickLogo: () -> Unit,
     onPickVideo: () -> Unit,
@@ -1376,14 +1443,39 @@ private fun ColumnScope.ShopAdEditorTab(
                         state.errorMessage = "Veuillez saisir au moins un numéro de contact (Téléphone ou WhatsApp)."
                         return@Button
                     }
+                    val activeAgent = AgentDeploymentStorage.getSavedAgentSession(context)
+                    val normEnteredShop = AgentDeploymentStorage.normalizeShopName(cleanShop)
+                    val matchedExternalShop = allRegisteredShops.firstOrNull {
+                        AgentDeploymentStorage.normalizeShopName(it.name) == normEnteredShop
+                    }
+                    val isAuthorAllowed = ShopAdStorage.canManageShop(
+                        shopName = cleanShop,
+                        shopId = matchedExternalShop?.id?.toLong() ?: activeCloudShopId,
+                        shopDeployerId = matchedExternalShop?.deployerId,
+                        currentShop = currentShop,
+                        activeCloudShopId = activeCloudShopId,
+                        connectedShopNames = connectedShopNames,
+                        connectedShopIds = connectedShopIds,
+                        activeAgentId = activeAgent?.id
+                    ) || (currentShop == null && activeAgent == null && matchedExternalShop == null)
+
+                    if (!isAuthorAllowed) {
+                        state.errorMessage = "Seul l'auteur de la boutique « $cleanShop » peut modifier sa publicité."
+                        return@Button
+                    }
+
                     state.isPublishing = true
                     state.errorMessage = null
-                    val activeAgent = AgentDeploymentStorage.getSavedAgentSession(context)
+                    val resolvedShopId = when {
+                        currentShop != null && AgentDeploymentStorage.normalizeShopName(currentShop.name) == normEnteredShop && activeCloudShopId > 1L -> activeCloudShopId
+                        matchedExternalShop != null && matchedExternalShop.id > 1 -> matchedExternalShop.id.toLong()
+                        else -> activeCloudShopId.takeIf { it > 1L } ?: (currentShop?.id?.toLong() ?: 0L)
+                    }
                     val activeVideoUri = if (state.attachPromoVideo) state.videoUri.trim() else ""
                     val activeVideoFile = if (state.attachPromoVideo) state.localVideoFile else null
                     val record = ShopAdRecord(
                         id = state.editingAdId,
-                        shopId = currentShop?.id?.toLong() ?: 0L,
+                        shopId = resolvedShopId,
                         shopName = cleanShop,
                         businessType = state.businessType.trim().ifBlank { "Boutique" },
                         city = state.city.trim(),
@@ -1510,7 +1602,7 @@ private fun ColumnScope.ShopAdPartnerShopsTab(
                     ) {
                         Icon(Icons.Default.ViewCarousel, contentDescription = null, tint = KonabBlue, modifier = Modifier.size(18.dp))
                         Text(
-                            text = "Activez ou mettez en pause chaque logo partenaire dans le modal d'accueil et associez-lui une vidéo promo 60s.",
+                            text = "Seul l'auteur d'une publicité peut l'activer, la modifier ou la supprimer depuis ses Paramètres.",
                             fontSize = 11.5.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             lineHeight = 15.sp

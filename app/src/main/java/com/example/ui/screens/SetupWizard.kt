@@ -66,7 +66,6 @@ import com.example.ui.components.ManagerPinEntryModal
 import com.example.ui.components.MultiShopManagerModal
 import com.example.ui.components.PortalsMenuModal
 import com.example.ui.components.ResponsiveMaxWidthBox
-import com.example.ui.components.ShopAdConfigModal
 import com.example.ui.components.ShopAdVideoPlayerDialog
 import com.example.ui.components.konabCardBorder
 import com.example.ui.components.konabHeroShimmer
@@ -217,11 +216,12 @@ fun SetupWizard(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 14.dp, vertical = 8.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
+                                .padding(horizontal = 14.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Row(
+                                modifier = Modifier.weight(1f),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
@@ -239,17 +239,21 @@ fun SetupWizard(
                                         modifier = Modifier.size(15.dp)
                                     )
                                 }
-                                Column {
+                                Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        text = "Mode Déploiement Agent : ${activeAgent?.name}",
+                                        text = "Mode Agent : ${activeAgent?.name}",
                                         color = Color.White,
                                         fontWeight = FontWeight.Bold,
-                                        fontSize = 12.sp
+                                        fontSize = 12.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                     Text(
-                                        text = "ID: ${activeAgent?.id} • ${activeAgent?.zone} • Configuration Client",
+                                        text = "${activeAgent?.id} • ${activeAgent?.zone}",
                                         color = Color(0xFFCBD5E1),
-                                        fontSize = 10.sp
+                                        fontSize = 10.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                 }
                             }
@@ -259,13 +263,15 @@ fun SetupWizard(
                                     activeAgent = null
                                     Toast.makeText(context, "Mode agent quitté", Toast.LENGTH_SHORT).show()
                                 },
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                modifier = Modifier.minimumInteractiveComponentSize()
                             ) {
                                 Text(
                                     text = "Quitter",
                                     color = Color(0xFFFFA43A),
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1
                                 )
                             }
                         }
@@ -867,238 +873,223 @@ private fun WizardStepWelcome(
     }
 
     var showcaseAds by remember { mutableStateOf<List<ShopAdRecord>>(emptyList()) }
-    var registeredShops by remember { mutableStateOf<List<ShopProfileEntity>>(emptyList()) }
     var carouselSettings by remember { mutableStateOf(ShopAdStorage.getCarouselSettings(context)) }
-    var showAdConfigModal by remember { mutableStateOf(false) }
-    var editingAdRecord by remember { mutableStateOf<ShopAdRecord?>(null) }
     var selectedAdForPlayer by remember { mutableStateOf<ShopAdRecord?>(null) }
-    var showcaseRefreshTick by remember { mutableIntStateOf(0) }
 
-    LaunchedEffect(shopProfile?.name, shopProfile?.logoUri, shopProfile?.phone, showcaseRefreshTick) {
+    LaunchedEffect(shopProfile?.name, shopProfile?.logoUri, shopProfile?.phone) {
         carouselSettings = ShopAdStorage.getCarouselSettings(context)
         val localFeed = syncManager.getLocalShowcaseFeed(shopProfile)
         showcaseAds = localFeed.showcaseAds
-        registeredShops = localFeed.registeredShops
 
         val cloudFeed = syncManager.fetchShowcaseFeed(shopProfile)
         showcaseAds = cloudFeed.showcaseAds
-        registeredShops = cloudFeed.registeredShops
     }
 
-    Box(
+    Column(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .verticalScroll(rememberScrollState())
+            .verticalScroll(rememberScrollState()),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Curved Royal Blue Executive Hero Backdrop matching Dashboard visual identity
+        // Self-contained Curved Royal Blue Executive Hero (no cards protruding/overlapping across curve)
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(258.dp)
-                .clip(RoundedCornerShape(bottomStart = 34.dp, bottomEnd = 34.dp))
+                .clip(RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp))
                 .background(
                     brush = Brush.verticalGradient(
                         colors = listOf(KonabBlueDeep, KonabBlueDark, KonabBlue)
                     )
                 )
                 .konabHeroShimmer(maxAlpha = 0.08f)
-        )
-
-        ResponsiveMaxWidthBox(
-            maxWidth = 640.dp,
-            modifier = Modifier.padding(horizontal = 18.dp, vertical = 18.dp)
         ) {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally
+            ResponsiveMaxWidthBox(
+                maxWidth = 640.dp,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)
             ) {
-                // Top Bar inside Hero: Utilisateur Account Pill + Menu Button
-                Row(
+                Column(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Surface(
-                        shape = RoundedCornerShape(14.dp),
-                        color = if (currentPublicUser != null) KonabGreen.copy(alpha = 0.25f) else Color.White.copy(alpha = 0.16f),
-                        border = BorderStroke(
-                            1.dp,
-                            if (currentPublicUser != null) Color(0xFF6EE7B7) else Color.White.copy(alpha = 0.35f)
-                        ),
-                        modifier = Modifier
-                            .heightIn(min = 40.dp)
-                            .clickable { onOpenUserPortalClick() }
-                            .testTag("btn_hero_user_portal")
+                    // Top Bar inside Hero: User Account Pill + Menu Button
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 11.dp, vertical = 7.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = if (currentPublicUser != null) KonabGreen.copy(alpha = 0.25f) else Color.White.copy(alpha = 0.16f),
+                            border = BorderStroke(
+                                1.dp,
+                                if (currentPublicUser != null) Color(0xFF6EE7B7) else Color.White.copy(alpha = 0.35f)
+                            ),
+                            modifier = Modifier
+                                .weight(1f, fill = false)
+                                .heightIn(min = 44.dp)
+                                .minimumInteractiveComponentSize()
+                                .clickable { onOpenUserPortalClick() }
+                                .testTag("btn_hero_user_portal")
                         ) {
-                            Icon(
-                                imageVector = if (currentPublicUser != null) Icons.Default.VerifiedUser else Icons.Default.PersonOutline,
-                                contentDescription = "Compte Utilisateur",
-                                tint = Color.White,
-                                modifier = Modifier.size(17.dp)
-                            )
-                            Text(
-                                text = currentPublicUser?.fullName?.substringBefore(" ")?.take(12) ?: "Utilisateur",
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 12.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (currentPublicUser != null) Icons.Default.VerifiedUser else Icons.Default.PersonOutline,
+                                    contentDescription = "Compte Utilisateur",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(17.dp)
+                                )
+                                Text(
+                                    text = currentPublicUser?.fullName?.substringBefore(" ")?.take(14) ?: "Mon compte",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.width(10.dp))
+
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = Color.White.copy(alpha = 0.16f),
+                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.35f)),
+                            modifier = Modifier
+                                .heightIn(min = 44.dp)
+                                .minimumInteractiveComponentSize()
+                                .clickable { onOpenPortalsMenuClick() }
+                                .testTag("btn_hero_menu")
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 13.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Menu,
+                                    contentDescription = "Ouvrir le Menu",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Text(
+                                    text = "Menu",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.5.sp,
+                                    maxLines = 1
+                                )
+                            }
                         }
                     }
 
+                    Spacer(modifier = Modifier.height(6.dp))
+
                     Surface(
-                        shape = RoundedCornerShape(14.dp),
-                        color = Color.White.copy(alpha = 0.16f),
-                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.35f)),
-                        modifier = Modifier
-                            .heightIn(min = 40.dp)
-                            .clickable { onOpenPortalsMenuClick() }
-                            .testTag("btn_hero_menu")
+                        modifier = Modifier.size(72.dp),
+                        shape = CircleShape,
+                        color = Color.White,
+                        shadowElevation = 6.dp,
+                        border = BorderStroke(2.dp, KonabOrange.copy(alpha = 0.85f))
+                    ) {
+                        Image(
+                            painter = painterResource(id = R.drawable.ic_konab_logo),
+                            contentDescription = "Logo KONAB POS",
+                            modifier = Modifier
+                                .padding(4.dp)
+                                .fillMaxSize(),
+                            contentScale = ContentScale.Fit
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Text(
+                        text = "KONAB POS",
+                        fontFamily = OutfitFontFamily,
+                        fontWeight = FontWeight.Black,
+                        fontSize = 25.sp,
+                        color = Color.White,
+                        letterSpacing = 1.sp,
+                        maxLines = 1
+                    )
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    Surface(
+                        shape = RoundedCornerShape(20.dp),
+                        color = KonabOrange.copy(alpha = 0.22f),
+                        border = BorderStroke(1.dp, KonabOrangeLight.copy(alpha = 0.65f))
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                            modifier = Modifier.padding(horizontal = 11.dp, vertical = 4.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Menu,
-                                contentDescription = "Ouvrir le Menu",
-                                tint = Color.White,
-                                modifier = Modifier.size(18.dp)
-                            )
+                            KonabLivePulseDot(color = KonabOrangeLight, size = 6.dp)
                             Text(
-                                text = "Menu",
+                                text = "Plus proche de vous",
+                                fontSize = 12.sp,
                                 color = Color.White,
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 12.5.sp,
                                 maxLines = 1
                             )
                         }
                     }
-                }
-                Spacer(modifier = Modifier.height(2.dp))
 
-                Surface(
-                    modifier = Modifier.size(82.dp),
-                    shape = CircleShape,
-                    color = Color.White,
-                    shadowElevation = 10.dp,
-                    border = BorderStroke(2.5.dp, KonabOrange.copy(alpha = 0.85f))
-                ) {
-                    Image(
-                        painter = painterResource(id = R.drawable.ic_konab_logo),
-                        contentDescription = "Logo KONAB POS",
-                        modifier = Modifier
-                            .padding(4.dp)
-                            .fillMaxSize(),
-                        contentScale = ContentScale.Fit
-                    )
-                }
+                    Spacer(modifier = Modifier.height(10.dp))
 
-                Spacer(modifier = Modifier.height(10.dp))
-
-                Text(
-                    text = "KONAB POS",
-                    fontFamily = OutfitFontFamily,
-                    fontWeight = FontWeight.Black,
-                    fontSize = 28.sp,
-                    color = Color.White,
-                    letterSpacing = 1.2.sp
-                )
-
-                Spacer(modifier = Modifier.height(4.dp))
-
-                Surface(
-                    shape = RoundedCornerShape(20.dp),
-                    color = KonabOrange.copy(alpha = 0.22f),
-                    border = BorderStroke(1.dp, KonabOrangeLight.copy(alpha = 0.65f))
-                ) {
+                    // Subtle inline trust strip inside hero (replaces cluttered standalone card)
                     Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        KonabLivePulseDot(color = KonabOrangeLight, size = 6.dp)
-                        Text(
-                            text = "Plus proche de vous",
-                            fontSize = 12.5.sp,
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold
+                        LaunchValuePillar(
+                            icon = Icons.Default.ThumbUp,
+                            label = "Simple"
+                        )
+                        Text("•", color = Color.White.copy(alpha = 0.45f), fontSize = 11.sp)
+                        LaunchValuePillar(
+                            icon = Icons.Default.Bolt,
+                            label = "Rapide"
+                        )
+                        Text("•", color = Color.White.copy(alpha = 0.45f), fontSize = 11.sp)
+                        LaunchValuePillar(
+                            icon = Icons.Default.CloudOff,
+                            label = "Hors ligne"
                         )
                     }
                 }
+            }
+        }
 
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Overlapping Launch Showcase Carousel (Vitrine Publicitaire des Boutiques)
+        // Main Home Screen Body (clean spacing, zero protruding/redundant cards)
+        ResponsiveMaxWidthBox(
+            maxWidth = 640.dp,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)
+        ) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
                 LaunchImageCarousel(
                     modifier = Modifier.fillMaxWidth(),
                     shopAds = showcaseAds,
                     carouselSettings = carouselSettings,
-                    pauseAutoScroll = showAdConfigModal || selectedAdForPlayer != null,
-                    onOpenAdConfig = {
-                        editingAdRecord = null
-                        showAdConfigModal = true
-                    },
+                    pauseAutoScroll = selectedAdForPlayer != null,
                     onShopAdClick = { ad ->
                         selectedAdForPlayer = ad
                     }
                 )
 
-                Spacer(modifier = Modifier.height(14.dp))
-
-                // Sleek 3-Pillar Value Bar (Light & Dark theme adaptive)
-                Surface(
-                    shape = KonabCardShape,
-                    color = MaterialTheme.colorScheme.surface,
-                    border = konabCardBorder(),
-                    tonalElevation = 1.dp,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 10.dp, horizontal = 10.dp),
-                        horizontalArrangement = Arrangement.SpaceEvenly,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        LaunchValuePillar(
-                            icon = Icons.Default.ThumbUp,
-                            label = "Simple",
-                            tint = KonabBlue
-                        )
-                        VerticalDivider(
-                            modifier = Modifier.height(18.dp),
-                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f)
-                        )
-                        LaunchValuePillar(
-                            icon = Icons.Default.Bolt,
-                            label = "Rapide",
-                            tint = KonabOrange
-                        )
-                        VerticalDivider(
-                            modifier = Modifier.height(18.dp),
-                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f)
-                        )
-                        LaunchValuePillar(
-                            icon = Icons.Default.CloudOff,
-                            label = "Hors ligne",
-                            tint = KonabSuccess
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
                 // =============================================================
-                // BLOC 1 : ENTRER DANS MA BOUTIQUE (Sécurisé / Annuaire Agents)
+                // BLOC 1 : ENTRER DANS MA BOUTIQUE (Action principale)
                 // =============================================================
                 Card(
                     modifier = Modifier
@@ -1108,7 +1099,7 @@ private fun WizardStepWelcome(
                         .testTag("btn_enter_my_shop"),
                     shape = RoundedCornerShape(18.dp),
                     colors = CardDefaults.cardColors(containerColor = Color.Transparent),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
+                    elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
                 ) {
                     Box(
                         modifier = Modifier
@@ -1119,16 +1110,16 @@ private fun WizardStepWelcome(
                                 )
                             )
                             .konabHeroShimmer(maxAlpha = 0.08f)
-                            .padding(horizontal = 16.dp, vertical = 16.dp)
+                            .padding(horizontal = 16.dp, vertical = 15.dp)
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(14.dp)
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(48.dp)
+                                    .size(46.dp)
                                     .clip(CircleShape)
                                     .background(Color.White.copy(alpha = 0.18f))
                                     .border(1.dp, Color.White.copy(alpha = 0.25f), CircleShape),
@@ -1142,7 +1133,7 @@ private fun WizardStepWelcome(
                                     },
                                     contentDescription = "Boutique",
                                     tint = Color.White,
-                                    modifier = Modifier.size(24.dp)
+                                    modifier = Modifier.size(23.dp)
                                 )
                             }
                             Column(modifier = Modifier.weight(1f)) {
@@ -1150,19 +1141,23 @@ private fun WizardStepWelcome(
                                     text = "Entrer dans ma boutique",
                                     fontFamily = OutfitFontFamily,
                                     fontWeight = FontWeight.ExtraBold,
-                                    fontSize = 16.5.sp,
-                                    color = Color.White
+                                    fontSize = 16.sp,
+                                    color = Color.White,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                                 Spacer(modifier = Modifier.height(2.dp))
                                 Text(
                                     text = if (shopProfile != null && shopProfile.isConfigured) {
-                                        "Accès protégé par code de confidentialité (« ${shopProfile.name} »)"
+                                        "Accès sécurisé • ${shopProfile.name}"
                                     } else {
-                                        "Boutique non configurée • Contacter un agent de votre ville"
+                                        "Contacter un agent pour configurer"
                                     },
                                     fontSize = 12.sp,
                                     color = Color(0xFFD6E4FA),
-                                    lineHeight = 16.sp
+                                    lineHeight = 16.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                             Box(
@@ -1183,38 +1178,39 @@ private fun WizardStepWelcome(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
-
                 // =============================================================
-                // BLOC 2 : BOUTON MENU DES PORTAILS + SCANNER QR UNIVERSEL
+                // BLOC 2 : MENU DES PORTAILS + SCANNER QR UNIVERSEL (Hauteur égale)
                 // =============================================================
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(IntrinsicSize.Min),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Card(
                         modifier = Modifier
                             .weight(1f)
+                            .fillMaxHeight()
                             .konabPressScale(pressedScale = 0.985f)
                             .clickable { onOpenPortalsMenuClick() }
                             .testTag("btn_welcome_portals_menu"),
                         shape = RoundedCornerShape(18.dp),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        border = BorderStroke(1.3.dp, KonabOrange.copy(alpha = 0.6f)),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
+                        border = BorderStroke(1.2.dp, KonabOrange.copy(alpha = 0.55f)),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                     ) {
                         Row(
                             modifier = Modifier
-                                .fillMaxWidth()
+                                .fillMaxSize()
                                 .padding(horizontal = 14.dp, vertical = 14.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(44.dp)
-                                    .clip(RoundedCornerShape(13.dp))
+                                    .size(42.dp)
+                                    .clip(RoundedCornerShape(12.dp))
                                     .background(KonabOrange.copy(alpha = 0.14f)),
                                 contentAlignment = Alignment.Center
                             ) {
@@ -1222,7 +1218,7 @@ private fun WizardStepWelcome(
                                     imageVector = Icons.Default.GridView,
                                     contentDescription = "Menu des Portails",
                                     tint = KonabOrange,
-                                    modifier = Modifier.size(23.dp)
+                                    modifier = Modifier.size(22.dp)
                                 )
                             }
                             Column(modifier = Modifier.weight(1f)) {
@@ -1231,11 +1227,14 @@ private fun WizardStepWelcome(
                                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
                                     Text(
-                                        text = "Menu des Portails",
+                                        text = "Portails & Services",
                                         fontFamily = OutfitFontFamily,
                                         fontWeight = FontWeight.ExtraBold,
-                                        fontSize = 15.sp,
-                                        color = MaterialTheme.colorScheme.onSurface
+                                        fontSize = 14.5.sp,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f, fill = false)
                                     )
                                     if (connectedShopsCount > 1) {
                                         Surface(
@@ -1253,34 +1252,37 @@ private fun WizardStepWelcome(
                                     }
                                 }
                                 Text(
-                                    text = "Restaurants, Couture, Poubelles, Tontine 30j, Multiboutique & Agent",
+                                    text = "Restos, Couture, Tontine & Agent",
                                     fontSize = 11.5.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    lineHeight = 15.sp,
-                                    maxLines = 2,
+                                    maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
                             }
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.ArrowForward,
                                 contentDescription = null,
-                                tint = KonabOrange
+                                tint = KonabOrange,
+                                modifier = Modifier.size(18.dp)
                             )
                         }
                     }
 
                     Surface(
                         shape = RoundedCornerShape(18.dp),
-                        color = KonabBlue.copy(alpha = 0.12f),
+                        color = KonabBlue.copy(alpha = 0.11f),
                         border = BorderStroke(1.2.dp, KonabBlue.copy(alpha = 0.35f)),
                         modifier = Modifier
-                            .size(width = 74.dp, height = 74.dp)
+                            .width(92.dp)
+                            .fillMaxHeight()
                             .konabPressScale()
                             .clickable { onScanTableQrClick() }
                             .testTag("btn_welcome_quick_scan_qr")
                     ) {
                         Column(
-                            modifier = Modifier.fillMaxSize(),
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 8.dp, vertical = 12.dp),
                             verticalArrangement = Arrangement.Center,
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
@@ -1288,96 +1290,16 @@ private fun WizardStepWelcome(
                                 imageVector = Icons.Default.QrCodeScanner,
                                 contentDescription = "Scanner QR Universel",
                                 tint = KonabBlue,
-                                modifier = Modifier.size(26.dp)
-                            )
-                            Spacer(modifier = Modifier.height(3.dp))
-                            Text(
-                                text = "Scan QR",
-                                fontSize = 10.5.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = KonabBlue,
-                                maxLines = 1
-                            )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // =============================================================
-                // BLOC 3 : UTILISATEUR (COMPTE, CANTINES, RESTOS & CARTES)
-                // =============================================================
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .konabPressScale(pressedScale = 0.985f)
-                        .clickable { onOpenUserPortalClick() }
-                        .testTag("btn_welcome_user_portal"),
-                    shape = RoundedCornerShape(18.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    border = BorderStroke(
-                        1.2.dp,
-                        if (currentPublicUser != null) KonabGreen.copy(alpha = 0.55f) else KonabBlue.copy(alpha = 0.45f)
-                    ),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 14.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(42.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background((if (currentPublicUser != null) KonabGreen else KonabBlue).copy(alpha = 0.14f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = if (currentPublicUser != null) Icons.Default.VerifiedUser else Icons.Default.AccountCircle,
-                                contentDescription = "Espace Utilisateur",
-                                tint = if (currentPublicUser != null) KonabGreen else KonabBlue,
                                 modifier = Modifier.size(24.dp)
                             )
-                        }
-                        Column(modifier = Modifier.weight(1f)) {
+                            Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = if (currentPublicUser != null) {
-                                    "Utilisateur : ${currentPublicUser.fullName}"
-                                } else {
-                                    "Utilisateur • Créer un compte"
-                                },
-                                fontFamily = OutfitFontFamily,
-                                fontWeight = FontWeight.ExtraBold,
-                                fontSize = 14.5.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Text(
-                                text = if (currentPublicUser != null) {
-                                    "ID ${currentPublicUser.id} • Cantines, Restos, Couture, Tontine & Poubelles"
-                                } else {
-                                    "Accédez aux cantines, restaurants, commandes et vos cartes"
-                                },
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = (if (currentPublicUser != null) KonabGreen else KonabBlue).copy(alpha = 0.14f)
-                        ) {
-                            Text(
-                                text = if (currentPublicUser != null) "Actif" else "Ouvrir",
-                                color = if (currentPublicUser != null) KonabGreen else KonabBlue,
+                                text = "Scan QR",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
+                                color = KonabBlue,
                                 maxLines = 1,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }
@@ -1387,7 +1309,6 @@ private fun WizardStepWelcome(
                 // BLOC AGENT ACTIF (uniquement lorsqu'un agent est connecté)
                 // =============================================================
                 if (activeAgent != null) {
-                    Spacer(modifier = Modifier.height(12.dp))
                     val activeAgentPhoto = remember(activeAgent.id, activeAgent.photoUri) {
                         AgentDeploymentStorage.getEffectivePhotoUri(context, activeAgent)
                     }
@@ -1397,8 +1318,8 @@ private fun WizardStepWelcome(
                             .testTag("card_active_agent_welcome"),
                         shape = RoundedCornerShape(18.dp),
                         colors = CardDefaults.cardColors(containerColor = KonabBlueDark),
-                        border = BorderStroke(1.5.dp, KonabOrangeLight.copy(alpha = 0.55f)),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 5.dp)
+                        border = BorderStroke(1.2.dp, KonabOrangeLight.copy(alpha = 0.55f)),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
                     ) {
                         Column(
                             modifier = Modifier
@@ -1424,27 +1345,37 @@ private fun WizardStepWelcome(
                                         size = 42.dp,
                                         borderColor = KonabOrangeLight
                                     )
-                                    Column {
+                                    Column(modifier = Modifier.weight(1f)) {
                                         Text(
                                             text = "Agent : ${activeAgent.name}",
                                             fontFamily = OutfitFontFamily,
                                             fontWeight = FontWeight.Bold,
                                             color = Color.White,
-                                            fontSize = 14.5.sp
+                                            fontSize = 14.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
                                         )
                                         Text(
                                             text = "${AgentIdCardHelper.getConapesReferenceCode(activeAgent.id)} • $agentDeploymentsCount boutique(s)",
                                             color = Color(0xFFCBD5E1),
-                                            fontSize = 11.sp
+                                            fontSize = 11.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
                                         )
                                     }
                                 }
                                 TextButton(
                                     onClick = onDisconnectAgent,
                                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                                    modifier = Modifier.heightIn(min = 40.dp)
+                                    modifier = Modifier.minimumInteractiveComponentSize()
                                 ) {
-                                    Text("Changer", color = KonabOrangeLight, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    Text(
+                                        text = "Changer",
+                                        color = KonabOrangeLight,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1
+                                    )
                                 }
                             }
 
@@ -1461,14 +1392,20 @@ private fun WizardStepWelcome(
                                 ) {
                                     Icon(Icons.Default.AddBusiness, contentDescription = null, modifier = Modifier.size(18.dp))
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    Text("⚡ Configurer une nouvelle boutique", fontWeight = FontWeight.Bold, fontSize = 13.5.sp)
+                                    Text(
+                                        text = "Configurer une nouvelle boutique",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.5.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
                                 }
                             }
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(8.dp))
             }
         }
     }
@@ -1477,27 +1414,7 @@ private fun WizardStepWelcome(
     selectedAdForPlayer?.let { adToWatch ->
         ShopAdVideoPlayerDialog(
             ad = adToWatch,
-            onDismiss = { selectedAdForPlayer = null },
-            onEditAd = {
-                editingAdRecord = adToWatch
-                showAdConfigModal = true
-            }
-        )
-    }
-
-    // Système complet de configuration de publicité lancé directement depuis le cadre d'accueil
-    if (showAdConfigModal) {
-        ShopAdConfigModal(
-            currentShop = shopProfile,
-            registeredShops = registeredShops,
-            initialAdToEdit = editingAdRecord,
-            onDismiss = {
-                showAdConfigModal = false
-                editingAdRecord = null
-            },
-            onPublished = {
-                showcaseRefreshTick++
-            }
+            onDismiss = { selectedAdForPlayer = null }
         )
     }
 }
@@ -1505,32 +1422,24 @@ private fun WizardStepWelcome(
 @Composable
 private fun LaunchValuePillar(
     icon: ImageVector,
-    label: String,
-    tint: Color
+    label: String
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        Box(
-            modifier = Modifier
-                .size(24.dp)
-                .clip(CircleShape)
-                .background(tint.copy(alpha = 0.14f)),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = tint,
-                modifier = Modifier.size(13.dp)
-            )
-        }
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = Color.White.copy(alpha = 0.85f),
+            modifier = Modifier.size(13.dp)
+        )
         Text(
             text = label,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurface,
-            fontSize = 12.sp
+            fontWeight = FontWeight.Medium,
+            color = Color.White.copy(alpha = 0.90f),
+            fontSize = 11.5.sp,
+            maxLines = 1
         )
     }
 }

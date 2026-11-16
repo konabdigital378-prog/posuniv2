@@ -48,6 +48,9 @@ import com.example.ui.theme.OutfitFontFamily
 import com.example.util.CouturePhotoCaptureControl
 import com.example.util.CouturePhotoImage
 import com.example.util.CoutureQrCardHelper
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import com.example.util.CurrencyFormatter
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -99,10 +102,18 @@ fun CoutureScreen(
     var paymentOrderTarget by remember { mutableStateOf<CoutureOrderRecord?>(null) }
     var showScannerModal by remember { mutableStateOf(false) }
 
-    LaunchedEffect(cloudShopId) {
-        while (isActive) {
-            onLivePollCouture()
-            delay(10_000L)
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val currentPollCouture by rememberUpdatedState(onLivePollCouture)
+    val latestCoutureSyncAt by rememberUpdatedState(lastCoutureSyncAt)
+    LaunchedEffect(cloudShopId, lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            if (System.currentTimeMillis() - latestCoutureSyncAt >= 10_000L) {
+                currentPollCouture()
+            }
+            while (isActive) {
+                delay(45_000L)
+                currentPollCouture()
+            }
         }
     }
 

@@ -75,8 +75,8 @@ fun CashScreen(
     val currentCashBalance = remember(cashMovements) {
         cashMovements.sumOf { m ->
             when (m.type) {
-                "SALE", "CASH_IN", "DEBT_PAYMENT" -> m.amount
-                "EXPENSE", "CASH_OUT", "SUPPLIER_PAYMENT" -> -m.amount
+                "SALE", "CASH_IN", "DEBT_PAYMENT", "IN" -> m.amount
+                "EXPENSE", "CASH_OUT", "SUPPLIER_PAYMENT", "OUT" -> -m.amount
                 else -> 0L
             }
         }
@@ -91,13 +91,13 @@ fun CashScreen(
     }
 
     val totalExpenses = remember(cashMovements) {
-        cashMovements.filter { it.type in listOf("EXPENSE", "SUPPLIER_PAYMENT", "CASH_OUT") }.sumOf { it.amount }
+        cashMovements.filter { it.type in listOf("EXPENSE", "SUPPLIER_PAYMENT", "CASH_OUT", "OUT") }.sumOf { it.amount }
     }
 
     val filteredMovements = remember(cashMovements, movementFilter) {
         when (movementFilter) {
-            "Entrées" -> cashMovements.filter { it.type in listOf("SALE", "CASH_IN", "DEBT_PAYMENT") }
-            "Sorties" -> cashMovements.filter { it.type in listOf("EXPENSE", "CASH_OUT", "SUPPLIER_PAYMENT") }
+            "Entrées" -> cashMovements.filter { it.type in listOf("SALE", "CASH_IN", "DEBT_PAYMENT", "IN") }
+            "Sorties" -> cashMovements.filter { it.type in listOf("EXPENSE", "CASH_OUT", "SUPPLIER_PAYMENT", "OUT") }
             else -> cashMovements
         }
     }

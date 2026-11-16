@@ -36,16 +36,16 @@ import com.example.data.remote.supabase.PublicUserAccount
 import com.example.ui.theme.*
 
 /**
- * Portail d'Identification Utilisateur Public (Créer un compte / Se connecter / Espace Services & Carte).
- * Les comptes créés sont immédiatement enregistrés dans Supabase (`app_users`) et donnent accès aux
- * Cantines & Restaurants, Couture, Cartes Poubelles et Cartes Tontine 30 jours.
+ * Portail d'Identification Utilisateur Public (Créer un compte / Se connecter / Modifier profil / Espace Services).
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun PublicUserPortalModal(
     activeUser: PublicUserAccount?,
     isSyncing: Boolean,
     wasteCardsCount: Int,
     tontineCardsCount: Int,
+    availableShopNames: List<String> = emptyList(),
     onRegisterUser: (
         fullName: String,
         phone: String,
@@ -54,6 +54,26 @@ fun PublicUserPortalModal(
         pin: String,
         photoUri: String,
         preferredActivity: String,
+        isSeekingAccompaniment: Boolean,
+        accompanimentDetails: String,
+        isShopMember: Boolean,
+        memberShopName: String,
+        memberShopRole: String,
+        onResult: (Boolean, String) -> Unit
+    ) -> Unit,
+    onUpdateProfile: (
+        fullName: String,
+        phone: String,
+        city: String,
+        neighborhood: String,
+        newPin: String,
+        photoUri: String?,
+        preferredActivity: String?,
+        isSeekingAccompaniment: Boolean,
+        accompanimentDetails: String,
+        isShopMember: Boolean,
+        memberShopName: String,
+        memberShopRole: String,
         onResult: (Boolean, String) -> Unit
     ) -> Unit,
     onLoginUser: (
@@ -75,15 +95,21 @@ fun PublicUserPortalModal(
 
     var regName by remember { mutableStateOf("") }
     var regPhone by remember { mutableStateOf("") }
-    var regCity by remember { mutableStateOf("Conakry") }
+    var regCity by remember { mutableStateOf("") }
     var regNeighborhood by remember { mutableStateOf("") }
-    var regPin by remember { mutableStateOf("0000") }
+    var regPin by remember { mutableStateOf("") }
     var regPhotoUri by remember { mutableStateOf("") }
     var regTheme by remember { mutableStateOf(CardActivityTheme.UTILISATEUR) }
+    var regIsSeekingAccompaniment by remember { mutableStateOf(false) }
+    var regAccompanimentDetails by remember { mutableStateOf("") }
+    var regIsShopMember by remember { mutableStateOf(false) }
+    var regMemberShopName by remember { mutableStateOf("") }
+    var regMemberShopRole by remember { mutableStateOf("") }
 
     var loginPhoneOrId by remember { mutableStateOf("") }
     var loginPin by remember { mutableStateOf("") }
     var feedbackMsg by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
+    var showEditProfileDialog by remember { mutableStateOf(false) }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -114,7 +140,12 @@ fun PublicUserPortalModal(
                         .padding(horizontal = 16.dp, vertical = 14.dp)
                 ) {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .then(
+                                if (activeUser != null) Modifier.clickable { showEditProfileDialog = true }
+                                else Modifier
+                            ),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
@@ -134,7 +165,7 @@ fun PublicUserPortalModal(
                         }
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = if (activeUser != null) "Mon Espace Utilisateur" else "Compte Utilisateur",
+                                text = if (activeUser != null) "Mon Profil Utilisateur" else "Compte Utilisateur",
                                 fontFamily = OutfitFontFamily,
                                 fontWeight = FontWeight.Black,
                                 fontSize = 18.sp,
@@ -144,7 +175,10 @@ fun PublicUserPortalModal(
                             )
                             Text(
                                 text = if (activeUser != null) {
-                                    "${activeUser.fullName} • ${activeUser.phone}"
+                                    listOfNotNull(
+                                        activeUser.fullName.takeIf { it.isNotBlank() },
+                                        activeUser.phone.takeIf { it.isNotBlank() }
+                                    ).joinToString(" • ").ifBlank { "Touchez pour modifier votre profil" }
                                 } else {
                                     "Créez votre compte et accédez aux services"
                                 },
@@ -160,6 +194,16 @@ fun PublicUserPortalModal(
                                 strokeWidth = 2.dp,
                                 modifier = Modifier.size(18.dp)
                             )
+                        }
+                        if (activeUser != null) {
+                            IconButton(
+                                onClick = { showEditProfileDialog = true },
+                                modifier = Modifier
+                                    .minimumInteractiveComponentSize()
+                                    .testTag("btn_header_edit_profile")
+                            ) {
+                                Icon(Icons.Default.Edit, contentDescription = "Modifier le profil", tint = Color.White)
+                            }
                         }
                         IconButton(
                             onClick = onDismiss,
@@ -240,9 +284,9 @@ fun PublicUserPortalModal(
 
                         if (authTab == 0) {
                             ActivityPhotoPickerRow(
-                                title = "Photo de profil (Carte Conakry Web)",
+                                title = "Photo de profil",
                                 subtitle = "Affichée sur votre carte QR personnelle",
-                                holderName = regName.ifBlank { "Utilisateur" },
+                                holderName = regName.ifBlank { "Mon Profil" },
                                 photoUri = regPhotoUri,
                                 keyHint = "user_reg",
                                 accentColor = KonabOrange,
@@ -280,6 +324,7 @@ fun PublicUserPortalModal(
                                     value = regCity,
                                     onValueChange = { regCity = it },
                                     label = { Text("Ville") },
+                                    placeholder = { Text("Votre ville") },
                                     singleLine = true,
                                     modifier = Modifier.weight(1f)
                                 )
@@ -287,6 +332,7 @@ fun PublicUserPortalModal(
                                     value = regNeighborhood,
                                     onValueChange = { regNeighborhood = it },
                                     label = { Text("Quartier") },
+                                    placeholder = { Text("Votre quartier") },
                                     singleLine = true,
                                     modifier = Modifier.weight(1f)
                                 )
@@ -295,7 +341,8 @@ fun PublicUserPortalModal(
                             OutlinedTextField(
                                 value = regPin,
                                 onValueChange = { if (it.length <= 6) regPin = it },
-                                label = { Text("Code PIN secret (4 chiffres) *") },
+                                label = { Text("Code PIN secret (4 à 6 chiffres) *") },
+                                placeholder = { Text("Ex: 4820") },
                                 leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
                                 visualTransformation = PasswordVisualTransformation(),
@@ -304,6 +351,100 @@ fun PublicUserPortalModal(
                                     .fillMaxWidth()
                                     .testTag("input_user_reg_pin")
                             )
+
+                            // Options facultatives : Accompagnement & Membre d'une boutique
+                            Surface(
+                                shape = RoundedCornerShape(14.dp),
+                                color = MaterialTheme.colorScheme.surface,
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text("Accompagnement", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                            Text(
+                                                "Permettre aux gens / agents de vous accompagner",
+                                                fontSize = 11.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                        Switch(
+                                            checked = regIsSeekingAccompaniment,
+                                            onCheckedChange = { regIsSeekingAccompaniment = it }
+                                        )
+                                    }
+                                    if (regIsSeekingAccompaniment) {
+                                        OutlinedTextField(
+                                            value = regAccompanimentDetails,
+                                            onValueChange = { regAccompanimentDetails = it },
+                                            label = { Text("Domaine ou besoin d'accompagnement") },
+                                            placeholder = { Text("Ex: Ouvrir ma boutique, suivi stock...") },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            maxLines = 2
+                                        )
+                                    }
+
+                                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text("Membre d'une boutique", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                            Text(
+                                                "Indiquer à quelle boutique vous appartenez",
+                                                fontSize = 11.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                        Switch(
+                                            checked = regIsShopMember,
+                                            onCheckedChange = { regIsShopMember = it }
+                                        )
+                                    }
+                                    if (regIsShopMember) {
+                                        OutlinedTextField(
+                                            value = regMemberShopName,
+                                            onValueChange = { regMemberShopName = it },
+                                            label = { Text("Nom de la boutique") },
+                                            singleLine = true,
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+                                        if (availableShopNames.isNotEmpty()) {
+                                            FlowRow(
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                availableShopNames.take(5).forEach { shopName ->
+                                                    FilterChip(
+                                                        selected = regMemberShopName.equals(shopName, ignoreCase = true),
+                                                        onClick = { regMemberShopName = shopName },
+                                                        label = { Text(shopName, fontSize = 11.sp) }
+                                                    )
+                                                }
+                                            }
+                                        }
+                                        OutlinedTextField(
+                                            value = regMemberShopRole,
+                                            onValueChange = { regMemberShopRole = it },
+                                            label = { Text("Statut / Rôle (ex: Membre, Caissier, Client)") },
+                                            singleLine = true,
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+                                    }
+                                }
+                            }
 
                             Text(
                                 text = "Thème visuel de votre carte :",
@@ -337,7 +478,12 @@ fun PublicUserPortalModal(
                                         regNeighborhood,
                                         regPin,
                                         regPhotoUri,
-                                        regTheme.name
+                                        regTheme.name,
+                                        regIsSeekingAccompaniment,
+                                        regAccompanimentDetails,
+                                        regIsShopMember,
+                                        regMemberShopName,
+                                        regMemberShopRole
                                     ) { ok, msg ->
                                         feedbackMsg = ok to msg
                                     }
@@ -407,6 +553,23 @@ fun PublicUserPortalModal(
                     }
                 } else {
                     val activeTheme = CardActivityTheme.fromRaw(activeUser.preferredActivity)
+                    val userCityZone = listOf(activeUser.neighborhood.trim(), activeUser.city.trim())
+                        .filter { it.isNotBlank() }
+                        .joinToString(", ")
+                    val shopOrgLine = if (activeUser.isShopMember && activeUser.memberShopName.isNotBlank()) {
+                        val rolePart = if (activeUser.memberShopRole.isNotBlank()) " • ${activeUser.memberShopRole}" else ""
+                        "Boutique : ${activeUser.memberShopName}$rolePart"
+                    } else ""
+                    val cardStatusBadge = when {
+                        activeUser.isSeekingAccompaniment -> "Accompagnement ouvert"
+                        activeUser.isShopMember && activeUser.memberShopName.isNotBlank() -> "Membre boutique"
+                        else -> "Profil actif"
+                    }
+                    val activeStatsParts = buildList {
+                        if (wasteCardsCount > 0) add("Poubelles : $wasteCardsCount")
+                        if (tontineCardsCount > 0) add("Tontines : $tontineCardsCount")
+                    }.joinToString(" • ")
+
                     Column(
                         modifier = Modifier
                             .weight(1f)
@@ -414,19 +577,123 @@ fun PublicUserPortalModal(
                             .padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
+                        feedbackMsg?.let { (ok, msg) ->
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = if (ok) KonabSuccess.copy(alpha = 0.14f) else KonabRed.copy(alpha = 0.12f),
+                                border = BorderStroke(1.dp, if (ok) KonabSuccess else KonabRed),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = msg,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = if (ok) KonabSuccess else KonabRed,
+                                    modifier = Modifier.padding(12.dp)
+                                )
+                            }
+                        }
+
+                        // Carte numérique cliquable : un clic ouvre l'éditeur de profil complet
                         ActivityDigitalCard(
                             theme = activeTheme,
                             holderName = activeUser.fullName,
                             codeId = activeUser.id,
-                            organizationTitle = "Membre Conakry Web • ${activeUser.city.ifBlank { "Conakry" }}",
+                            organizationTitle = shopOrgLine,
                             phone = activeUser.phone,
-                            zoneOrAddress = activeUser.neighborhood.ifBlank { activeUser.city },
+                            zoneOrAddress = userCityZone,
                             qrPayload = activeUser.buildQrUri(),
                             photoUri = activeUser.photoUri,
-                            statusBadge = "Compte Utilisateur Actif (Supabase Sync)",
-                            statsLine = "Poubelles : $wasteCardsCount • Tontines : $tontineCardsCount",
-                            onPhotoSelected = onUpdatePhoto
+                            statusBadge = cardStatusBadge,
+                            statsLine = activeStatsParts,
+                            onPhotoSelected = onUpdatePhoto,
+                            onCardClick = { showEditProfileDialog = true },
+                            editHintLabel = "Modifier profil"
                         )
+
+                        // Carte récapitulative des informations du profil (cliquable pour modifier)
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.surface,
+                            border = BorderStroke(1.dp, KonabBlue.copy(alpha = 0.28f)),
+                            tonalElevation = 1.dp,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { showEditProfileDialog = true }
+                                .testTag("card_user_profile_details")
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Icon(Icons.Default.ManageAccounts, contentDescription = null, tint = KonabBlue, modifier = Modifier.size(18.dp))
+                                        Text(
+                                            text = "Informations du profil",
+                                            fontFamily = OutfitFontFamily,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 14.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                    FilledTonalButton(
+                                        onClick = { showEditProfileDialog = true },
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                        modifier = Modifier
+                                            .heightIn(min = 40.dp)
+                                            .testTag("btn_edit_public_profile")
+                                    ) {
+                                        Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(14.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Modifier", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+
+                                ProfileInfoLine(
+                                    icon = Icons.Default.LocationOn,
+                                    label = "Ville / Quartier",
+                                    value = userCityZone.ifBlank { "Non renseignée (touchez pour définir)" },
+                                    isMuted = userCityZone.isBlank()
+                                )
+                                ProfileInfoLine(
+                                    icon = Icons.Default.Handshake,
+                                    label = "Accompagnement",
+                                    value = if (activeUser.isSeekingAccompaniment) {
+                                        activeUser.accompanimentDetails.ifBlank { "Disponible pour être accompagné(e)" }
+                                    } else {
+                                        "Désactivé (touchez pour activer)"
+                                    },
+                                    isMuted = !activeUser.isSeekingAccompaniment,
+                                    accent = KonabGreen
+                                )
+                                ProfileInfoLine(
+                                    icon = Icons.Default.Storefront,
+                                    label = "Boutique affiliée",
+                                    value = if (activeUser.isShopMember && activeUser.memberShopName.isNotBlank()) {
+                                        buildString {
+                                            append(activeUser.memberShopName)
+                                            if (activeUser.memberShopRole.isNotBlank()) append(" (${activeUser.memberShopRole})")
+                                        }
+                                    } else {
+                                        "Aucune boutique indiquée"
+                                    },
+                                    isMuted = !(activeUser.isShopMember && activeUser.memberShopName.isNotBlank()),
+                                    accent = KonabOrange
+                                )
+                            }
+                        }
 
                         Text(
                             text = "Style de carte par activité :",
@@ -455,13 +722,13 @@ fun PublicUserPortalModal(
                             theme = activeTheme,
                             holderName = activeUser.fullName,
                             codeId = activeUser.id,
-                            organizationTitle = "Membre Conakry Web",
+                            organizationTitle = shopOrgLine,
                             phone = activeUser.phone,
-                            zoneOrAddress = activeUser.neighborhood.ifBlank { activeUser.city },
+                            zoneOrAddress = userCityZone,
                             qrPayload = activeUser.buildQrUri(),
                             photoUri = activeUser.photoUri,
-                            statusBadge = "Compte Utilisateur Actif",
-                            statsLine = "Poubelles : $wasteCardsCount • Tontines : $tontineCardsCount"
+                            statusBadge = cardStatusBadge,
+                            statsLine = activeStatsParts
                         )
 
                         Text(
@@ -545,10 +812,413 @@ fun PublicUserPortalModal(
                             Text("Déconnecter ce compte utilisateur", fontWeight = FontWeight.Bold)
                         }
                     }
+
+                    if (showEditProfileDialog) {
+                        EditPublicUserProfileDialog(
+                            user = activeUser,
+                            availableShopNames = availableShopNames,
+                            isSaving = isSyncing,
+                            onDismiss = { showEditProfileDialog = false },
+                            onSave = { name, phone, city, neighborhood, newPin, photoUri, isSeekingAcc, accDetails, isShopMember, memberShopName, memberShopRole ->
+                                onUpdateProfile(
+                                    name,
+                                    phone,
+                                    city,
+                                    neighborhood,
+                                    newPin,
+                                    photoUri,
+                                    null,
+                                    isSeekingAcc,
+                                    accDetails,
+                                    isShopMember,
+                                    memberShopName,
+                                    memberShopRole
+                                ) { ok, msg ->
+                                    feedbackMsg = ok to msg
+                                    if (ok) showEditProfileDialog = false
+                                }
+                            }
+                        )
+                    }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun ProfileInfoLine(
+    icon: ImageVector,
+    label: String,
+    value: String,
+    isMuted: Boolean,
+    accent: Color = KonabBlue
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = if (isMuted) MaterialTheme.colorScheme.onSurfaceVariant else accent,
+            modifier = Modifier.size(16.dp)
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = label,
+                fontSize = 10.5.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = value,
+                fontSize = 12.5.sp,
+                fontWeight = if (isMuted) FontWeight.Normal else FontWeight.SemiBold,
+                color = if (isMuted) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun EditPublicUserProfileDialog(
+    user: PublicUserAccount,
+    availableShopNames: List<String>,
+    isSaving: Boolean,
+    onDismiss: () -> Unit,
+    onSave: (
+        fullName: String,
+        phone: String,
+        city: String,
+        neighborhood: String,
+        newPin: String,
+        photoUri: String,
+        isSeekingAccompaniment: Boolean,
+        accompanimentDetails: String,
+        isShopMember: Boolean,
+        memberShopName: String,
+        memberShopRole: String
+    ) -> Unit
+) {
+    var fullName by remember(user) { mutableStateOf(user.fullName) }
+    var phone by remember(user) { mutableStateOf(user.phone) }
+    var city by remember(user) { mutableStateOf(user.city) }
+    var neighborhood by remember(user) { mutableStateOf(user.neighborhood) }
+    var newPin by remember { mutableStateOf("") }
+    var photoUri by remember(user) { mutableStateOf(user.photoUri) }
+    var isSeekingAccompaniment by remember(user) { mutableStateOf(user.isSeekingAccompaniment) }
+    var accompanimentDetails by remember(user) { mutableStateOf(user.accompanimentDetails) }
+    var isShopMember by remember(user) { mutableStateOf(user.isShopMember) }
+    var memberShopName by remember(user) { mutableStateOf(user.memberShopName) }
+    var memberShopRole by remember(user) { mutableStateOf(user.memberShopRole) }
+    var localError by remember { mutableStateOf("") }
+
+    val quickRoles = listOf("Membre", "Client fidèle", "Caissier(ère)", "Employé(e)", "Associé(e)", "Gérant(e)")
+    val quickAccompanimentTopics = listOf(
+        "Développer mon activité",
+        "Accompagnement gestion caisse",
+        "Trouver des partenaires",
+        "Suivi & mentorat"
+    )
+
+    AlertDialog(
+        onDismissRequest = { if (!isSaving) onDismiss() },
+        title = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(Icons.Default.ManageAccounts, contentDescription = null, tint = KonabBlue)
+                Column {
+                    Text("Modifier mon profil", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Text(
+                        text = user.id,
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 440.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                ActivityPhotoPickerRow(
+                    title = "Photo de profil",
+                    subtitle = "Apparaît sur votre carte",
+                    holderName = fullName.ifBlank { "Profil" },
+                    photoUri = photoUri,
+                    keyHint = "edit_${user.id}",
+                    accentColor = KonabOrange,
+                    onPhotoSelected = { photoUri = it }
+                )
+
+                OutlinedTextField(
+                    value = fullName,
+                    onValueChange = { fullName = it; localError = "" },
+                    label = { Text("Nom complet *") },
+                    leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("input_edit_profile_name")
+                )
+
+                OutlinedTextField(
+                    value = phone,
+                    onValueChange = { phone = it; localError = "" },
+                    label = { Text("Numéro de téléphone *") },
+                    leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("input_edit_profile_phone")
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = city,
+                        onValueChange = { city = it },
+                        label = { Text("Ville") },
+                        placeholder = { Text("Votre ville") },
+                        singleLine = true,
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("input_edit_profile_city")
+                    )
+                    OutlinedTextField(
+                        value = neighborhood,
+                        onValueChange = { neighborhood = it },
+                        label = { Text("Quartier") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                // Section Accompagnement
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = KonabGreen.copy(alpha = 0.08f),
+                    border = BorderStroke(1.dp, KonabGreen.copy(alpha = 0.3f))
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Accompagnement", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                Text(
+                                    "Pour que des personnes ou agents puissent vous accompagner",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Switch(
+                                checked = isSeekingAccompaniment,
+                                onCheckedChange = { isSeekingAccompaniment = it },
+                                modifier = Modifier.testTag("switch_edit_profile_accompaniment")
+                            )
+                        }
+                        if (isSeekingAccompaniment) {
+                            OutlinedTextField(
+                                value = accompanimentDetails,
+                                onValueChange = { accompanimentDetails = it },
+                                label = { Text("Précisez votre besoin ou message") },
+                                placeholder = { Text("Ex: Besoin d'accompagnement pour...") },
+                                maxLines = 2,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("input_edit_profile_accompaniment_details")
+                            )
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                quickAccompanimentTopics.forEach { topic ->
+                                    FilterChip(
+                                        selected = accompanimentDetails.equals(topic, ignoreCase = true),
+                                        onClick = { accompanimentDetails = topic },
+                                        label = { Text(topic, fontSize = 10.5.sp) }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Section Membre d'une boutique
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = KonabOrange.copy(alpha = 0.08f),
+                    border = BorderStroke(1.dp, KonabOrange.copy(alpha = 0.3f))
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Membre d'une boutique", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                Text(
+                                    "Indiquer votre boutique et votre statut",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Switch(
+                                checked = isShopMember,
+                                onCheckedChange = { isShopMember = it },
+                                modifier = Modifier.testTag("switch_edit_profile_shop_member")
+                            )
+                        }
+                        if (isShopMember) {
+                            OutlinedTextField(
+                                value = memberShopName,
+                                onValueChange = { memberShopName = it; localError = "" },
+                                label = { Text("Nom de la boutique *") },
+                                leadingIcon = { Icon(Icons.Default.Storefront, contentDescription = null) },
+                                singleLine = true,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("input_edit_profile_shop_name")
+                            )
+                            if (availableShopNames.isNotEmpty()) {
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    availableShopNames.take(6).forEach { sName ->
+                                        FilterChip(
+                                            selected = memberShopName.equals(sName, ignoreCase = true),
+                                            onClick = { memberShopName = sName; localError = "" },
+                                            label = { Text(sName, fontSize = 10.5.sp) }
+                                        )
+                                    }
+                                }
+                            }
+                            OutlinedTextField(
+                                value = memberShopRole,
+                                onValueChange = { memberShopRole = it },
+                                label = { Text("Rôle / Statut dans la boutique") },
+                                placeholder = { Text("Ex: Membre, Client fidèle, Caissier...") },
+                                singleLine = true,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("input_edit_profile_shop_role")
+                            )
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                quickRoles.forEach { roleLabel ->
+                                    FilterChip(
+                                        selected = memberShopRole.equals(roleLabel, ignoreCase = true),
+                                        onClick = { memberShopRole = roleLabel },
+                                        label = { Text(roleLabel, fontSize = 10.5.sp) }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                OutlinedTextField(
+                    value = newPin,
+                    onValueChange = { if (it.length <= 6) newPin = it; localError = "" },
+                    label = { Text("Nouveau code PIN (optionnel)") },
+                    placeholder = { Text("Laisser vide pour conserver l'actuel") },
+                    leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                    visualTransformation = PasswordVisualTransformation(),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                if (localError.isNotBlank()) {
+                    Text(
+                        text = localError,
+                        color = MaterialTheme.colorScheme.error,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (fullName.isBlank()) {
+                        localError = "Le nom complet est obligatoire."
+                        return@Button
+                    }
+                    if (phone.filter { it.isDigit() }.length < 6) {
+                        localError = "Numéro de téléphone invalide."
+                        return@Button
+                    }
+                    if (isShopMember && memberShopName.isBlank()) {
+                        localError = "Indiquez le nom de la boutique ou décochez l'option."
+                        return@Button
+                    }
+                    if (newPin.isNotBlank() && newPin.trim().length < 4) {
+                        localError = "Le PIN doit comporter au moins 4 chiffres."
+                        return@Button
+                    }
+                    onSave(
+                        fullName.trim(),
+                        phone.trim(),
+                        city.trim(),
+                        neighborhood.trim(),
+                        newPin.trim(),
+                        photoUri,
+                        isSeekingAccompaniment,
+                        accompanimentDetails.trim(),
+                        isShopMember,
+                        memberShopName.trim(),
+                        memberShopRole.trim()
+                    )
+                },
+                enabled = !isSaving,
+                colors = ButtonDefaults.buttonColors(containerColor = KonabBlueDark),
+                modifier = Modifier.testTag("btn_save_public_profile")
+            ) {
+                if (isSaving) {
+                    CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                }
+                Text("Enregistrer", fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !isSaving) {
+                Text("Annuler")
+            }
+        }
+    )
 }
 
 @Composable

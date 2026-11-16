@@ -12,9 +12,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import coil.request.CachePolicy
+import coil.request.ImageRequest
 import com.example.R
 import com.example.data.local.entity.ProductEntity
 
@@ -171,8 +174,19 @@ fun ProductThumbnail(
                             uri.startsWith("file://")
 
         if (isExternalUri) {
+            val context = LocalContext.current
+            val request = androidx.compose.runtime.remember(uri, context) {
+                ImageRequest.Builder(context)
+                    .data(uri)
+                    .size(320, 320)
+                    .crossfade(true)
+                    .memoryCachePolicy(CachePolicy.ENABLED)
+                    .diskCachePolicy(CachePolicy.ENABLED)
+                    .networkCachePolicy(CachePolicy.ENABLED)
+                    .build()
+            }
             AsyncImage(
-                model = uri,
+                model = request,
                 contentDescription = product.name,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = contentScale,

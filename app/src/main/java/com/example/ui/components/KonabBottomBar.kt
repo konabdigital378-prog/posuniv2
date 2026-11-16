@@ -21,6 +21,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ui.navigation.KonabScreen
@@ -94,7 +95,9 @@ fun KonabBottomBar(
                     Text(
                         text = "Accueil",
                         fontWeight = if (currentScreen == KonabScreen.DASHBOARD) FontWeight.Bold else FontWeight.Medium,
-                        fontSize = 11.sp
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 },
                 colors = navItemColors
@@ -130,7 +133,9 @@ fun KonabBottomBar(
                     Text(
                         text = "Caisse",
                         fontWeight = if (currentScreen == KonabScreen.POS || currentScreen == KonabScreen.PAYMENT) FontWeight.Bold else FontWeight.Medium,
-                        fontSize = 11.sp
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 },
                 colors = navItemColors
@@ -151,7 +156,9 @@ fun KonabBottomBar(
                     Text(
                         text = "Stock",
                         fontWeight = if (currentScreen == KonabScreen.STOCK) FontWeight.Bold else FontWeight.Medium,
-                        fontSize = 11.sp
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 },
                 colors = navItemColors
@@ -172,7 +179,9 @@ fun KonabBottomBar(
                     Text(
                         text = "Stats",
                         fontWeight = if (currentScreen == KonabScreen.REPORTS) FontWeight.Bold else FontWeight.Medium,
-                        fontSize = 11.sp
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 },
                 colors = navItemColors
@@ -196,7 +205,8 @@ fun KonabBottomBar(
                     Icon(Icons.Default.MoreHoriz, contentDescription = "Plus")
                     DropdownMenu(
                         expanded = showMoreMenu,
-                        onDismissRequest = { showMoreMenu = false }
+                        onDismissRequest = { showMoreMenu = false },
+                        containerColor = MaterialTheme.colorScheme.surface
                     ) {
                         DropdownMenuItem(
                             text = {
@@ -319,7 +329,9 @@ fun KonabBottomBar(
                             KonabScreen.SETTINGS,
                             KonabScreen.SUBSCRIPTION
                         )) FontWeight.Bold else FontWeight.Medium,
-                        fontSize = 11.sp
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             )

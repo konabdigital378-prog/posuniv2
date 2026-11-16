@@ -53,6 +53,8 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import coil.compose.AsyncImage
+import coil.request.CachePolicy
+import coil.request.ImageRequest
 import com.example.R
 import com.example.data.remote.supabase.CoutureQrParser
 import java.io.File
@@ -83,26 +85,19 @@ object CouturePhotoHelper {
     ): String? {
         return try {
             val dir = File(context.filesDir, "couture_photos")
-            if (!dir.exists()) dir.mkdirs()
-            val outFile = File(dir, "${prefix}_${System.currentTimeMillis()}.jpg")
-            context.contentResolver.openInputStream(sourceUri)?.use { input ->
-                val rawBytes = input.readBytes()
-                val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size, options)
-                val maxDim = maxOf(options.outWidth, options.outHeight)
-                val sampleSize = if (maxDim > 1280) (maxDim / 1024).coerceAtLeast(1) else 1
-                val decodeOpts = BitmapFactory.Options().apply { inSampleSize = sampleSize }
-                val bmp = BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size, decodeOpts)
-                if (bmp != null) {
-                    FileOutputStream(outFile).use { out ->
-                        bmp.compress(Bitmap.CompressFormat.JPEG, 86, out)
-                    }
-                    bmp.recycle()
-                } else {
-                    FileOutputStream(outFile).use { out -> out.write(rawBytes) }
-                }
-            } ?: return null
-            Uri.fromFile(outFile).toString()
+            val webpFile = KonabImageOptimizer.compressUriToWebpFile(
+                context = context,
+                sourceUri = sourceUri,
+                destDir = dir,
+                fileNamePrefix = prefix,
+                maxDimPx = 720,
+                quality = 80
+            )
+            if (webpFile != null) {
+                Uri.fromFile(webpFile).toString()
+            } else {
+                sourceUri.toString()
+            }
         } catch (_: Exception) {
             sourceUri.toString()
         }
@@ -152,8 +147,19 @@ fun CouturePhotoImage(
             clean.startsWith("file://")
         when {
             isExternalUri -> {
+                val context = LocalContext.current
+                val request = remember(clean, context) {
+                    ImageRequest.Builder(context)
+                        .data(clean)
+                        .size(640, 640)
+                        .crossfade(true)
+                        .memoryCachePolicy(CachePolicy.ENABLED)
+                        .diskCachePolicy(CachePolicy.ENABLED)
+                        .networkCachePolicy(CachePolicy.ENABLED)
+                        .build()
+                }
                 AsyncImage(
-                    model = clean,
+                    model = request,
                     contentDescription = contentDescription,
                     contentScale = contentScale,
                     modifier = Modifier.fillMaxSize(),

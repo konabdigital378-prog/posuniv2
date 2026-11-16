@@ -38,6 +38,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.local.entity.SaleEntity
@@ -154,9 +155,16 @@ fun DailySalesChartCard(
 
     val currentData = if (selectedPeriod == ChartPeriod.LAST_7_DAYS) last7DaysData else todayHourlyData
 
-    // Auto-select the last point (today / current period) on switch
-    LaunchedEffect(selectedPeriod, currentData) {
-        selectedIndex = currentData.indexOfLast { it.isCurrentPeriod }.coerceAtLeast(currentData.lastIndex)
+    // Auto-select the current period/slot on switch without overwriting manual bar taps on data refresh
+    LaunchedEffect(selectedPeriod) {
+        val currentIdx = currentData.indexOfLast { it.isCurrentPeriod }
+        selectedIndex = if (currentIdx >= 0) currentIdx else currentData.lastIndex
+    }
+    LaunchedEffect(currentData.size) {
+        if (selectedIndex !in currentData.indices && currentData.isNotEmpty()) {
+            val currentIdx = currentData.indexOfLast { it.isCurrentPeriod }
+            selectedIndex = if (currentIdx >= 0) currentIdx else currentData.lastIndex
+        }
     }
 
     val selectedPoint = currentData.getOrNull(selectedIndex) ?: currentData.lastOrNull()
@@ -186,64 +194,133 @@ fun DailySalesChartCard(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            // Header Row: Title, Total & Period Switcher
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(34.dp)
-                            .clip(CircleShape)
-                            .background(KonabGreen.copy(alpha = 0.14f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.BarChart,
-                            contentDescription = null,
-                            tint = KonabGreen,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                    Column {
-                        Text(
-                            text = "Ventes journalières",
-                            style = MaterialTheme.typography.titleMedium.copy(
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 16.sp
-                            ),
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Text(
-                            text = "Chiffre d'affaires en FCFA",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = onSurfaceVariantColor
-                        )
-                    }
-                }
+            // Responsive Header Row: Title & Period Switcher
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                val isNarrow = maxWidth < 340.dp
+                if (isNarrow) {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .clip(CircleShape)
+                                    .background(KonabGreen.copy(alpha = 0.14f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.BarChart,
+                                    contentDescription = null,
+                                    tint = KonabGreen,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            Column {
+                                Text(
+                                    text = "Ventes journalières",
+                                    style = MaterialTheme.typography.titleMedium.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 15.sp
+                                    ),
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = "Chiffre d'affaires en FCFA",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = onSurfaceVariantColor,
+                                    maxLines = 1
+                                )
+                            }
+                        }
 
-                // Period Switch Tabs
-                Surface(
-                    shape = RoundedCornerShape(10.dp),
-                    color = MaterialTheme.colorScheme.background,
-                    border = BorderStroke(1.dp, outlineColor.copy(alpha = 0.7f))
-                ) {
-                    Row(modifier = Modifier.padding(2.dp)) {
-                        PeriodTabButton(
-                            text = "7 jours",
-                            isSelected = selectedPeriod == ChartPeriod.LAST_7_DAYS,
-                            onClick = { selectedPeriod = ChartPeriod.LAST_7_DAYS }
-                        )
-                        PeriodTabButton(
-                            text = "Aujourd'hui",
-                            isSelected = selectedPeriod == ChartPeriod.TODAY_HOURS,
-                            onClick = { selectedPeriod = ChartPeriod.TODAY_HOURS }
-                        )
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = MaterialTheme.colorScheme.background,
+                            border = BorderStroke(1.dp, outlineColor.copy(alpha = 0.7f))
+                        ) {
+                            Row(modifier = Modifier.padding(2.dp)) {
+                                PeriodTabButton(
+                                    text = "7 jours",
+                                    isSelected = selectedPeriod == ChartPeriod.LAST_7_DAYS,
+                                    onClick = { selectedPeriod = ChartPeriod.LAST_7_DAYS }
+                                )
+                                PeriodTabButton(
+                                    text = "Aujourd'hui",
+                                    isSelected = selectedPeriod == ChartPeriod.TODAY_HOURS,
+                                    onClick = { selectedPeriod = ChartPeriod.TODAY_HOURS }
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            modifier = Modifier.weight(1f).padding(end = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .clip(CircleShape)
+                                    .background(KonabGreen.copy(alpha = 0.14f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.BarChart,
+                                    contentDescription = null,
+                                    tint = KonabGreen,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            Column {
+                                Text(
+                                    text = "Ventes journalières",
+                                    style = MaterialTheme.typography.titleMedium.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 15.5.sp
+                                    ),
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = "Chiffre d'affaires en FCFA",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = onSurfaceVariantColor,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+
+                        // Period Switch Tabs
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = MaterialTheme.colorScheme.background,
+                            border = BorderStroke(1.dp, outlineColor.copy(alpha = 0.7f))
+                        ) {
+                            Row(modifier = Modifier.padding(2.dp)) {
+                                PeriodTabButton(
+                                    text = "7 jours",
+                                    isSelected = selectedPeriod == ChartPeriod.LAST_7_DAYS,
+                                    onClick = { selectedPeriod = ChartPeriod.LAST_7_DAYS }
+                                )
+                                PeriodTabButton(
+                                    text = "Aujourd'hui",
+                                    isSelected = selectedPeriod == ChartPeriod.TODAY_HOURS,
+                                    onClick = { selectedPeriod = ChartPeriod.TODAY_HOURS }
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -268,13 +345,15 @@ fun DailySalesChartCard(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Column {
+                            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(
                                         text = it.fullDateLabel,
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = KonabGreen
+                                        color = KonabGreen,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                     if (it.isCurrentPeriod) {
                                         Spacer(modifier = Modifier.width(6.dp))
@@ -295,15 +374,17 @@ fun DailySalesChartCard(
                                 Text(
                                     text = "${it.count} vente(s) enregistrée(s)",
                                     fontSize = 11.sp,
-                                    color = onSurfaceVariantColor
+                                    color = onSurfaceVariantColor,
+                                    maxLines = 1
                                 )
                             }
 
                             Text(
                                 text = CurrencyFormatter.formatFCFA(it.amount),
-                                fontSize = 16.sp,
+                                fontSize = 15.sp,
                                 fontWeight = FontWeight.ExtraBold,
-                                color = KonabGreen
+                                color = KonabGreen,
+                                maxLines = 1
                             )
                         }
                     }
@@ -490,12 +571,14 @@ fun DailySalesChartCard(
             // Bottom Summary & Quick Metrics Footer
             HorizontalDivider(color = outlineColor.copy(alpha = 0.5f), thickness = 0.5.dp)
 
-            Row(
+            @OptIn(ExperimentalLayoutApi::class)
+            FlowRow(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 Row(
+                    modifier = Modifier.align(Alignment.CenterVertically),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
@@ -506,23 +589,29 @@ fun DailySalesChartCard(
                         modifier = Modifier.size(16.dp)
                     )
                     Text(
-                        text = "Total période : ${CurrencyFormatter.formatFCFA(totalPeriodAmount)}",
+                        text = "Total : ${CurrencyFormatter.formatFCFA(totalPeriodAmount)} ($totalPeriodCount)",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
 
                 if (onViewReports != null) {
                     TextButton(
                         onClick = onViewReports,
-                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                        modifier = Modifier
+                            .align(Alignment.CenterVertically)
+                            .heightIn(min = 36.dp)
                     ) {
                         Text(
                             text = "Rapports détaillés",
                             color = KonabGreen,
                             fontWeight = FontWeight.Bold,
-                            fontSize = 12.sp
+                            fontSize = 12.sp,
+                            maxLines = 1
                         )
                     }
                 }

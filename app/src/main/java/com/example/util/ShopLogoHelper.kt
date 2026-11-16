@@ -62,12 +62,8 @@ data class PresetLogoItem(
 
 object ShopLogoHelper {
 
-    private val downloadClient: OkHttpClient by lazy {
-        OkHttpClient.Builder()
-            .connectTimeout(10, TimeUnit.SECONDS)
-            .readTimeout(15, TimeUnit.SECONDS)
-            .followRedirects(true)
-            .build()
+    private fun resolveHttpClient(context: Context, overrideClient: OkHttpClient?): OkHttpClient {
+        return overrideClient ?: KonabNetworkClient.getMediaClient(context)
     }
 
     val PRESET_LOGOS: List<PresetLogoItem> = listOf(
@@ -238,7 +234,7 @@ object ShopLogoHelper {
     fun cacheRemoteLogoBlocking(
         context: Context,
         remoteUrl: String,
-        httpClient: OkHttpClient = downloadClient
+        httpClient: OkHttpClient? = null
     ): File? {
         val normalized = normalizeLogoUri(remoteUrl) ?: return null
         if (!isRemoteHttpUrl(normalized)) return null
@@ -246,9 +242,10 @@ object ShopLogoHelper {
         if (cacheFile.exists() && cacheFile.isFile && cacheFile.length() > 0L) {
             return cacheFile
         }
+        val activeClient = resolveHttpClient(context, httpClient)
         return try {
             val req = Request.Builder().url(normalized).get().build()
-            httpClient.newCall(req).execute().use { resp ->
+            activeClient.newCall(req).execute().use { resp ->
                 if (!resp.isSuccessful) return null
                 val contentType = resp.header("Content-Type")?.trim().orEmpty()
                 if (contentType.isNotBlank() &&
@@ -300,24 +297,24 @@ object ShopLogoHelper {
                 }
             }
 
+            val webpFile = KonabImageOptimizer.compressUriToWebpFile(
+                context = context,
+                sourceUri = sourceUri,
+                destDir = logosDir,
+                fileNamePrefix = "shop_logo",
+                maxDimPx = 384,
+                quality = 78
+            )
+            if (webpFile != null) {
+                return Uri.fromFile(webpFile).toString()
+            }
+
             val destFile = File(logosDir, "shop_logo_${System.currentTimeMillis()}.jpg")
-            val decoded = context.contentResolver.openInputStream(sourceUri)?.use { input ->
-                BitmapFactory.decodeStream(input)
-            }
-            if (decoded != null) {
-                val scaled = scaleBitmapKeepRatio(decoded, 640)
+            context.contentResolver.openInputStream(sourceUri)?.use { input ->
                 FileOutputStream(destFile).use { output ->
-                    scaled.compress(Bitmap.CompressFormat.JPEG, 86, output)
+                    input.copyTo(output)
                 }
-                if (scaled !== decoded) decoded.recycle()
-                scaled.recycle()
-            } else {
-                context.contentResolver.openInputStream(sourceUri)?.use { input ->
-                    FileOutputStream(destFile).use { output ->
-                        input.copyTo(output)
-                    }
-                }
-            }
+            } ?: return null
             Uri.fromFile(destFile).toString()
         } catch (e: Exception) {
             android.util.Log.e("ShopLogoHelper", "Erreur sauvegarde logo: ${e.message}", e)
@@ -361,13 +358,9 @@ object ShopLogoHelper {
         if (!isLocal && !(includeRemoteCached && isRemote)) return null
         return try {
             val bmp = loadLogoBitmap(context, clean) ?: return null
-            val scaled = scaleBitmapKeepRatio(bmp, 320)
-            val baos = ByteArrayOutputStream()
-            scaled.compress(Bitmap.CompressFormat.JPEG, 78, baos)
-            if (scaled !== bmp) scaled.recycle()
+            val webpUri = KonabImageOptimizer.compressBitmapToWebpDataUri(bmp, maxDimPx = 256, quality = 74)
             bmp.recycle()
-            val b64 = Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP)
-            "data:image/jpeg;base64,$b64"
+            webpUri
         } catch (_: Exception) {
             null
         }
@@ -532,8 +525,8 @@ fun ShopLogoAvatar(
                     }
 
                     val targetModel: Any? = when {
-                        !remoteFailed -> normalizedUri
                         cachedFile != null && !cacheFailed -> cachedFile
+                        !remoteFailed -> normalizedUri
                         else -> null
                     }
 
@@ -543,6 +536,7 @@ fun ShopLogoAvatar(
                             val request = remember(targetModel, context) {
                                 ImageRequest.Builder(context)
                                     .data(targetModel)
+                                    .size(256, 256)
                                     .crossfade(true)
                                     .memoryCachePolicy(CachePolicy.ENABLED)
                                     .diskCachePolicy(CachePolicy.ENABLED)

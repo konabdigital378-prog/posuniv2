@@ -159,8 +159,8 @@ enum class CardActivityTheme(
 }
 
 /**
- * Carte d'identité numérique premium KONAB POS • Conakry Web
- * avec photo du titulaire, QR code scannable, logo officiel et fond thématique selon l'activité.
+ * Carte d'identité numérique KONAB POS avec photo du titulaire, QR code scannable,
+ * mise en page adaptative (BoxWithConstraints) et fond thématique selon l'activité.
  */
 @Composable
 fun ActivityDigitalCard(
@@ -175,6 +175,8 @@ fun ActivityDigitalCard(
     statusBadge: String = "",
     statsLine: String = "",
     onPhotoSelected: ((String) -> Unit)? = null,
+    onCardClick: (() -> Unit)? = null,
+    editHintLabel: String = "Modifier",
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -203,6 +205,7 @@ fun ActivityDigitalCard(
     Surface(
         modifier = modifier
             .fillMaxWidth()
+            .then(if (onCardClick != null) Modifier.clickable(onClick = onCardClick) else Modifier)
             .testTag("card_activity_digital_${theme.name}"),
         shape = RoundedCornerShape(22.dp),
         border = BorderStroke(1.5.dp, theme.accentColor.copy(alpha = 0.55f)),
@@ -288,249 +291,275 @@ fun ActivityDigitalCard(
                 }
             }
 
-            Column(
+            BoxWithConstraints(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                    .padding(14.dp)
             ) {
-                // En-tête : Logo Conakry Web / Konab POS + Badge Activité
-                Row(
+                val isCompactCard = maxWidth < 330.dp
+                val avatarSize = if (isCompactCard) 56.dp else 66.dp
+                val qrSize = if (isCompactCard) 68.dp else 82.dp
+
+                Column(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
+                    // En-tête : Logo Konab POS + Badge Activité
                     Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Surface(
-                            shape = CircleShape,
-                            color = Color.White,
-                            border = BorderStroke(1.5.dp, theme.accentColor),
-                            modifier = Modifier.size(34.dp)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.weight(1f)
                         ) {
-                            Image(
-                                painter = painterResource(id = R.drawable.ic_konab_logo),
-                                contentDescription = "Logo Conakry Web • Konab POS",
-                                contentScale = ContentScale.Fit,
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(3.dp)
-                            )
-                        }
-                        Column {
-                            Text(
-                                text = "CONAKRY WEB • KONAB POS",
-                                color = Color.White,
-                                fontFamily = OutfitFontFamily,
-                                fontWeight = FontWeight.Black,
-                                fontSize = 11.5.sp,
-                                letterSpacing = 0.6.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Text(
-                                text = theme.title,
-                                color = theme.accentColor,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 10.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
-
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = Color.White.copy(alpha = 0.18f),
-                        border = BorderStroke(1.dp, theme.accentColor.copy(alpha = 0.65f))
-                    ) {
-                        Text(
-                            text = theme.shortBadge,
-                            color = Color.White,
-                            fontSize = 9.5.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            maxLines = 1,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                        )
-                    }
-                }
-
-                // Corps central : Photo + Informations + QR Code scannable
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // Photo du titulaire
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(68.dp)
-                                .then(
-                                    if (onPhotoSelected != null) {
-                                        Modifier.clickable {
-                                            photoPickerLauncher.launch(
-                                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                            )
-                                        }
-                                    } else Modifier
-                                ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            AgentPhotoAvatar(
-                                name = holderName.ifBlank { "K" },
-                                photoUri = photoUri?.ifBlank { null },
-                                size = 66.dp,
-                                shape = RoundedCornerShape(16.dp),
-                                borderColor = theme.accentColor,
-                                showEditBadge = onPhotoSelected != null
-                            )
-                        }
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = Color.Black.copy(alpha = 0.35f)
-                        ) {
-                            Text(
-                                text = codeId.take(12),
-                                color = theme.accentColor,
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 8.5.sp,
-                                maxLines = 1,
-                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
-                            )
-                        }
-                    }
-
-                    // Identité & activité
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(3.dp)
-                    ) {
-                        Text(
-                            text = holderName.ifBlank { "Titulaire Konab" },
-                            fontFamily = OutfitFontFamily,
-                            fontWeight = FontWeight.ExtraBold,
-                            fontSize = 15.5.sp,
-                            color = Color.White,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        if (organizationTitle.isNotBlank()) {
-                            Text(
-                                text = organizationTitle,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = theme.accentColor,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                        if (phone.isNotBlank()) {
-                            Text(
-                                text = "Tél : $phone",
-                                fontSize = 10.5.sp,
-                                color = Color.White.copy(alpha = 0.9f),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                        if (zoneOrAddress.isNotBlank()) {
-                            Text(
-                                text = zoneOrAddress,
-                                fontSize = 10.5.sp,
-                                color = Color.White.copy(alpha = 0.8f),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                        if (statsLine.isNotBlank()) {
                             Surface(
-                                shape = RoundedCornerShape(7.dp),
-                                color = Color.White.copy(alpha = 0.16f),
-                                modifier = Modifier.padding(top = 2.dp)
+                                shape = CircleShape,
+                                color = Color.White,
+                                border = BorderStroke(1.5.dp, theme.accentColor),
+                                modifier = Modifier.size(34.dp)
+                            ) {
+                                Image(
+                                    painter = painterResource(id = R.drawable.ic_konab_logo),
+                                    contentDescription = "Logo Konab POS",
+                                    contentScale = ContentScale.Fit,
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(3.dp)
+                                )
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "KONAB POS",
+                                    color = Color.White,
+                                    fontFamily = OutfitFontFamily,
+                                    fontWeight = FontWeight.Black,
+                                    fontSize = 12.sp,
+                                    letterSpacing = 0.6.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = theme.title,
+                                    color = theme.accentColor,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 10.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.width(6.dp))
+
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = Color.White.copy(alpha = 0.18f),
+                            border = BorderStroke(1.dp, theme.accentColor.copy(alpha = 0.65f))
+                        ) {
+                            Text(
+                                text = theme.shortBadge,
+                                color = Color.White,
+                                fontSize = 9.5.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                maxLines = 1,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+
+                    // Corps central adaptatif : Photo + Informations + QR Code scannable
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(if (isCompactCard) 8.dp else 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Photo du titulaire
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(avatarSize + 2.dp)
+                                    .then(
+                                        if (onPhotoSelected != null) {
+                                            Modifier.clickable {
+                                                photoPickerLauncher.launch(
+                                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                                )
+                                            }
+                                        } else Modifier
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                AgentPhotoAvatar(
+                                    name = holderName.ifBlank { "K" },
+                                    photoUri = photoUri?.ifBlank { null },
+                                    size = avatarSize,
+                                    shape = RoundedCornerShape(16.dp),
+                                    borderColor = theme.accentColor,
+                                    showEditBadge = onPhotoSelected != null
+                                )
+                            }
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = Color.Black.copy(alpha = 0.35f)
                             ) {
                                 Text(
-                                    text = statsLine,
-                                    color = Color.White,
-                                    fontSize = 9.5.sp,
+                                    text = codeId.take(12),
+                                    color = theme.accentColor,
+                                    fontFamily = FontFamily.Monospace,
                                     fontWeight = FontWeight.Bold,
+                                    fontSize = 8.5.sp,
                                     maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
+                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
                                 )
                             }
                         }
-                    }
 
-                    // QR Code haute lisibilité
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = Color.White,
-                        border = BorderStroke(1.5.dp, theme.accentColor),
-                        modifier = Modifier.size(82.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(4.dp),
-                            contentAlignment = Alignment.Center
+                        // Identité & activité (uniquement les données renseignées)
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(3.dp)
                         ) {
-                            if (qrBitmap != null) {
-                                Image(
-                                    bitmap = qrBitmap.asImageBitmap(),
-                                    contentDescription = "QR Code carte $holderName",
-                                    contentScale = ContentScale.Fit,
-                                    modifier = Modifier.fillMaxSize()
+                            Text(
+                                text = holderName.ifBlank { "Mon Profil" },
+                                fontFamily = OutfitFontFamily,
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = if (isCompactCard) 14.5.sp else 15.5.sp,
+                                color = Color.White,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            if (organizationTitle.isNotBlank()) {
+                                Text(
+                                    text = organizationTitle,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = theme.accentColor,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
                                 )
+                            }
+                            if (phone.isNotBlank()) {
+                                Text(
+                                    text = "Tél : $phone",
+                                    fontSize = 10.5.sp,
+                                    color = Color.White.copy(alpha = 0.92f),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            if (zoneOrAddress.isNotBlank()) {
+                                Text(
+                                    text = zoneOrAddress,
+                                    fontSize = 10.5.sp,
+                                    color = Color.White.copy(alpha = 0.85f),
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            if (statsLine.isNotBlank()) {
+                                Surface(
+                                    shape = RoundedCornerShape(7.dp),
+                                    color = Color.White.copy(alpha = 0.16f),
+                                    modifier = Modifier.padding(top = 2.dp)
+                                ) {
+                                    Text(
+                                        text = statsLine,
+                                        color = Color.White,
+                                        fontSize = 9.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        // QR Code haute lisibilité
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = Color.White,
+                            border = BorderStroke(1.5.dp, theme.accentColor),
+                            modifier = Modifier.size(qrSize)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(4.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (qrBitmap != null) {
+                                    Image(
+                                        bitmap = qrBitmap.asImageBitmap(),
+                                        contentDescription = "QR Code carte $holderName",
+                                        contentScale = ContentScale.Fit,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                }
                             }
                         }
                     }
-                }
 
-                // Pied de carte avec vérification et actions rapides
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(Color.Black.copy(alpha = 0.28f))
-                        .padding(horizontal = 10.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                    // Pied de carte avec vérification et action modifier si cliquable
                     Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(5.dp),
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Color.Black.copy(alpha = 0.28f))
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Verified,
-                            contentDescription = null,
-                            tint = Color(0xFF34D399),
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Text(
-                            text = statusBadge.ifBlank { "Carte Officielle Vérifiée" },
-                            color = Color.White,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Verified,
+                                contentDescription = null,
+                                tint = Color(0xFF34D399),
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Text(
+                                text = statusBadge.ifBlank { "Carte Numérique Active" },
+                                color = Color.White,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        if (onCardClick != null) {
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = theme.accentColor.copy(alpha = 0.22f)
+                            ) {
+                                Text(
+                                    text = "✎ $editHintLabel",
+                                    color = theme.accentColor,
+                                    fontSize = 9.5.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    maxLines = 1,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        } else {
+                            Text(
+                                text = "konabpos",
+                                color = theme.accentColor.copy(alpha = 0.9f),
+                                fontSize = 9.5.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
-                    Text(
-                        text = "conakryweb • konabpos",
-                        color = theme.accentColor.copy(alpha = 0.9f),
-                        fontSize = 9.5.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold
-                    )
                 }
             }
         }
@@ -538,7 +567,7 @@ fun ActivityDigitalCard(
 }
 
 /**
- * Barre d'actions PNG (Télécharger dans la galerie / Partager sur WhatsApp) pour ActivityDigitalCard.
+ * Barre d'actions PNG (Télécharger dans la galerie / Partager) pour ActivityDigitalCard.
  */
 @Composable
 fun ActivityCardExportBar(
@@ -555,67 +584,135 @@ fun ActivityCardExportBar(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        OutlinedButton(
-            onClick = {
-                val bmp = ActivityCardBitmapHelper.renderCardBitmap(
-                    context = context,
-                    theme = theme,
-                    holderName = holderName,
-                    codeId = codeId,
-                    organizationTitle = organizationTitle,
-                    phone = phone,
-                    zoneOrAddress = zoneOrAddress,
-                    qrPayload = qrPayload,
-                    photoUri = photoUri,
-                    statusBadge = statusBadge,
-                    statsLine = statsLine
-                )
-                ActivityCardBitmapHelper.downloadCardPng(context, bmp, "Carte_${theme.name}_$codeId")
-            },
-            shape = RoundedCornerShape(12.dp),
-            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-            modifier = Modifier
-                .weight(1f)
-                .heightIn(min = 48.dp)
-                .testTag("btn_download_activity_card")
-        ) {
-            Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
-            Spacer(modifier = Modifier.width(6.dp))
-            Text("Télécharger", maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-        }
+    BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
+        val stackButtons = maxWidth < 290.dp
+        if (stackButtons) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedButton(
+                    onClick = {
+                        val bmp = ActivityCardBitmapHelper.renderCardBitmap(
+                            context = context,
+                            theme = theme,
+                            holderName = holderName,
+                            codeId = codeId,
+                            organizationTitle = organizationTitle,
+                            phone = phone,
+                            zoneOrAddress = zoneOrAddress,
+                            qrPayload = qrPayload,
+                            photoUri = photoUri,
+                            statusBadge = statusBadge,
+                            statsLine = statsLine
+                        )
+                        ActivityCardBitmapHelper.downloadCardPng(context, bmp, "Carte_${theme.name}_$codeId")
+                    },
+                    shape = RoundedCornerShape(12.dp),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                        .testTag("btn_download_activity_card")
+                ) {
+                    Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Télécharger", maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                }
+                Button(
+                    onClick = {
+                        val bmp = ActivityCardBitmapHelper.renderCardBitmap(
+                            context = context,
+                            theme = theme,
+                            holderName = holderName,
+                            codeId = codeId,
+                            organizationTitle = organizationTitle,
+                            phone = phone,
+                            zoneOrAddress = zoneOrAddress,
+                            qrPayload = qrPayload,
+                            photoUri = photoUri,
+                            statusBadge = statusBadge,
+                            statsLine = statsLine
+                        )
+                        ActivityCardBitmapHelper.shareCardPng(context, bmp, holderName, theme)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = theme.midColor),
+                    shape = RoundedCornerShape(12.dp),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                        .testTag("btn_share_activity_card")
+                ) {
+                    Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Partager carte", maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                }
+            }
+        } else {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedButton(
+                    onClick = {
+                        val bmp = ActivityCardBitmapHelper.renderCardBitmap(
+                            context = context,
+                            theme = theme,
+                            holderName = holderName,
+                            codeId = codeId,
+                            organizationTitle = organizationTitle,
+                            phone = phone,
+                            zoneOrAddress = zoneOrAddress,
+                            qrPayload = qrPayload,
+                            photoUri = photoUri,
+                            statusBadge = statusBadge,
+                            statsLine = statsLine
+                        )
+                        ActivityCardBitmapHelper.downloadCardPng(context, bmp, "Carte_${theme.name}_$codeId")
+                    },
+                    shape = RoundedCornerShape(12.dp),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 48.dp)
+                        .testTag("btn_download_activity_card")
+                ) {
+                    Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Télécharger", maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                }
 
-        Button(
-            onClick = {
-                val bmp = ActivityCardBitmapHelper.renderCardBitmap(
-                    context = context,
-                    theme = theme,
-                    holderName = holderName,
-                    codeId = codeId,
-                    organizationTitle = organizationTitle,
-                    phone = phone,
-                    zoneOrAddress = zoneOrAddress,
-                    qrPayload = qrPayload,
-                    photoUri = photoUri,
-                    statusBadge = statusBadge,
-                    statsLine = statsLine
-                )
-                ActivityCardBitmapHelper.shareCardPng(context, bmp, holderName, theme)
-            },
-            colors = ButtonDefaults.buttonColors(containerColor = theme.midColor),
-            shape = RoundedCornerShape(12.dp),
-            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-            modifier = Modifier
-                .weight(1f)
-                .heightIn(min = 48.dp)
-                .testTag("btn_share_activity_card")
-        ) {
-            Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
-            Spacer(modifier = Modifier.width(6.dp))
-            Text("Partager carte", maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                Button(
+                    onClick = {
+                        val bmp = ActivityCardBitmapHelper.renderCardBitmap(
+                            context = context,
+                            theme = theme,
+                            holderName = holderName,
+                            codeId = codeId,
+                            organizationTitle = organizationTitle,
+                            phone = phone,
+                            zoneOrAddress = zoneOrAddress,
+                            qrPayload = qrPayload,
+                            photoUri = photoUri,
+                            statusBadge = statusBadge,
+                            statsLine = statsLine
+                        )
+                        ActivityCardBitmapHelper.shareCardPng(context, bmp, holderName, theme)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = theme.midColor),
+                    shape = RoundedCornerShape(12.dp),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 48.dp)
+                        .testTag("btn_share_activity_card")
+                ) {
+                    Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Partager carte", maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                }
+            }
         }
     }
 }
@@ -787,13 +884,13 @@ object ActivityCardBitmapHelper {
             }
         } catch (_: Exception) {}
 
-        // Titre Conakry Web • Konab POS
+        // Titre Konab POS
         val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = AndroidColor.WHITE
             textSize = 28f
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         }
-        canvas.drawText("CONAKRY WEB • KONAB POS", 126f, 66f, titlePaint)
+        canvas.drawText("KONAB POS", 126f, 66f, titlePaint)
 
         val subHeaderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = AndroidColor.parseColor(theme.accentHex)
@@ -868,7 +965,7 @@ object ActivityCardBitmapHelper {
             textSize = 36f
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         }
-        canvas.drawText(holderName.ifBlank { "Titulaire Konab" }.take(24), 288f, 212f, namePaint)
+        canvas.drawText(holderName.ifBlank { "Mon Profil" }.take(24), 288f, 212f, namePaint)
 
         val orgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = AndroidColor.parseColor(theme.accentHex)
@@ -916,7 +1013,7 @@ object ActivityCardBitmapHelper {
             textSize = 21f
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         }
-        canvas.drawText("✓ ${statusBadge.ifBlank { "Carte Officielle Vérifiée • Conakry Web" }}", 58f, HEIGHT - 54f, footerLeftPaint)
+        canvas.drawText("✓ ${statusBadge.ifBlank { "Carte Numérique Active" }}", 58f, HEIGHT - 54f, footerLeftPaint)
 
         val footerRightPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = AndroidColor.parseColor(theme.accentHex)
@@ -924,7 +1021,7 @@ object ActivityCardBitmapHelper {
             typeface = Typeface.MONOSPACE
             textAlign = Paint.Align.RIGHT
         }
-        canvas.drawText("conakryweb • konabpos", WIDTH - 58f, HEIGHT - 54f, footerRightPaint)
+        canvas.drawText("konabpos", WIDTH - 58f, HEIGHT - 54f, footerRightPaint)
 
         return bmp
     }

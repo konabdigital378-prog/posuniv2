@@ -8,6 +8,7 @@ import com.example.data.repository.KonabRepository
 import com.example.ui.screens.AgentUser
 import com.example.util.BiometricSecurityHelper
 import com.example.util.CouturePhotoHelper
+import com.example.util.KonabImageOptimizer
 import com.example.util.LicenseHelper
 import com.example.util.NotificationHelper
 import com.example.util.ShopLogoHelper
@@ -18,6 +19,8 @@ import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.io.File
+import java.security.MessageDigest
+import java.util.concurrent.ConcurrentHashMap
 
 data class SupabaseSyncState(
     val isConfigured: Boolean = false,
@@ -38,15 +41,71 @@ data class ShopCreationResult(
 
 class SupabaseSyncManager(
     private val context: Context,
-    private val apiClient: SupabaseApiClient = SupabaseApiClient()
+    private val apiClient: SupabaseApiClient = sharedApiClient
 ) {
 
     companion object {
         val shopSyncMutex = Mutex()
+        private val sharedApiClient: SupabaseApiClient by lazy { SupabaseApiClient() }
+
+        private const val AUTO_PULL_COOLDOWN_MS = 45_000L
+        private const val ACTIVE_REFRESH_SOFT_COOLDOWN_MS = 20_000L
+        private const val SHOWCASE_CACHE_TTL_MS = 180_000L
+        private const val DIRECTORY_CACHE_TTL_MS = 120_000L
+        private const val PORTAL_CACHE_TTL_MS = 90_000L
+
+        private val lastFullPullAtByShop = ConcurrentHashMap<Long, Long>()
+
+        @Volatile
+        private var lastShowcaseFetchAt: Long = 0L
+
+        @Volatile
+        private var lastRestoDirFetchAt: Long = 0L
+        @Volatile
+        private var cachedRestoDir: List<PublicRestaurantListing>? = null
+
+        @Volatile
+        private var lastCoutureDirFetchAt: Long = 0L
+        @Volatile
+        private var cachedCoutureDir: List<PublicCouturierListing>? = null
+
+        @Volatile
+        private var lastCoutureFeedFetchAt: Long = 0L
+        @Volatile
+        private var cachedCoutureFeed: List<CoutureModelRecord>? = null
+
+        @Volatile
+        private var lastWasteFetchAt: Long = 0L
+
+        @Volatile
+        private var lastTontineFetchAt: Long = 0L
     }
 
     private val prefs: SharedPreferences =
         context.getSharedPreferences("konab_supabase_prefs", Context.MODE_PRIVATE)
+
+    private val digestPrefs: SharedPreferences =
+        context.getSharedPreferences("konab_sync_digests", Context.MODE_PRIVATE)
+
+    private fun computeSyncDigest(raw: String): String {
+        return try {
+            val md = MessageDigest.getInstance("SHA-256")
+            md.digest(raw.toByteArray(Charsets.UTF_8))
+                .joinToString("") { "%02x".format(it) }
+        } catch (_: Exception) {
+            raw.hashCode().toString()
+        }
+    }
+
+    private fun shouldPushEntity(shopId: Long, key: String, digest: String, forcePush: Boolean): Boolean {
+        if (forcePush) return true
+        val prev = digestPrefs.getString("dig_${shopId}_$key", null)
+        return prev != digest
+    }
+
+    private fun markEntityPushed(shopId: Long, key: String, digest: String) {
+        digestPrefs.edit().putString("dig_${shopId}_$key", digest).apply()
+    }
 
     init {
         SupabaseConfig.init(context)
@@ -104,18 +163,24 @@ class SupabaseSyncManager(
      * permanent public Supabase Storage HTTPS URL (`shop-logos` bucket, with `shop-ads` fallback),
      * seeds the persistent offline disk cache, or keeps a portable Base64 Data URI fallback.
      */
+    @Suppress("DEPRECATION")
     suspend fun resolvePortableLogoUri(logoUri: String?, shopId: Long): String? {
         val clean = ShopLogoHelper.normalizeLogoUri(logoUri) ?: return null
         if (clean.startsWith("data:image/", ignoreCase = true)) {
             if (SupabaseConfig.isConfigured) {
                 val bmp = ShopLogoHelper.decodeDataUriBitmap(clean)
                 if (bmp != null) {
-                    val tmpFile = File(context.cacheDir, "tmp_logo_promote_${System.currentTimeMillis()}.jpg")
+                    val tmpFile = File(context.cacheDir, "tmp_logo_promote_${System.currentTimeMillis()}.webp")
                     try {
-                        java.io.FileOutputStream(tmpFile).use { out ->
-                            bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 86, out)
+                        val fmt = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                            android.graphics.Bitmap.CompressFormat.WEBP_LOSSY
+                        } else {
+                            android.graphics.Bitmap.CompressFormat.WEBP
                         }
-                        val upRes = apiClient.uploadShopLogoMedia(tmpFile, shopId, "image/jpeg")
+                        java.io.FileOutputStream(tmpFile).use { out ->
+                            bmp.compress(fmt, 78, out)
+                        }
+                        val upRes = apiClient.uploadShopLogoMedia(tmpFile, shopId, "image/webp")
                         if (upRes.isSuccess) {
                             val url = upRes.getOrThrow()
                             if (url.isNotBlank()) {
@@ -137,7 +202,8 @@ class SupabaseSyncManager(
         }
         val file = ShopLogoHelper.getUploadableLogoFile(context, clean)
         if (file != null && SupabaseConfig.isConfigured) {
-            val upRes = apiClient.uploadShopLogoMedia(file, shopId, "image/jpeg")
+            val mime = KonabImageOptimizer.imageMimeTypeForFile(file)
+            val upRes = apiClient.uploadShopLogoMedia(file, shopId, mime)
             if (upRes.isSuccess) {
                 val url = upRes.getOrThrow()
                 if (url.isNotBlank()) {
@@ -185,9 +251,9 @@ class SupabaseSyncManager(
     suspend fun syncAll(repository: KonabRepository): Result<Int> = shopSyncMutex.withLock {
         val shop = repository.getShopProfileOnce()
         val fullRes = if (shop != null && shop.isConfigured && shop.name.isNotBlank()) {
-            val pushed = syncFullStoreInternal(repository)
+            val pushed = syncFullStoreInternal(repository, forcePushAll = false)
             try {
-                pullAndMergeRemoteInternal(repository)
+                pullAndMergeRemoteInternal(repository, forcePull = false)
             } catch (_: Exception) {}
             pushed
         } else {
@@ -291,12 +357,16 @@ class SupabaseSyncManager(
 
     fun saveCloudShopId(id: Long, shopName: String) {
         if (id <= 1L) return
+        val prevId = prefs.getLong("cloud_shop_id", 0L)
         val norm = AgentDeploymentStorage.normalizeShopName(shopName)
         prefs.edit()
             .putLong("cloud_shop_id", id)
             .putString("cloud_shop_name", norm)
             .apply()
         MultiShopStorage.setActiveCloudShopId(context, id)
+        if (prevId != id) {
+            apiClient.invalidateShopScopeCache()
+        }
     }
 
     /**
@@ -814,14 +884,17 @@ class SupabaseSyncManager(
      * vers Supabase Cloud de façon permanente, isolées par `shop_id`.
      */
     suspend fun syncFullStore(repository: KonabRepository): Result<Int> = shopSyncMutex.withLock {
-        val res = syncFullStoreInternal(repository)
+        val res = syncFullStoreInternal(repository, forcePushAll = true)
         try {
-            pullAndMergeRemoteInternal(repository)
+            pullAndMergeRemoteInternal(repository, forcePull = true)
         } catch (_: Exception) {}
         res
     }
 
-    private suspend fun syncFullStoreInternal(repository: KonabRepository): Result<Int> {
+    private suspend fun syncFullStoreInternal(
+        repository: KonabRepository,
+        forcePushAll: Boolean = false
+    ): Result<Int> {
         if (!SupabaseConfig.isConfigured) {
             val msg = "Supabase non configuré."
             _syncState.value = _syncState.value.copy(isConfigured = false, isError = true, statusMessage = msg)
@@ -837,7 +910,7 @@ class SupabaseSyncManager(
         try {
             var count = 0
 
-            // 1. Profil entreprise + Identifiants gérant
+            // 1. Profil entreprise + Identifiants gérant (avec vérification digest)
             val shop = repository.getShopProfileOnce()
             val admin = repository.getAdminAccountOnce()
             val activeAgent = AgentDeploymentStorage.getSavedAgentSession(context)
@@ -854,17 +927,23 @@ class SupabaseSyncManager(
                 if (resolvedLogo != shop.logoUri || (deployerId != null && deployerId != shop.deployerId)) {
                     try { repository.saveShopProfile(preparedShop) } catch (_: Exception) {}
                 }
-                val res = apiClient.pushShopProfile(
-                    profile = preparedShop,
-                    cloudShopId = activeCloudShopId,
-                    isNewShop = false,
-                    adminName = admin.adminName,
-                    adminPhone = admin.adminPhone.ifBlank { shop.phone }
+                val profileDigest = computeSyncDigest(
+                    "${preparedShop.name}|${preparedShop.businessType}|${preparedShop.phone}|${preparedShop.address}|${preparedShop.city}|${preparedShop.currency}|${preparedShop.slogan}|${preparedShop.receiptFooter}|${preparedShop.adminPin}|${preparedShop.cashierPin}|${preparedShop.subscriptionTier}|${preparedShop.logoUri}|${preparedShop.deployerId}|${admin.adminName}|${admin.adminPhone}"
                 )
-                if (res.isSuccess) {
-                    activeCloudShopId = res.getOrDefault(activeCloudShopId)
-                    saveCloudShopId(activeCloudShopId, shop.name)
-                    count++
+                if (shouldPushEntity(activeCloudShopId, "shop_profile", profileDigest, forcePushAll)) {
+                    val res = apiClient.pushShopProfile(
+                        profile = preparedShop,
+                        cloudShopId = activeCloudShopId,
+                        isNewShop = false,
+                        adminName = admin.adminName,
+                        adminPhone = admin.adminPhone.ifBlank { shop.phone }
+                    )
+                    if (res.isSuccess) {
+                        activeCloudShopId = res.getOrDefault(activeCloudShopId)
+                        saveCloudShopId(activeCloudShopId, shop.name)
+                        markEntityPushed(activeCloudShopId, "shop_profile", profileDigest)
+                        count++
+                    }
                 }
             }
 
@@ -872,72 +951,156 @@ class SupabaseSyncManager(
             val depRes = syncAgentDeploymentsInternal()
             count += depRes.getOrDefault(0)
 
-            // 3. Produits & Stock (isolés par activeCloudShopId)
+            // 3. Produits & Stock (skip si inchangés)
             val prods = repository.getAllProductsOnce()
             if (prods.isNotEmpty()) {
-                val res = apiClient.pushProducts(prods, shopId = activeCloudShopId)
-                count += res.getOrDefault(0)
+                val prodDigest = computeSyncDigest(prods.joinToString(";") {
+                    "${it.id}:${it.name}:${it.category}:${it.sellPrice}:${it.buyPrice}:${it.stockQuantity}:${it.minStockAlert}:${it.barcode}:${it.unit}:${it.isAvailable}:${it.imageUri}:${it.galleryImagesJson.hashCode()}"
+                })
+                if (shouldPushEntity(activeCloudShopId, "products", prodDigest, forcePushAll)) {
+                    val res = apiClient.pushProducts(prods, shopId = activeCloudShopId)
+                    if (res.isSuccess) {
+                        markEntityPushed(activeCloudShopId, "products", prodDigest)
+                        count += res.getOrDefault(0)
+                    }
+                }
             }
 
-            // 4. Clients
+            // 4. Clients (skip si inchangés)
             val custs = repository.getAllCustomersOnce()
             if (custs.isNotEmpty()) {
-                val res = apiClient.pushCustomers(custs, shopId = activeCloudShopId)
-                count += res.getOrDefault(0)
+                val custDigest = computeSyncDigest(custs.joinToString(";") {
+                    "${it.id}:${it.name}:${it.phone}:${it.address}:${it.debtAmount}:${it.totalSpent}:${it.totalSalesCount}:${it.status}"
+                })
+                if (shouldPushEntity(activeCloudShopId, "customers", custDigest, forcePushAll)) {
+                    val res = apiClient.pushCustomers(custs, shopId = activeCloudShopId)
+                    if (res.isSuccess) {
+                        markEntityPushed(activeCloudShopId, "customers", custDigest)
+                        count += res.getOrDefault(0)
+                    }
+                }
             }
 
-            // 5. Ventes & Lignes de vente
+            // 5. Ventes & Lignes de vente (skip si inchangés)
             val sales = repository.getAllSalesOnce()
             val saleItems = repository.getAllSaleItemsOnce()
             if (sales.isNotEmpty()) {
-                val res = apiClient.pushSales(sales, saleItems, shopId = activeCloudShopId)
-                count += res.getOrDefault(0)
+                val salesDigest = computeSyncDigest(
+                    "${sales.size}|${saleItems.size}|" + sales.joinToString(";") {
+                        "${it.id}:${it.timestamp}:${it.totalAmount}:${it.amountPaid}:${it.paymentStatus}:${it.isCancelled}"
+                    }
+                )
+                if (shouldPushEntity(activeCloudShopId, "sales", salesDigest, forcePushAll)) {
+                    val res = apiClient.pushSales(sales, saleItems, shopId = activeCloudShopId)
+                    if (res.isSuccess) {
+                        markEntityPushed(activeCloudShopId, "sales", salesDigest)
+                        count += res.getOrDefault(0)
+                    }
+                }
             }
 
-            // 6. Fournisseurs & Achats
+            // 6. Fournisseurs & Achats (skip si inchangés)
             val supps = repository.getDao().getAllSuppliersOnce()
             if (supps.isNotEmpty()) {
-                val res = apiClient.pushSuppliers(supps, shopId = activeCloudShopId)
-                count += res.getOrDefault(0)
+                val suppDigest = computeSyncDigest(supps.joinToString(";") {
+                    "${it.id}:${it.name}:${it.phone}:${it.debtAmount}:${it.totalPurchased}"
+                })
+                if (shouldPushEntity(activeCloudShopId, "suppliers", suppDigest, forcePushAll)) {
+                    val res = apiClient.pushSuppliers(supps, shopId = activeCloudShopId)
+                    if (res.isSuccess) {
+                        markEntityPushed(activeCloudShopId, "suppliers", suppDigest)
+                        count += res.getOrDefault(0)
+                    }
+                }
             }
             val purchases = repository.getDao().getAllPurchasesOnce()
             if (purchases.isNotEmpty()) {
-                val res = apiClient.pushPurchases(purchases, shopId = activeCloudShopId)
-                count += res.getOrDefault(0)
+                val purchDigest = computeSyncDigest(purchases.joinToString(";") {
+                    "${it.id}:${it.timestamp}:${it.quantity}:${it.totalCost}"
+                })
+                if (shouldPushEntity(activeCloudShopId, "purchases", purchDigest, forcePushAll)) {
+                    val res = apiClient.pushPurchases(purchases, shopId = activeCloudShopId)
+                    if (res.isSuccess) {
+                        markEntityPushed(activeCloudShopId, "purchases", purchDigest)
+                        count += res.getOrDefault(0)
+                    }
+                }
             }
 
-            // 7. Sessions & Mouvements de Caisse
+            // 7. Sessions & Mouvements de Caisse (skip si inchangés)
             val sessions = repository.getDao().getAllCashSessionsOnce()
             if (sessions.isNotEmpty()) {
-                val res = apiClient.pushCashSessions(sessions, shopId = activeCloudShopId)
-                count += res.getOrDefault(0)
+                val sessDigest = computeSyncDigest(sessions.joinToString(";") {
+                    "${it.id}:${it.openedAt}:${it.closedAt}:${it.status}:${it.closingActualBalance}:${it.difference}"
+                })
+                if (shouldPushEntity(activeCloudShopId, "cash_sessions", sessDigest, forcePushAll)) {
+                    val res = apiClient.pushCashSessions(sessions, shopId = activeCloudShopId)
+                    if (res.isSuccess) {
+                        markEntityPushed(activeCloudShopId, "cash_sessions", sessDigest)
+                        count += res.getOrDefault(0)
+                    }
+                }
             }
             val movs = repository.getDao().getAllCashMovementsOnce()
             if (movs.isNotEmpty()) {
-                val res = apiClient.pushCashMovements(movs, shopId = activeCloudShopId)
-                count += res.getOrDefault(0)
+                val movDigest = computeSyncDigest(movs.joinToString(";") {
+                    "${it.id}:${it.timestamp}:${it.type}:${it.amount}"
+                })
+                if (shouldPushEntity(activeCloudShopId, "cash_movements", movDigest, forcePushAll)) {
+                    val res = apiClient.pushCashMovements(movs, shopId = activeCloudShopId)
+                    if (res.isSuccess) {
+                        markEntityPushed(activeCloudShopId, "cash_movements", movDigest)
+                        count += res.getOrDefault(0)
+                    }
+                }
             }
 
             // 8. Données Restaurant synchronisées (Équipe, Tables QR, Commandes Cuisine, Menu du jour)
+            val restoOrdersLocal = RestaurantStorage.getOrders(context, activeCloudShopId)
+            val restoTablesLocal = RestaurantStorage.getTables(context, activeCloudShopId)
             if (isRestaurantBusiness(shop?.businessType) ||
-                RestaurantStorage.getOrders(context, activeCloudShopId).isNotEmpty() ||
-                RestaurantStorage.getTables(context, activeCloudShopId).isNotEmpty()
+                restoOrdersLocal.isNotEmpty() ||
+                restoTablesLocal.isNotEmpty()
             ) {
                 val staff = RestaurantStorage.getStaffAccounts(context, activeCloudShopId)
                 if (staff.isNotEmpty()) {
-                    count += apiClient.pushRestaurantStaff(staff, activeCloudShopId).getOrDefault(0)
+                    val d = computeSyncDigest(staff.joinToString(";") { "${it.id}:${it.updatedAt}:${it.pin}:${it.isActive}" })
+                    if (shouldPushEntity(activeCloudShopId, "resto_staff", d, forcePushAll)) {
+                        val r = apiClient.pushRestaurantStaff(staff, activeCloudShopId)
+                        if (r.isSuccess) {
+                            markEntityPushed(activeCloudShopId, "resto_staff", d)
+                            count += r.getOrDefault(0)
+                        }
+                    }
                 }
-                val tables = RestaurantStorage.getTables(context, activeCloudShopId)
-                if (tables.isNotEmpty()) {
-                    count += apiClient.pushRestaurantTables(tables, activeCloudShopId).getOrDefault(0)
+                if (restoTablesLocal.isNotEmpty()) {
+                    val d = computeSyncDigest(restoTablesLocal.joinToString(";") { "${it.id}:${it.tableNumber}:${it.updatedAt}" })
+                    if (shouldPushEntity(activeCloudShopId, "resto_tables", d, forcePushAll)) {
+                        val r = apiClient.pushRestaurantTables(restoTablesLocal, activeCloudShopId)
+                        if (r.isSuccess) {
+                            markEntityPushed(activeCloudShopId, "resto_tables", d)
+                            count += r.getOrDefault(0)
+                        }
+                    }
                 }
-                val orders = RestaurantStorage.getOrders(context, activeCloudShopId)
-                if (orders.isNotEmpty()) {
-                    count += apiClient.pushRestaurantOrders(orders, activeCloudShopId).getOrDefault(0)
+                if (restoOrdersLocal.isNotEmpty()) {
+                    val d = computeSyncDigest(restoOrdersLocal.joinToString(";") { "${it.id}:${it.status.name}:${it.updatedAt}:${it.saleId}" })
+                    if (shouldPushEntity(activeCloudShopId, "resto_orders", d, forcePushAll)) {
+                        val r = apiClient.pushRestaurantOrders(restoOrdersLocal, activeCloudShopId)
+                        if (r.isSuccess) {
+                            markEntityPushed(activeCloudShopId, "resto_orders", d)
+                            count += r.getOrDefault(0)
+                        }
+                    }
                 }
                 val menuIds = RestaurantStorage.getMenuOfDayProductIds(context, activeCloudShopId)
                 if (menuIds.isNotEmpty() || isRestaurantBusiness(shop?.businessType)) {
-                    apiClient.pushMenuOfDay(activeCloudShopId, menuIds)
+                    val d = computeSyncDigest(menuIds.sorted().joinToString(","))
+                    if (shouldPushEntity(activeCloudShopId, "resto_menu", d, forcePushAll)) {
+                        if (apiClient.pushMenuOfDay(activeCloudShopId, menuIds).isSuccess) {
+                            markEntityPushed(activeCloudShopId, "resto_menu", d)
+                        }
+                    }
                 }
             }
 
@@ -946,7 +1109,17 @@ class SupabaseSyncManager(
                 CoutureStorage.getModels(context, activeCloudShopId).isNotEmpty() ||
                 CoutureStorage.getOrders(context, activeCloudShopId).isNotEmpty()
             ) {
-                count += pushCoutureStateInternal(activeCloudShopId, shop?.name.orEmpty())
+                val cModels = CoutureStorage.getModels(context, activeCloudShopId)
+                val cOrders = CoutureStorage.getOrders(context, activeCloudShopId)
+                val coutureDigest = computeSyncDigest(
+                    cModels.joinToString(";") { "${it.id}:${it.updatedAt}:${it.imageUri}" } + "|" +
+                        cOrders.joinToString(";") { "${it.id}:${it.status.name}:${it.updatedAt}:${it.advancePaid}" }
+                )
+                if (shouldPushEntity(activeCloudShopId, "couture_all", coutureDigest, forcePushAll)) {
+                    val pushedCouture = pushCoutureStateInternal(activeCloudShopId, shop?.name.orEmpty())
+                    markEntityPushed(activeCloudShopId, "couture_all", coutureDigest)
+                    count += pushedCouture
+                }
             }
 
             // Sauvegarder aussi le cache local multiboutique
@@ -958,7 +1131,11 @@ class SupabaseSyncManager(
             val now = System.currentTimeMillis()
             saveLastSyncTimestamp(now)
 
-            val successMsg = "Synchronisation complète réussie ($count éléments sauvegardés dans Supabase)"
+            val successMsg = if (count > 0) {
+                "Synchronisation réussie ($count élément(s) mis à jour)"
+            } else {
+                "Données locales déjà synchronisées"
+            }
             _syncState.value = _syncState.value.copy(
                 isSyncing = false,
                 isError = false,
@@ -967,7 +1144,9 @@ class SupabaseSyncManager(
                 statusMessage = successMsg
             )
 
-            NotificationHelper.sendCloudSyncSuccess(context, successMsg)
+            if (forcePushAll && count > 0) {
+                NotificationHelper.sendCloudSyncSuccess(context, successMsg)
+            }
             return Result.success(count)
         } catch (e: Exception) {
             val errMsg = e.localizedMessage ?: "Erreur de synchronisation complète"
@@ -1046,7 +1225,7 @@ class SupabaseSyncManager(
             }
             if (SupabaseConfig.isConfigured) {
                 try {
-                    syncFullStoreInternal(repository)
+                    syncFullStoreInternal(repository, forcePushAll = false)
                 } catch (_: Exception) {}
             }
         }
@@ -1269,9 +1448,17 @@ class SupabaseSyncManager(
     /**
      * Récupère et fusionne les derniers produits et ventes de la boutique active depuis Supabase (vue à distance & sur place).
      */
-    suspend fun refreshActiveShopFromCloud(repository: KonabRepository): Result<Int> = shopSyncMutex.withLock {
+    suspend fun refreshActiveShopFromCloud(
+        repository: KonabRepository,
+        force: Boolean = true
+    ): Result<Int> = shopSyncMutex.withLock {
         if (!SupabaseConfig.isConfigured) {
             return@withLock Result.failure(IllegalStateException("Supabase non configuré."))
+        }
+        val shopId = getOrCreateCloudShopId()
+        val lastPull = lastFullPullAtByShop[shopId] ?: 0L
+        if (!force && lastPull > 0L && System.currentTimeMillis() - lastPull < ACTIVE_REFRESH_SOFT_COOLDOWN_MS) {
+            return@withLock Result.success(0)
         }
         _syncState.value = _syncState.value.copy(
             isSyncing = true,
@@ -1279,8 +1466,8 @@ class SupabaseSyncManager(
             statusMessage = "Actualisation des produits et ventes..."
         )
         try {
-            syncFullStoreInternal(repository)
-            val merged = pullAndMergeRemoteInternal(repository)
+            syncFullStoreInternal(repository, forcePushAll = false)
+            val merged = pullAndMergeRemoteInternal(repository, forcePull = force)
             val now = System.currentTimeMillis()
             saveLastSyncTimestamp(now)
             _syncState.value = _syncState.value.copy(
@@ -1296,12 +1483,21 @@ class SupabaseSyncManager(
         }
     }
 
-    private suspend fun pullAndMergeRemoteInternal(repository: KonabRepository): Int {
+    private suspend fun pullAndMergeRemoteInternal(
+        repository: KonabRepository,
+        forcePull: Boolean = true
+    ): Int {
         if (!SupabaseConfig.isConfigured) return 0
         val shop = repository.getShopProfileOnce() ?: return 0
         if (!shop.isConfigured || shop.name.isBlank()) return 0
         val shopId = getOrCreateCloudShopId()
         if (shopId <= 1L) return 0
+
+        val now = System.currentTimeMillis()
+        val lastPull = lastFullPullAtByShop[shopId] ?: 0L
+        if (!forcePull && lastPull > 0L && (now - lastPull) < AUTO_PULL_COOLDOWN_MS) {
+            return 0
+        }
 
         var profileUpdates = 0
         try {
@@ -1365,6 +1561,7 @@ class SupabaseSyncManager(
         ) {
             pullCoutureStateInternal(shopId, shop.name)
         } else 0
+        lastFullPullAtByShop[shopId] = System.currentTimeMillis()
         repository.exportMultiShopSnapshot(shopId)?.let { snap ->
             MultiShopStorage.saveConnectedShop(context, snap.session)
             MultiShopStorage.saveLocalSnapshotCache(context, snap)
@@ -1378,7 +1575,28 @@ class SupabaseSyncManager(
     suspend fun pullLedgerAndRestaurantNow(repository: KonabRepository): Result<Int> = shopSyncMutex.withLock {
         if (!SupabaseConfig.isConfigured) return@withLock Result.success(0)
         return@withLock try {
-            Result.success(pullAndMergeRemoteInternal(repository))
+            Result.success(pullAndMergeRemoteInternal(repository, forcePull = true))
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Polling léger temps réel : ne télécharge QUE les commandes restaurant (1 seule requête au lieu de 13 tables).
+     */
+    suspend fun pullRestaurantOrdersOnly(shopId: Long, shopName: String? = null): Result<Int> {
+        if (!SupabaseConfig.isConfigured || shopId <= 1L) return Result.success(0)
+        return try {
+            val res = apiClient.fetchRestaurantOrders(shopId, shopName)
+            if (res.isSuccess) {
+                val remoteOrders = res.getOrDefault(emptyList())
+                if (remoteOrders.isNotEmpty()) {
+                    RestaurantStorage.mergeOrdersFromCloud(context, shopId, remoteOrders)
+                }
+                Result.success(remoteOrders.size)
+            } else {
+                Result.failure(res.exceptionOrNull() ?: IllegalStateException("Échec chargement commandes"))
+            }
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -1494,17 +1712,29 @@ class SupabaseSyncManager(
         )
     }
 
-    suspend fun fetchPublicRestaurantsDirectory(localShop: ShopProfileEntity? = null): Result<List<PublicRestaurantListing>> {
+    suspend fun fetchPublicRestaurantsDirectory(
+        localShop: ShopProfileEntity? = null,
+        forceRefresh: Boolean = false
+    ): Result<List<PublicRestaurantListing>> {
         val cachedShops = ShopAdStorage.getCachedShops(context)
         val connectedShops = MultiShopStorage.getConnectedShops(context)
         val activeLocalId = getOrCreateCloudShopId()
 
-        val remoteRes = if (SupabaseConfig.isConfigured) {
-            apiClient.fetchPublicRestaurantsDirectory()
-        } else {
-            Result.success(emptyList())
+        val now = System.currentTimeMillis()
+        val cachedRemote = cachedRestoDir
+        val canUseCache = !forceRefresh && cachedRemote != null && (now - lastRestoDirFetchAt) < DIRECTORY_CACHE_TTL_MS
+
+        val remoteRes = when {
+            !SupabaseConfig.isConfigured -> Result.success(emptyList())
+            canUseCache -> Result.success(cachedRemote!!)
+            else -> apiClient.fetchPublicRestaurantsDirectory().also { res ->
+                if (res.isSuccess) {
+                    cachedRestoDir = res.getOrDefault(emptyList())
+                    lastRestoDirFetchAt = System.currentTimeMillis()
+                }
+            }
         }
-        val remoteList = remoteRes.getOrDefault(emptyList())
+        val remoteList = remoteRes.getOrDefault(cachedRemote ?: emptyList())
         val merged = RestaurantDirectoryHelper.mergeAndFilterDirectory(
             remoteListings = remoteList,
             cachedShops = cachedShops,
@@ -1696,12 +1926,17 @@ class SupabaseSyncManager(
         )
     }
 
-    suspend fun fetchShowcaseFeed(localShop: ShopProfileEntity? = null): ShowcaseFeedResult {
+    suspend fun fetchShowcaseFeed(
+        localShop: ShopProfileEntity? = null,
+        forceRefresh: Boolean = false
+    ): ShowcaseFeedResult {
         val localDeployments = AgentDeploymentStorage.getAllDeployments(context)
         var shops = ShopAdStorage.getCachedShops(context)
         var cloudSuccess = false
+        val now = System.currentTimeMillis()
+        val cacheFresh = !forceRefresh && lastShowcaseFetchAt > 0L && (now - lastShowcaseFetchAt) < SHOWCASE_CACHE_TTL_MS
 
-        if (SupabaseConfig.isConfigured) {
+        if (SupabaseConfig.isConfigured && !cacheFresh) {
             try {
                 val remoteShopsRes = apiClient.fetchAllRegisteredShops()
                 if (remoteShopsRes.isSuccess) {
@@ -1733,6 +1968,10 @@ class SupabaseSyncManager(
                     }
                 }
             } catch (_: Exception) {}
+
+            if (cloudSuccess) {
+                lastShowcaseFetchAt = System.currentTimeMillis()
+            }
         }
 
         val allAds = ShopAdStorage.getAllAds(context)
@@ -1747,7 +1986,7 @@ class SupabaseSyncManager(
         return ShowcaseFeedResult(
             showcaseAds = merged,
             registeredShops = shops,
-            fromCloud = cloudSuccess
+            fromCloud = cloudSuccess || cacheFresh
         )
     }
 
@@ -1763,9 +2002,10 @@ class SupabaseSyncManager(
 
         if (SupabaseConfig.isConfigured) {
             if (localLogoFile != null && localLogoFile.exists() && localLogoFile.length() > 0L) {
-                val ext = localLogoFile.extension.ifBlank { "jpg" }
+                val ext = localLogoFile.extension.ifBlank { "webp" }
+                val mime = KonabImageOptimizer.imageMimeTypeForFile(localLogoFile)
                 val remotePath = "logos/${ad.id}_${System.currentTimeMillis()}.$ext"
-                val upLogo = apiClient.uploadAdMedia(localLogoFile, remotePath, "image/jpeg")
+                val upLogo = apiClient.uploadAdMedia(localLogoFile, remotePath, mime)
                 if (upLogo.isSuccess) {
                     resolvedLogoUri = upLogo.getOrThrow()
                 }
@@ -1792,6 +2032,7 @@ class SupabaseSyncManager(
 
         // Sauvegarde locale immédiate
         ShopAdStorage.saveAd(context, preparedAd)
+        lastShowcaseFetchAt = 0L
 
         if (SupabaseConfig.isConfigured) {
             val pushRes = apiClient.pushShopAd(preparedAd)
@@ -1808,6 +2049,7 @@ class SupabaseSyncManager(
 
     suspend fun deleteShopAd(adId: String): Result<Unit> {
         ShopAdStorage.deleteAd(context, adId)
+        lastShowcaseFetchAt = 0L
         if (SupabaseConfig.isConfigured) {
             apiClient.deleteShopAd(adId)
         }
@@ -1824,7 +2066,8 @@ class SupabaseSyncManager(
         if (!SupabaseConfig.isConfigured) return clean
         val file = CouturePhotoHelper.getUploadableFileForUri(context, clean) ?: return clean
         val remotePath = "couture/$subfolder/${file.name}"
-        val upRes = apiClient.uploadAdMedia(file, remotePath, "image/jpeg")
+        val mime = KonabImageOptimizer.imageMimeTypeForFile(file)
+        val upRes = apiClient.uploadAdMedia(file, remotePath, mime)
         return if (upRes.isSuccess) upRes.getOrThrow() else clean
     }
 
@@ -1898,6 +2141,27 @@ class SupabaseSyncManager(
         return Result.success(pullCoutureStateInternal(shopId, shopName))
     }
 
+    /**
+     * Polling léger temps réel : ne télécharge QUE les fiches commandes couture (1 requête ciblée).
+     */
+    suspend fun pullCoutureOrdersOnly(shopId: Long, shopName: String? = null): Result<Int> {
+        if (!SupabaseConfig.isConfigured || shopId <= 1L) return Result.success(0)
+        return try {
+            val res = apiClient.fetchCoutureOrders(shopId, shopName)
+            if (res.isSuccess) {
+                val remoteOrders = res.getOrDefault(emptyList())
+                if (remoteOrders.isNotEmpty()) {
+                    CoutureStorage.mergeOrdersFromCloud(context, shopId, remoteOrders)
+                }
+                Result.success(remoteOrders.size)
+            } else {
+                Result.failure(res.exceptionOrNull() ?: IllegalStateException("Échec chargement commandes couture"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     suspend fun syncCoutureModelNow(shopId: Long, model: CoutureModelRecord, shopName: String): Result<CoutureModelRecord> {
         val resolvedUri = uploadCoutureLocalPhotoIfNeeded(model.imageUri, "models")
         val finalModel = model.copy(
@@ -1958,26 +2222,47 @@ class SupabaseSyncManager(
         )
     }
 
-    suspend fun fetchPublicCoutureDirectory(localShop: ShopProfileEntity? = null): Result<List<PublicCouturierListing>> {
+    suspend fun fetchPublicCoutureDirectory(
+        localShop: ShopProfileEntity? = null,
+        forceRefresh: Boolean = false
+    ): Result<List<PublicCouturierListing>> {
         val cachedShops = ShopAdStorage.getCachedShops(context)
         val connectedShops = MultiShopStorage.getConnectedShops(context)
         val activeLocalId = getOrCreateCloudShopId()
 
-        val remoteRes = if (SupabaseConfig.isConfigured) {
-            apiClient.fetchPublicCouturiersDirectory()
-        } else {
-            Result.success(emptyList())
+        val now = System.currentTimeMillis()
+        val cachedRemoteDir = cachedCoutureDir
+        val canUseDirCache = !forceRefresh && cachedRemoteDir != null && (now - lastCoutureDirFetchAt) < DIRECTORY_CACHE_TTL_MS
+
+        val remoteRes = when {
+            !SupabaseConfig.isConfigured -> Result.success(emptyList())
+            canUseDirCache -> Result.success(cachedRemoteDir!!)
+            else -> apiClient.fetchPublicCouturiersDirectory().also { res ->
+                if (res.isSuccess) {
+                    cachedCoutureDir = res.getOrDefault(emptyList())
+                    lastCoutureDirFetchAt = System.currentTimeMillis()
+                }
+            }
         }
-        val remoteModels = if (SupabaseConfig.isConfigured) {
-            apiClient.fetchPublicCoutureModelsFeed().getOrDefault(emptyList())
-        } else {
-            emptyList()
+
+        val cachedFeed = cachedCoutureFeed
+        val canUseFeedCache = !forceRefresh && cachedFeed != null && (now - lastCoutureFeedFetchAt) < DIRECTORY_CACHE_TTL_MS
+        val remoteModels = when {
+            !SupabaseConfig.isConfigured -> emptyList()
+            canUseFeedCache -> cachedFeed!!
+            else -> apiClient.fetchPublicCoutureModelsFeed().also { res ->
+                if (res.isSuccess) {
+                    cachedCoutureFeed = res.getOrDefault(emptyList())
+                    lastCoutureFeedFetchAt = System.currentTimeMillis()
+                }
+            }.getOrDefault(cachedFeed ?: emptyList())
         }
+
         val allKnownModels = (remoteModels + CoutureStorage.getAllLocalModels(context)).distinctBy { it.id }
         val counts = allKnownModels.groupingBy { it.shopId }.eachCount()
 
         val merged = CoutureDirectoryHelper.mergeAndFilterDirectory(
-            remoteListings = remoteRes.getOrDefault(emptyList()),
+            remoteListings = remoteRes.getOrDefault(cachedRemoteDir ?: emptyList()),
             cachedShops = cachedShops,
             connectedShops = connectedShops,
             localShop = localShop,
@@ -1991,13 +2276,23 @@ class SupabaseSyncManager(
         }
     }
 
-    suspend fun fetchPublicCoutureModelsFeed(): Result<List<CoutureModelRecord>> {
+    suspend fun fetchPublicCoutureModelsFeed(forceRefresh: Boolean = false): Result<List<CoutureModelRecord>> {
         val localModels = CoutureStorage.getAllLocalModels(context)
         if (!SupabaseConfig.isConfigured) {
             return Result.success(localModels)
         }
-        val remoteRes = apiClient.fetchPublicCoutureModelsFeed()
-        val remoteList = remoteRes.getOrDefault(emptyList())
+        val now = System.currentTimeMillis()
+        val cachedFeed = cachedCoutureFeed
+        val remoteList = if (!forceRefresh && cachedFeed != null && (now - lastCoutureFeedFetchAt) < DIRECTORY_CACHE_TTL_MS) {
+            cachedFeed
+        } else {
+            apiClient.fetchPublicCoutureModelsFeed().also { res ->
+                if (res.isSuccess) {
+                    cachedCoutureFeed = res.getOrDefault(emptyList())
+                    lastCoutureFeedFetchAt = System.currentTimeMillis()
+                }
+            }.getOrDefault(cachedFeed ?: emptyList())
+        }
         val byId = LinkedHashMap<String, CoutureModelRecord>()
         remoteList.forEach { byId[it.id] = it }
         localModels.forEach { local ->
@@ -2067,10 +2362,18 @@ class SupabaseSyncManager(
 
     // --- PORTAIL GESTION POUBELLES / SALUBRITÉ ---
 
-    suspend fun fetchAllWastePortalState(): Result<Pair<List<WasteBusinessProfile>, List<WasteHouseholdClient>>> {
+    suspend fun fetchAllWastePortalState(
+        forceRefresh: Boolean = false
+    ): Result<Pair<List<WasteBusinessProfile>, List<WasteHouseholdClient>>> {
         val localBusinesses = WasteCollectorStorage.getBusinesses(context)
         val localClients = WasteCollectorStorage.getClients(context)
         if (!SupabaseConfig.isConfigured) {
+            return Result.success(localBusinesses to localClients)
+        }
+        val now = System.currentTimeMillis()
+        if (!forceRefresh && lastWasteFetchAt > 0L && (now - lastWasteFetchAt) < PORTAL_CACHE_TTL_MS &&
+            (localBusinesses.isNotEmpty() || localClients.isNotEmpty())
+        ) {
             return Result.success(localBusinesses to localClients)
         }
         return try {
@@ -2085,6 +2388,9 @@ class SupabaseSyncManager(
                 WasteCollectorStorage.mergeClientsFromCloud(context, remoteCliRes.getOrDefault(emptyList()))
             } else {
                 localClients
+            }
+            if (remoteBizRes.isSuccess || remoteCliRes.isSuccess) {
+                lastWasteFetchAt = System.currentTimeMillis()
             }
             Result.success(mergedBiz to mergedCli)
         } catch (e: Exception) {
@@ -2102,7 +2408,8 @@ class SupabaseSyncManager(
             ?: CouturePhotoHelper.getUploadableFileForUri(context, clean)
             ?: return clean
         val remotePath = "cards/$subfolder/${directFile.name}"
-        val upRes = apiClient.uploadAdMedia(directFile, remotePath, "image/jpeg")
+        val mime = KonabImageOptimizer.imageMimeTypeForFile(directFile)
+        val upRes = apiClient.uploadAdMedia(directFile, remotePath, mime)
         return if (upRes.isSuccess) upRes.getOrThrow() else clean
     }
 
@@ -2110,6 +2417,7 @@ class SupabaseSyncManager(
         val resolvedPhoto = uploadActivityCardPhotoIfNeeded(biz.photoUri, "waste-biz")
         val prepared = if (resolvedPhoto != biz.photoUri) biz.copy(photoUri = resolvedPhoto) else biz
         val saved = WasteCollectorStorage.upsertBusiness(context, prepared)
+        lastWasteFetchAt = 0L
         if (SupabaseConfig.isConfigured) {
             apiClient.pushWasteBusinesses(listOf(saved))
         }
@@ -2120,6 +2428,7 @@ class SupabaseSyncManager(
         val resolvedPhoto = uploadActivityCardPhotoIfNeeded(client.photoUri, "waste-clients")
         val prepared = if (resolvedPhoto != client.photoUri) client.copy(photoUri = resolvedPhoto) else client
         val saved = WasteCollectorStorage.upsertClient(context, prepared)
+        lastWasteFetchAt = 0L
         if (SupabaseConfig.isConfigured) {
             apiClient.pushWasteClients(listOf(saved))
         }
@@ -2128,6 +2437,7 @@ class SupabaseSyncManager(
 
     suspend fun deleteWasteClientCloud(clientId: String): Result<Unit> {
         WasteCollectorStorage.deleteClient(context, clientId)
+        lastWasteFetchAt = 0L
         if (SupabaseConfig.isConfigured) {
             apiClient.deleteWasteClient(clientId)
         }
@@ -2136,11 +2446,19 @@ class SupabaseSyncManager(
 
     // --- PORTAIL TONTINE NUMÉRIQUE (CARTES 30 JOURS) ---
 
-    suspend fun fetchAllTontinePortalState(): Result<Triple<List<TontineBusinessProfile>, List<TontineGroup>, List<TontineMemberCard>>> {
+    suspend fun fetchAllTontinePortalState(
+        forceRefresh: Boolean = false
+    ): Result<Triple<List<TontineBusinessProfile>, List<TontineGroup>, List<TontineMemberCard>>> {
         val localBiz = TontineStorage.getBusinesses(context)
         val localGroups = TontineStorage.getGroups(context)
         val localCards = TontineStorage.getCards(context)
         if (!SupabaseConfig.isConfigured) {
+            return Result.success(Triple(localBiz, localGroups, localCards))
+        }
+        val now = System.currentTimeMillis()
+        if (!forceRefresh && lastTontineFetchAt > 0L && (now - lastTontineFetchAt) < PORTAL_CACHE_TTL_MS &&
+            (localBiz.isNotEmpty() || localGroups.isNotEmpty() || localCards.isNotEmpty())
+        ) {
             return Result.success(Triple(localBiz, localGroups, localCards))
         }
         return try {
@@ -2162,6 +2480,9 @@ class SupabaseSyncManager(
             } else {
                 localCards
             }
+            if (remoteBizRes.isSuccess || remoteGroupsRes.isSuccess || remoteCardsRes.isSuccess) {
+                lastTontineFetchAt = System.currentTimeMillis()
+            }
             Result.success(Triple(mergedBiz, mergedGroups, mergedCards))
         } catch (e: Exception) {
             Result.success(Triple(localBiz, localGroups, localCards))
@@ -2172,6 +2493,7 @@ class SupabaseSyncManager(
         val resolvedPhoto = uploadActivityCardPhotoIfNeeded(biz.photoUri, "tontine-biz")
         val prepared = if (resolvedPhoto != biz.photoUri) biz.copy(photoUri = resolvedPhoto) else biz
         val saved = TontineStorage.upsertBusiness(context, prepared)
+        lastTontineFetchAt = 0L
         if (SupabaseConfig.isConfigured) {
             apiClient.pushTontineBusinesses(listOf(saved))
         }
@@ -2180,6 +2502,7 @@ class SupabaseSyncManager(
 
     suspend fun syncTontineGroupNow(group: TontineGroup): Result<TontineGroup> {
         val saved = TontineStorage.upsertGroup(context, group)
+        lastTontineFetchAt = 0L
         if (SupabaseConfig.isConfigured) {
             apiClient.pushTontineGroups(listOf(saved))
         }
@@ -2190,6 +2513,7 @@ class SupabaseSyncManager(
         val resolvedPhoto = uploadActivityCardPhotoIfNeeded(card.photoUri, "tontine-cards")
         val prepared = if (resolvedPhoto != card.photoUri) card.copy(photoUri = resolvedPhoto) else card
         val saved = TontineStorage.upsertCard(context, prepared)
+        lastTontineFetchAt = 0L
         if (SupabaseConfig.isConfigured) {
             apiClient.pushTontineCards(listOf(saved))
         }
@@ -2198,6 +2522,7 @@ class SupabaseSyncManager(
 
     suspend fun deleteTontineCardCloud(cardId: String): Result<Unit> {
         TontineStorage.deleteCard(context, cardId)
+        lastTontineFetchAt = 0L
         if (SupabaseConfig.isConfigured) {
             apiClient.deleteTontineCard(cardId)
         }

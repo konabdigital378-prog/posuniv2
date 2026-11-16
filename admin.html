@@ -1842,6 +1842,11 @@
         let autoSyncInterval = null;
         let isAutoSyncActive = true;
         let lastAutoSyncDate = null;
+        let isCloudFetching = false;
+        let lastCloudFetchAt = 0;
+        let realtimeDebounceTimer = null;
+        const pendingRealtimeTables = new Set();
+        let visibilityListenerAttached = false;
 
         function updateLastSyncLabel() {
             const el = document.getElementById('cfg-last-sync-time');
@@ -1869,6 +1874,99 @@
             }, 3000);
         }
 
+        async function refreshTablesIncremental(tables = []) {
+            if (!supabaseClient || !dataStore.cloudRaw) {
+                return fetchCloudData(true, { bypassCooldown: true });
+            }
+            if (isCloudFetching) return;
+            const tableSet = new Set(tables);
+            if (tableSet.has('shop_profile')) {
+                return fetchCloudData(true, { bypassCooldown: true });
+            }
+            const activeShopId = dataStore.selectedShopId || dataStore.shop?.id;
+            const totalShops = (dataStore.cloudRaw?.shops || []).length;
+            const scopedIds = activeShopId && totalShops > 1 ? [activeShopId] : [];
+            const fetchScopedOrAll = async (tbl, orderCol, limitCount) => {
+                if (scopedIds.length > 0 && Number(activeShopId) !== 1) {
+                    const rows = await fetchTableForShopIds(supabaseClient, tbl, scopedIds, orderCol, limitCount);
+                    return rows;
+                }
+                const res = await fetchTableSafe(supabaseClient, tbl, orderCol, false, limitCount);
+                return res.data || [];
+            };
+
+            isCloudFetching = true;
+            try {
+                const tasks = [];
+                if (tableSet.has('products')) {
+                    tasks.push(fetchScopedOrAll('products', 'id', 800).then(rows => { dataStore.cloudRaw.products = rows; }));
+                }
+                if (tableSet.has('sales')) {
+                    tasks.push(fetchScopedOrAll('sales', 'timestamp', 800).then(rows => { dataStore.cloudRaw.sales = rows; }));
+                }
+                if (tableSet.has('sale_items')) {
+                    tasks.push(fetchTableSafe(supabaseClient, 'sale_items', 'id', false, 1500).then(r => { dataStore.cloudRaw.saleItems = r.data || []; }));
+                }
+                if (tableSet.has('customers')) {
+                    tasks.push(fetchScopedOrAll('customers', 'id', 800).then(rows => { dataStore.cloudRaw.customers = rows; }));
+                }
+                if (tableSet.has('suppliers')) {
+                    tasks.push(fetchScopedOrAll('suppliers', 'id', 500).then(rows => { dataStore.cloudRaw.suppliers = rows; }));
+                }
+                if (tableSet.has('purchases')) {
+                    tasks.push(fetchScopedOrAll('purchases', 'timestamp', 800).then(rows => { dataStore.cloudRaw.purchases = rows; }));
+                }
+                if (tableSet.has('cash_sessions')) {
+                    tasks.push(fetchScopedOrAll('cash_sessions', 'opened_at', 400).then(rows => { dataStore.cloudRaw.cashSessions = rows; }));
+                }
+                if (tableSet.has('cash_movements')) {
+                    tasks.push(fetchScopedOrAll('cash_movements', 'timestamp', 1000).then(rows => { dataStore.cloudRaw.cashMovements = rows; }));
+                }
+                if (tableSet.has('restaurant_orders')) {
+                    tasks.push(fetchScopedOrAll('restaurant_orders', 'created_at', 400).then(rows => { dataStore.cloudRaw.restaurantOrders = rows; }));
+                }
+                if (tableSet.has('restaurant_tables')) {
+                    tasks.push(fetchScopedOrAll('restaurant_tables', 'updated_at', 300).then(rows => { dataStore.cloudRaw.restaurantTables = rows; }));
+                }
+                if (tableSet.has('restaurant_staff')) {
+                    tasks.push(fetchScopedOrAll('restaurant_staff', 'updated_at', 300).then(rows => { dataStore.cloudRaw.restaurantStaff = rows; }));
+                }
+                if (tableSet.has('restaurant_menu_day')) {
+                    tasks.push(fetchScopedOrAll('restaurant_menu_day', 'updated_at', 300).then(rows => { dataStore.cloudRaw.restaurantMenuDay = rows; }));
+                }
+                if (tableSet.has('app_notifications')) {
+                    tasks.push(fetchScopedOrAll('app_notifications', 'timestamp', 600).then(rows => { dataStore.cloudRaw.notifications = rows; }));
+                }
+                if (tasks.length > 0) {
+                    await Promise.all(tasks);
+                    applyActiveShopScope(dataStore.selectedShopId || null, {});
+                    lastAutoSyncDate = new Date();
+                    lastCloudFetchAt = Date.now();
+                    updateLastSyncLabel();
+                    renderAll();
+                    updateCharts();
+                }
+            } catch (e) {
+                console.warn('Erreur rafraîchissement incrémental:', e);
+            } finally {
+                isCloudFetching = false;
+            }
+        }
+
+        function scheduleIncrementalRealtimeRefresh(tableName) {
+            if (document.hidden) return;
+            if (tableName) pendingRealtimeTables.add(tableName);
+            if (realtimeDebounceTimer) clearTimeout(realtimeDebounceTimer);
+            realtimeDebounceTimer = setTimeout(() => {
+                const batch = Array.from(pendingRealtimeTables);
+                pendingRealtimeTables.clear();
+                realtimeDebounceTimer = null;
+                if (batch.length > 0) {
+                    refreshTablesIncremental(batch);
+                }
+            }, 2500);
+        }
+
         function setupRealtimeSync() {
             if (!supabaseClient) return;
 
@@ -1881,14 +1979,18 @@
                 clearInterval(autoSyncInterval);
                 autoSyncInterval = null;
             }
+            if (realtimeDebounceTimer) {
+                clearTimeout(realtimeDebounceTimer);
+                realtimeDebounceTimer = null;
+            }
 
-            // 1. Abonnement en direct via Supabase Realtime (WebSockets)
+            // 1. Abonnement en direct via Supabase Realtime (WebSockets) avec anti-rebond 2.5s
             try {
                 realtimeChannel = supabaseClient.channel('konab-pos-realtime-sync')
                     .on('postgres_changes', { event: '*', schema: 'public' }, (payload) => {
                         console.log('⚡ Modification en direct reçue de Supabase:', payload.table, payload.eventType);
                         showAutoSyncToast(`Synchro direct : table ${payload.table} (${payload.eventType})`);
-                        fetchCloudData(true);
+                        scheduleIncrementalRealtimeRefresh(payload.table);
                     })
                     .subscribe((status) => {
                         console.log('Statut Supabase Realtime:', status);
@@ -1900,12 +2002,23 @@
                 console.warn('Realtime websockets non disponibles, passage en scrutation automatique continue:', e);
             }
 
-            // 2. Scrutation périodique en arrière-plan toutes les 25 secondes
+            // 2. Scrutation périodique économique (toutes les 2 minutes, uniquement onglet visible)
             autoSyncInterval = setInterval(() => {
-                if (isCloudMode && supabaseClient && isAutoSyncActive) {
+                if (isCloudMode && supabaseClient && isAutoSyncActive && !document.hidden) {
                     fetchCloudData(true);
                 }
-            }, 25000);
+            }, 120000);
+
+            if (!visibilityListenerAttached) {
+                visibilityListenerAttached = true;
+                document.addEventListener('visibilitychange', () => {
+                    if (!document.hidden && isCloudMode && supabaseClient && isAutoSyncActive) {
+                        if (Date.now() - lastCloudFetchAt > 30000) {
+                            fetchCloudData(true);
+                        }
+                    }
+                });
+            }
         }
 
         function isCashInType(type) {
@@ -2427,20 +2540,24 @@
             return [];
         }
 
-        async function fetchRestaurantData(client = supabaseClient, existingNotifications = null, preloadedProducts = null, preloadedShops = null, targetShopIds = []) {
+        async function fetchRestaurantData(client = supabaseClient, existingNotifications = null, preloadedProducts = null, preloadedShops = null, targetShopIds = [], allowGlobalFallback = true) {
             if (!client) {
                 return { staff: [], tables: [], orders: [], menuDay: [], linkedMenuItems: [], products: [] };
             }
 
-            // Requête explicite sur restaurant_menu_day (avec tentative de jointure relationnelle vers products, repli select('*'))
+            const hasTargetIds = Array.isArray(targetShopIds) && targetShopIds.length > 0;
+            const useScopedOnly = hasTargetIds && !allowGlobalFallback;
+
+            // Requête explicite sur restaurant_menu_day (uniquement en mode global)
             const fetchMenuDayExplicit = async () => {
+                if (useScopedOnly) return [];
                 try {
-                    const relRes = await client.from('restaurant_menu_day').select('*, products(*)').limit(1000);
+                    const relRes = await client.from('restaurant_menu_day').select('*, products(*)').limit(500);
                     if (!relRes.error && Array.isArray(relRes.data)) {
                         return relRes.data;
                     }
                 } catch (e) {}
-                const plainRes = await fetchTableSafe(client, 'restaurant_menu_day', 'updated_at', false, 1000);
+                const plainRes = await fetchTableSafe(client, 'restaurant_menu_day', 'updated_at', false, 500);
                 return plainRes.data || [];
             };
 
@@ -2458,16 +2575,16 @@
                 targetedMenuItemsTable
             ] = await Promise.all([
                 fetchMenuDayExplicit(),
-                fetchTableSafe(client, 'restaurant_staff', 'updated_at', false, 1000),
-                fetchTableSafe(client, 'restaurant_tables', 'updated_at', false, 1000),
-                fetchTableSafe(client, 'restaurant_orders', 'created_at', false, 1000),
-                existingNotifications ? Promise.resolve({ data: existingNotifications }) : fetchTableSafe(client, 'app_notifications', 'timestamp', false, 2000),
-                fetchTableSafe(client, 'restaurant_menu_items', 'id', false, 1000),
-                fetchTableForShopIds(client, 'restaurant_menu_day', targetShopIds, 'updated_at', 1000),
-                fetchTableForShopIds(client, 'restaurant_staff', targetShopIds, 'updated_at', 1000),
-                fetchTableForShopIds(client, 'restaurant_tables', targetShopIds, 'updated_at', 1000),
-                fetchTableForShopIds(client, 'restaurant_orders', targetShopIds, 'created_at', 1000),
-                fetchTableForShopIds(client, 'restaurant_menu_items', targetShopIds, 'id', 1000)
+                useScopedOnly ? Promise.resolve({ data: [] }) : fetchTableSafe(client, 'restaurant_staff', 'updated_at', false, 400),
+                useScopedOnly ? Promise.resolve({ data: [] }) : fetchTableSafe(client, 'restaurant_tables', 'updated_at', false, 400),
+                useScopedOnly ? Promise.resolve({ data: [] }) : fetchTableSafe(client, 'restaurant_orders', 'created_at', false, 500),
+                existingNotifications ? Promise.resolve({ data: existingNotifications }) : fetchTableSafe(client, 'app_notifications', 'timestamp', false, 600),
+                useScopedOnly ? Promise.resolve({ data: [] }) : fetchTableSafe(client, 'restaurant_menu_items', 'id', false, 500),
+                fetchTableForShopIds(client, 'restaurant_menu_day', targetShopIds, 'updated_at', 400),
+                fetchTableForShopIds(client, 'restaurant_staff', targetShopIds, 'updated_at', 400),
+                fetchTableForShopIds(client, 'restaurant_tables', targetShopIds, 'updated_at', 400),
+                fetchTableForShopIds(client, 'restaurant_orders', targetShopIds, 'created_at', 500),
+                fetchTableForShopIds(client, 'restaurant_menu_items', targetShopIds, 'id', 500)
             ]);
 
             const notifs = resNotifs.data || existingNotifications || [];
@@ -2600,8 +2717,8 @@
                 updateSyncStatus('Connexion en cours...', false);
                 const client = window.supabase.createClient(url, key);
 
-                // Vérifier l'accès principal sur shop_profile (et products en secours)
-                const pingShop = await client.from('shop_profile').select('*').limit(1);
+                // Vérifier l'accès principal sur shop_profile (projection minimale id uniquement)
+                const pingShop = await client.from('shop_profile').select('id').limit(1);
                 if (pingShop.error && pingShop.error.code !== 'PGRST116') {
                     const pingProd = await client.from('products').select('id').limit(1);
                     if (pingProd.error && pingProd.error.code !== 'PGRST116') {
@@ -2649,6 +2766,11 @@
 
         async function fetchCloudData(silent = false, options = {}) {
             if (!supabaseClient) return;
+            if (isCloudFetching) return;
+            if (silent && !options.bypassCooldown && (Date.now() - lastCloudFetchAt) < 5000) {
+                return;
+            }
+            isCloudFetching = true;
             try {
                 if (!silent) {
                     updateSyncStatus('Synchronisation en cours...', true);
@@ -2670,9 +2792,9 @@
 
                 // 1) Charger shop_profile & app_notifications en priorité pour résoudre l'identité multi-utilisateur
                 const [resShops, resNotifs, resStaffDirect] = await Promise.all([
-                    fetchTableSafe(supabaseClient, 'shop_profile', 'updated_at', false, 1000),
-                    fetchTableSafe(supabaseClient, 'app_notifications', 'timestamp', false, 2000),
-                    fetchTableSafe(supabaseClient, 'restaurant_staff', 'updated_at', false, 1000)
+                    fetchTableSafe(supabaseClient, 'shop_profile', 'updated_at', false, 200),
+                    fetchTableSafe(supabaseClient, 'app_notifications', 'timestamp', false, 600),
+                    fetchTableSafe(supabaseClient, 'restaurant_staff', 'updated_at', false, 400)
                 ]);
 
                 const shopsList = resShops.data || [];
@@ -2688,8 +2810,9 @@
                     activeAuthUser
                 );
                 const targetShopIds = Array.from(preScope.relatedShopIds || []);
+                const useScopedOnly = targetShopIds.length > 0 && !preScope.allowLegacyShop1;
 
-                // 2) Charger toutes les tables métier globalement ET de façon ciblée par shop_id
+                // 2) Charger les tables métier de façon ciblée (évite la double lecture globale + ciblée)
                 const [
                     resProd,
                     resSales,
@@ -2708,22 +2831,22 @@
                     targetedMovs,
                     targetedNotifs
                 ] = await Promise.all([
-                    fetchTableSafe(supabaseClient, 'products', 'id', false, 2000),
-                    fetchTableSafe(supabaseClient, 'sales', 'timestamp', false, 2000),
-                    fetchTableSafe(supabaseClient, 'sale_items', 'id', false, 5000),
-                    fetchTableSafe(supabaseClient, 'customers', 'id', false, 2000),
-                    fetchTableSafe(supabaseClient, 'suppliers', 'id', false, 1000),
-                    fetchTableSafe(supabaseClient, 'purchases', 'timestamp', false, 2000),
-                    fetchTableSafe(supabaseClient, 'cash_sessions', 'opened_at', false, 1000),
-                    fetchTableSafe(supabaseClient, 'cash_movements', 'timestamp', false, 3000),
-                    fetchTableForShopIds(supabaseClient, 'products', targetShopIds, 'id', 2000),
-                    fetchTableForShopIds(supabaseClient, 'sales', targetShopIds, 'timestamp', 2000),
-                    fetchTableForShopIds(supabaseClient, 'customers', targetShopIds, 'id', 2000),
-                    fetchTableForShopIds(supabaseClient, 'suppliers', targetShopIds, 'id', 1000),
-                    fetchTableForShopIds(supabaseClient, 'purchases', targetShopIds, 'timestamp', 2000),
-                    fetchTableForShopIds(supabaseClient, 'cash_sessions', targetShopIds, 'opened_at', 1000),
-                    fetchTableForShopIds(supabaseClient, 'cash_movements', targetShopIds, 'timestamp', 3000),
-                    fetchTableForShopIds(supabaseClient, 'app_notifications', targetShopIds, 'timestamp', 2000)
+                    useScopedOnly ? Promise.resolve({ data: [] }) : fetchTableSafe(supabaseClient, 'products', 'id', false, 800),
+                    useScopedOnly ? Promise.resolve({ data: [] }) : fetchTableSafe(supabaseClient, 'sales', 'timestamp', false, 800),
+                    fetchTableSafe(supabaseClient, 'sale_items', 'id', false, 1500),
+                    useScopedOnly ? Promise.resolve({ data: [] }) : fetchTableSafe(supabaseClient, 'customers', 'id', false, 800),
+                    useScopedOnly ? Promise.resolve({ data: [] }) : fetchTableSafe(supabaseClient, 'suppliers', 'id', false, 500),
+                    useScopedOnly ? Promise.resolve({ data: [] }) : fetchTableSafe(supabaseClient, 'purchases', 'timestamp', false, 800),
+                    useScopedOnly ? Promise.resolve({ data: [] }) : fetchTableSafe(supabaseClient, 'cash_sessions', 'opened_at', false, 400),
+                    useScopedOnly ? Promise.resolve({ data: [] }) : fetchTableSafe(supabaseClient, 'cash_movements', 'timestamp', false, 1000),
+                    fetchTableForShopIds(supabaseClient, 'products', targetShopIds, 'id', 800),
+                    fetchTableForShopIds(supabaseClient, 'sales', targetShopIds, 'timestamp', 800),
+                    fetchTableForShopIds(supabaseClient, 'customers', targetShopIds, 'id', 800),
+                    fetchTableForShopIds(supabaseClient, 'suppliers', targetShopIds, 'id', 500),
+                    fetchTableForShopIds(supabaseClient, 'purchases', targetShopIds, 'timestamp', 800),
+                    fetchTableForShopIds(supabaseClient, 'cash_sessions', targetShopIds, 'opened_at', 400),
+                    fetchTableForShopIds(supabaseClient, 'cash_movements', targetShopIds, 'timestamp', 1000),
+                    targetShopIds.length > 0 ? fetchTableForShopIds(supabaseClient, 'app_notifications', targetShopIds, 'timestamp', 600) : Promise.resolve([])
                 ]);
 
                 const notifs = mergeRowsByKey(initialNotifs, targetedNotifs, r => String(r?.id ?? ''));
@@ -2753,7 +2876,8 @@
                     notifs,
                     mergedProducts,
                     shopsList,
-                    targetShopIds
+                    targetShopIds,
+                    !useScopedOnly
                 );
 
                 dataStore.cloudRaw = {
@@ -2781,6 +2905,7 @@
                 });
 
                 lastAutoSyncDate = new Date();
+                lastCloudFetchAt = Date.now();
                 updateLastSyncLabel();
 
                 renderAll();
@@ -2788,6 +2913,8 @@
                 updateSyncStatus('Supabase Auto-Sync Actif (Temps Réel)', true);
             } catch (e) {
                 console.warn('Error fetching cloud data, using existing in-memory:', e);
+            } finally {
+                isCloudFetching = false;
             }
         }
 
@@ -3023,7 +3150,7 @@
                                 if (pCover) {
                                     return `
                                         <div class="relative w-11 h-11 rounded-xl overflow-hidden border border-slate-200 bg-white shrink-0 cursor-pointer shadow-xs hover:border-konab-500 transition-all group" onclick="viewProductGalleryZoom(${p.id})" title="Cliquer pour voir la galerie (${pImgs.length} photo${pImgs.length > 1 ? 's' : ''})">
-                                            <img src="${pCover}" alt="${p.name}" class="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                                            <img src="${pCover}" alt="${p.name}" loading="lazy" decoding="async" class="w-full h-full object-cover group-hover:scale-105 transition-transform" />
                                             ${pImgs.length > 1 ? `
                                                 <span class="absolute bottom-0 right-0 bg-slate-900/85 text-white text-[8px] font-black px-1 rounded-tl-md">
                                                     +${pImgs.length - 1}
@@ -3525,7 +3652,7 @@
                 card.className = `group relative shrink-0 w-20 h-20 rounded-xl overflow-hidden border-2 transition-all shadow-xs bg-slate-100 ${isPrimary ? 'border-konab-600 ring-2 ring-konab-200' : 'border-slate-200 hover:border-konab-400'}`;
                 
                 card.innerHTML = `
-                    <img src="${imgSrc}" alt="Photo galerie ${index + 1}" class="w-full h-full object-cover cursor-pointer transition-transform duration-300 group-hover:scale-105" onclick="openProductImageZoomModal(null, ${index})" />
+                    <img src="${imgSrc}" alt="Photo galerie ${index + 1}" loading="lazy" decoding="async" class="w-full h-full object-cover cursor-pointer transition-transform duration-300 group-hover:scale-105" onclick="openProductImageZoomModal(null, ${index})" />
                     
                     ${isPrimary ? `
                         <div class="absolute top-1 left-1 px-1.5 py-0.5 rounded-md bg-konab-600/95 text-white text-[9px] font-black tracking-tight shadow">
@@ -3551,22 +3678,58 @@
             });
         }
 
-        function handleGalleryFilesUpload(input) {
-            if (!input.files || input.files.length === 0) return;
-            const files = Array.from(input.files);
-            let loaded = 0;
-            files.forEach(file => {
-                const reader = new FileReader();
-                reader.onload = function(e) {
-                    currentProductGallery.push(e.target.result);
-                    loaded++;
-                    if (loaded === files.length) {
-                        renderProductGallery();
-                        input.value = '';
+        async function compressImageSourceToWebpDataUrl(fileOrDataUrl, maxDimension = 720, quality = 0.78) {
+            const rawDataUrl = typeof fileOrDataUrl === 'string'
+                ? fileOrDataUrl
+                : await new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = e => resolve(e.target.result);
+                    reader.onerror = reject;
+                    reader.readAsDataURL(fileOrDataUrl);
+                });
+            return new Promise((resolve) => {
+                const img = new Image();
+                img.onload = () => {
+                    try {
+                        let w = img.naturalWidth || img.width;
+                        let h = img.naturalHeight || img.height;
+                        if (w > maxDimension || h > maxDimension) {
+                            if (w >= h) {
+                                h = Math.round((h * maxDimension) / w);
+                                w = maxDimension;
+                            } else {
+                                w = Math.round((w * maxDimension) / h);
+                                h = maxDimension;
+                            }
+                        }
+                        const canvas = document.createElement('canvas');
+                        canvas.width = Math.max(1, w);
+                        canvas.height = Math.max(1, h);
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                        let out = canvas.toDataURL('image/webp', quality);
+                        if (!out || !out.startsWith('data:image/webp')) {
+                            out = canvas.toDataURL('image/jpeg', quality);
+                        }
+                        resolve(out);
+                    } catch (e) {
+                        resolve(rawDataUrl);
                     }
                 };
-                reader.readAsDataURL(file);
+                img.onerror = () => resolve(rawDataUrl);
+                img.src = rawDataUrl;
             });
+        }
+
+        async function handleGalleryFilesUpload(input) {
+            if (!input.files || input.files.length === 0) return;
+            const files = Array.from(input.files);
+            for (const file of files) {
+                const compressed = await compressImageSourceToWebpDataUrl(file, 720, 0.78);
+                currentProductGallery.push(compressed);
+            }
+            renderProductGallery();
+            input.value = '';
         }
 
         function promptAddGalleryImageUrl() {
@@ -3599,18 +3762,15 @@
             }
         }
 
-        function previewProductImage(input) {
+        async function previewProductImage(input) {
             if (input.files && input.files[0]) {
-                const reader = new FileReader();
-                reader.onload = function(e) {
-                    if (currentProductGallery.length === 0) {
-                        currentProductGallery.push(e.target.result);
-                    } else {
-                        currentProductGallery[0] = e.target.result;
-                    }
-                    renderProductGallery();
-                };
-                reader.readAsDataURL(input.files[0]);
+                const compressed = await compressImageSourceToWebpDataUrl(input.files[0], 720, 0.78);
+                if (currentProductGallery.length === 0) {
+                    currentProductGallery.push(compressed);
+                } else {
+                    currentProductGallery[0] = compressed;
+                }
+                renderProductGallery();
             }
         }
 
@@ -3897,7 +4057,7 @@
             }
 
             const canvas = document.getElementById('camera-capture-canvas') || document.createElement('canvas');
-            const maxDimension = 1024;
+            const maxDimension = 720;
             let targetWidth = video.videoWidth;
             let targetHeight = video.videoHeight;
 
@@ -3916,8 +4076,11 @@
             const ctx = canvas.getContext('2d');
             ctx.drawImage(video, 0, 0, targetWidth, targetHeight);
 
-            // Génération de la photo en format JPEG léger et net
-            const photoDataUrl = canvas.toDataURL('image/jpeg', 0.90);
+            // Génération de la photo en format WebP compressé (repli JPEG si non supporté)
+            let photoDataUrl = canvas.toDataURL('image/webp', 0.78);
+            if (!photoDataUrl || !photoDataUrl.startsWith('data:image/webp')) {
+                photoDataUrl = canvas.toDataURL('image/jpeg', 0.78);
+            }
 
             // Ajout à la galerie ou comme image principale selon le mode
             if (cameraTargetMode === 'gallery') {

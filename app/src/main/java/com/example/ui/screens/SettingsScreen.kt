@@ -303,7 +303,8 @@ fun SettingsScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp)
-                            .offset(y = (-24).dp),
+                            .offset(y = (-24).dp)
+                            .clickable { showEditInfoDialog = true },
                         verticalAlignment = Alignment.Bottom,
                         horizontalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
@@ -324,16 +325,21 @@ fun SettingsScreen(
                                 .padding(bottom = 2.dp)
                         ) {
                             Text(
-                                text = shopProfile?.name ?: "Boutique Kaba",
+                                text = shopProfile?.name?.ifBlank { "Ma Boutique" } ?: "Ma Boutique",
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 18.sp,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
                             Text(
-                                text = "${shopProfile?.businessType ?: "Boutique Générale"} • ${shopProfile?.city ?: "Ouagadougou"}",
+                                text = listOfNotNull(
+                                    shopProfile?.businessType?.takeIf { it.isNotBlank() },
+                                    shopProfile?.city?.takeIf { it.isNotBlank() }
+                                ).joinToString(" • ").ifBlank { "Touchez pour compléter le profil" },
                                 fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
 
@@ -341,7 +347,7 @@ fun SettingsScreen(
                         FilledTonalIconButton(
                             onClick = { showEditInfoDialog = true },
                             modifier = Modifier
-                                .size(40.dp)
+                                .size(48.dp)
                                 .testTag("btn_edit_profile_hero")
                         ) {
                             Icon(

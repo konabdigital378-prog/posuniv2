@@ -48,7 +48,6 @@ import com.example.data.remote.supabase.ShopAdRecord
 import com.example.data.remote.supabase.ShopAdStorage
 import com.example.data.remote.supabase.SupabaseSyncManager
 import com.example.ui.components.LaunchImageCarousel
-import com.example.ui.components.ShopAdConfigModal
 import com.example.ui.components.ShopAdVideoPlayerDialog
 import com.example.ui.theme.*
 import com.example.util.BusinessTypePresets
@@ -79,6 +78,7 @@ fun OnboardingScreen(
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
+        contentWindowInsets = WindowInsets.safeDrawing,
         topBar = {
             if (step > 1) {
                 Surface(
@@ -130,6 +130,7 @@ fun OnboardingScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .navigationBarsPadding()
                         .padding(16.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
@@ -243,21 +244,15 @@ private fun Step1LaunchScreen(onStart: () -> Unit) {
     val context = LocalContext.current
     val syncManager = remember { SupabaseSyncManager(context) }
     var showcaseAds by remember { mutableStateOf<List<ShopAdRecord>>(emptyList()) }
-    var registeredShops by remember { mutableStateOf<List<ShopProfileEntity>>(emptyList()) }
     var carouselSettings by remember { mutableStateOf(ShopAdStorage.getCarouselSettings(context)) }
-    var showAdConfigModal by remember { mutableStateOf(false) }
-    var editingAdRecord by remember { mutableStateOf<ShopAdRecord?>(null) }
     var selectedAdForPlayer by remember { mutableStateOf<ShopAdRecord?>(null) }
-    var showcaseRefreshTick by remember { mutableIntStateOf(0) }
 
-    LaunchedEffect(showcaseRefreshTick) {
+    LaunchedEffect(Unit) {
         carouselSettings = ShopAdStorage.getCarouselSettings(context)
         val localFeed = syncManager.getLocalShowcaseFeed(null)
         showcaseAds = localFeed.showcaseAds
-        registeredShops = localFeed.registeredShops
         val cloudFeed = syncManager.fetchShowcaseFeed(null)
         showcaseAds = cloudFeed.showcaseAds
-        registeredShops = cloudFeed.registeredShops
     }
 
     Column(
@@ -321,11 +316,7 @@ private fun Step1LaunchScreen(onStart: () -> Unit) {
             modifier = Modifier.fillMaxWidth(),
             shopAds = showcaseAds,
             carouselSettings = carouselSettings,
-            pauseAutoScroll = showAdConfigModal || selectedAdForPlayer != null,
-            onOpenAdConfig = {
-                editingAdRecord = null
-                showAdConfigModal = true
-            },
+            pauseAutoScroll = selectedAdForPlayer != null,
             onShopAdClick = { ad ->
                 selectedAdForPlayer = ad
             }
@@ -353,26 +344,7 @@ private fun Step1LaunchScreen(onStart: () -> Unit) {
     selectedAdForPlayer?.let { ad ->
         ShopAdVideoPlayerDialog(
             ad = ad,
-            onDismiss = { selectedAdForPlayer = null },
-            onEditAd = {
-                editingAdRecord = ad
-                showAdConfigModal = true
-            }
-        )
-    }
-
-    if (showAdConfigModal) {
-        ShopAdConfigModal(
-            currentShop = null,
-            registeredShops = registeredShops,
-            initialAdToEdit = editingAdRecord,
-            onDismiss = {
-                showAdConfigModal = false
-                editingAdRecord = null
-            },
-            onPublished = {
-                showcaseRefreshTick++
-            }
+            onDismiss = { selectedAdForPlayer = null }
         )
     }
 }

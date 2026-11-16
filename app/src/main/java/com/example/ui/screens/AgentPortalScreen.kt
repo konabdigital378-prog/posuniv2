@@ -447,7 +447,9 @@ private fun AgentPortalConnectedBody(
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable { state.showEditProfileDialog = true }
                     ) {
                         AgentPhotoAvatar(
                             name = agent.name,
@@ -481,7 +483,10 @@ private fun AgentPortalConnectedBody(
                                 }
                             }
                             Text(
-                                text = "${AgentIdCardHelper.getConapesReferenceCode(agent.id)} • ${agent.zone}",
+                                text = listOfNotNull(
+                                    AgentIdCardHelper.getConapesReferenceCode(agent.id),
+                                    agent.zone.takeIf { it.isNotBlank() }
+                                ).joinToString(" • "),
                                 fontSize = 11.5.sp,
                                 color = Color(0xFFE2E8F0)
                             )
@@ -680,10 +685,13 @@ private fun AgentPortalConnectedBody(
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
+                            val shopCityPart = shopProfile?.city?.trim()?.takeIf { it.isNotBlank() }?.let { " • $it" }.orEmpty()
                             Text(
-                                text = "Tél: ${shopProfile?.phone?.ifBlank { "Non renseigné" } ?: "Non renseigné"} • ${shopProfile?.city?.ifBlank { "Burkina Faso" } ?: "Burkina Faso"}",
+                                text = "Tél: ${shopProfile?.phone?.ifBlank { "Non renseigné" } ?: "Non renseigné"}$shopCityPart",
                                 fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
 

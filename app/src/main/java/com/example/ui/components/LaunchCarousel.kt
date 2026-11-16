@@ -155,26 +155,29 @@ fun LaunchImageCarousel(
     }
 
     val widthClass = LocalKonabWidthClass.current
-    val carouselHeight = when (widthClass) {
-        KonabWidthClass.COMPACT -> 226.dp
-        KonabWidthClass.MEDIUM -> 252.dp
-        KonabWidthClass.EXPANDED -> 282.dp
+    val baseCarouselHeight = when (widthClass) {
+        KonabWidthClass.COMPACT -> 210.dp
+        KonabWidthClass.MEDIUM -> 244.dp
+        KonabWidthClass.EXPANDED -> 276.dp
     }
 
-    Column(
-        modifier = modifier.fillMaxWidth(),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        // Main Carousel Card with HorizontalPager (Exact Design Preserved)
-        Card(
-            shape = RoundedCornerShape(24.dp),
-            border = BorderStroke(1.5.dp, Color.White.copy(alpha = 0.85f)),
-            elevation = CardDefaults.cardElevation(defaultElevation = 10.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(carouselHeight)
-                .testTag("launch_image_carousel")
+    BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
+        val carouselHeight = if (maxWidth < 340.dp) 196.dp else baseCarouselHeight
+
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            // Main Carousel Card with HorizontalPager
+            Card(
+                shape = RoundedCornerShape(22.dp),
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.65f)),
+                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(carouselHeight)
+                    .testTag("launch_image_carousel")
+            ) {
             Box(modifier = Modifier.fillMaxSize()) {
                 HorizontalPager(
                     state = pagerState,
@@ -200,8 +203,9 @@ fun LaunchImageCarousel(
                                 contentScale = ContentScale.Crop
                             )
 
-                            // Live 60s Video Preview right inside the home screen carousel frame
-                            if (ad.hasVideo && carouselSettings.autoPlayVideoPreviewInCarousel && isSettledCurrentPage && !inlineVideoFailed) {
+                            // Live 60s Video Preview right inside the home screen carousel frame (only when explicitly enabled)
+                            val showInlineVideo = ad.hasVideo && carouselSettings.autoPlayVideoPreviewInCarousel && isSettledCurrentPage && !inlineVideoFailed
+                            if (showInlineVideo) {
                                 ShopAdVideoSurface(
                                     videoUri = ad.videoUri,
                                     modifier = Modifier.fillMaxSize(),
@@ -228,7 +232,29 @@ fun LaunchImageCarousel(
                                     )
                             )
 
-                            // Top-Start Shop / Ad Badge
+                            if (ad.hasVideo && !showInlineVideo) {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = KonabBlueDeep.copy(alpha = 0.72f),
+                                    border = BorderStroke(1.5.dp, Color.White.copy(alpha = 0.85f)),
+                                    shadowElevation = 6.dp,
+                                    modifier = Modifier
+                                        .align(Alignment.Center)
+                                        .offset(y = (-8).dp)
+                                        .size(52.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                                        Icon(
+                                            imageVector = Icons.Default.PlayArrow,
+                                            contentDescription = "Lire la vidéo",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(30.dp)
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Top-Start Shop / Ad Badge (kept away from top-right counter)
                             val accentColor = if (ad.hasVideo) KonabOrange else KonabGreen
                             Surface(
                                 shape = RoundedCornerShape(10.dp),
@@ -236,7 +262,7 @@ fun LaunchImageCarousel(
                                 border = BorderStroke(1.dp, accentColor.copy(alpha = 0.80f)),
                                 modifier = Modifier
                                     .align(Alignment.TopStart)
-                                    .padding(12.dp)
+                                    .padding(start = 12.dp, top = 12.dp, end = 112.dp)
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
@@ -273,13 +299,13 @@ fun LaunchImageCarousel(
                                 modifier = Modifier
                                     .align(Alignment.BottomStart)
                                     .fillMaxWidth()
-                                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                                    .padding(horizontal = 12.dp, vertical = 12.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
                                 ShopLogoAvatar(
                                     logoUri = ad.logoUri.ifBlank { null },
-                                    size = 46.dp,
+                                    size = 44.dp,
                                     shape = CircleShape,
                                     contentDescription = "Logo ${ad.shopName}"
                                 )
@@ -288,7 +314,7 @@ fun LaunchImageCarousel(
                                     Text(
                                         text = ad.effectiveTitle,
                                         fontFamily = OutfitFontFamily,
-                                        fontSize = 16.sp,
+                                        fontSize = 15.5.sp,
                                         fontWeight = FontWeight.ExtraBold,
                                         color = Color.White,
                                         maxLines = 1,
@@ -306,10 +332,10 @@ fun LaunchImageCarousel(
                                     }
                                     Text(
                                         text = ad.effectiveDescription,
-                                        fontSize = 11.5.sp,
+                                        fontSize = 11.sp,
                                         fontWeight = FontWeight.Medium,
                                         color = Color(0xFFE2E8F0),
-                                        lineHeight = 15.sp,
+                                        lineHeight = 14.sp,
                                         maxLines = 2,
                                         overflow = TextOverflow.Ellipsis
                                     )
@@ -321,7 +347,9 @@ fun LaunchImageCarousel(
                                         shape = RoundedCornerShape(12.dp),
                                         color = if (ad.hasVideo) KonabOrange else KonabGreen,
                                         border = BorderStroke(1.dp, Color.White.copy(alpha = 0.6f)),
-                                        modifier = Modifier.testTag("btn_carousel_watch_contact_${ad.id}")
+                                        modifier = Modifier
+                                            .widthIn(max = 108.dp)
+                                            .testTag("btn_carousel_watch_contact_${ad.id}")
                                     ) {
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
@@ -338,7 +366,9 @@ fun LaunchImageCarousel(
                                                 text = if (ad.hasVideo) "Voir" else ad.ctaLabel,
                                                 fontSize = 11.sp,
                                                 fontWeight = FontWeight.ExtraBold,
-                                                color = Color.White
+                                                color = Color.White,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
                                             )
                                         }
                                     }
@@ -375,7 +405,7 @@ fun LaunchImageCarousel(
                                 border = BorderStroke(1.dp, slide.accentColor.copy(alpha = 0.75f)),
                                 modifier = Modifier
                                     .align(Alignment.TopStart)
-                                    .padding(12.dp)
+                                    .padding(start = 12.dp, top = 12.dp, end = 112.dp)
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
@@ -392,7 +422,9 @@ fun LaunchImageCarousel(
                                         text = slide.tag,
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = Color.White
+                                        color = Color.White,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                 }
                             }
@@ -406,7 +438,7 @@ fun LaunchImageCarousel(
                                 Text(
                                     text = slide.title,
                                     fontFamily = OutfitFontFamily,
-                                    fontSize = 17.sp,
+                                    fontSize = 16.5.sp,
                                     fontWeight = FontWeight.ExtraBold,
                                     color = Color.White,
                                     maxLines = 1,
@@ -415,10 +447,10 @@ fun LaunchImageCarousel(
                                 Spacer(modifier = Modifier.height(3.dp))
                                 Text(
                                     text = slide.description,
-                                    fontSize = 12.sp,
+                                    fontSize = 11.5.sp,
                                     fontWeight = FontWeight.Medium,
                                     color = Color(0xFFE2E8F0),
-                                    lineHeight = 16.sp,
+                                    lineHeight = 15.sp,
                                     maxLines = 2,
                                     overflow = TextOverflow.Ellipsis
                                 )
@@ -528,38 +560,39 @@ fun LaunchImageCarousel(
             }
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
-        // Animated Page Indicator Dots / Pills
-        Row(
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp)
-        ) {
-            (0 until pageCount).forEach { index ->
-                val isSelected = pagerState.currentPage == index
-                val width by animateDpAsState(
-                    targetValue = if (isSelected) 28.dp else 8.dp,
-                    animationSpec = tween(durationMillis = 300),
-                    label = "indicator_width"
-                )
-                val color = if (isSelected) KonabOrange else MaterialTheme.colorScheme.outline.copy(alpha = 0.7f)
+            // Animated Page Indicator Dots / Pills
+            Row(
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+            ) {
+                (0 until pageCount).forEach { index ->
+                    val isSelected = pagerState.currentPage == index
+                    val width by animateDpAsState(
+                        targetValue = if (isSelected) 26.dp else 8.dp,
+                        animationSpec = tween(durationMillis = 300),
+                        label = "indicator_width"
+                    )
+                    val color = if (isSelected) KonabOrange else MaterialTheme.colorScheme.outline.copy(alpha = 0.7f)
 
-                Box(
-                    modifier = Modifier
-                        .padding(horizontal = 4.dp)
-                        .height(8.dp)
-                        .width(width)
-                        .clip(CircleShape)
-                        .background(color)
-                        .clickable {
-                            coroutineScope.launch {
-                                pagerState.animateScrollToPage(index)
+                    Box(
+                        modifier = Modifier
+                            .padding(horizontal = 4.dp)
+                            .height(8.dp)
+                            .width(width)
+                            .clip(CircleShape)
+                            .background(color)
+                            .clickable {
+                                coroutineScope.launch {
+                                    pagerState.animateScrollToPage(index)
+                                }
                             }
-                        }
-                )
+                    )
+                }
             }
         }
     }

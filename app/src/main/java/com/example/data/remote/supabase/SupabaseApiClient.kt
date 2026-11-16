@@ -13,14 +13,17 @@ import org.json.JSONObject
 import java.io.File
 import java.io.IOException
 import java.net.URLEncoder
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
+private data class RemoteShopScope(
+    val canonicalShopId: Long,
+    val relatedShopIds: Set<Long>,
+    val includeLegacyUnscoped: Boolean
+)
+
 class SupabaseApiClient(
-    private val client: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
-        .writeTimeout(20, TimeUnit.SECONDS)
-        .build()
+    private val client: OkHttpClient = com.example.util.KonabNetworkClient.getSharedRestClient()
 ) {
 
     internal val httpClient: OkHttpClient get() = client
@@ -269,11 +272,9 @@ class SupabaseApiClient(
         return false to (400 to "Échec après adaptation des colonnes")
     }
 
-    private data class RemoteShopScope(
-        val canonicalShopId: Long,
-        val relatedShopIds: Set<Long>,
-        val includeLegacyUnscoped: Boolean
-    )
+    fun invalidateShopScopeCache() {
+        shopScopeCache.clear()
+    }
 
     private fun resolveRemoteShopScope(
         shopId: Long?,
@@ -286,6 +287,14 @@ class SupabaseApiClient(
                 includeLegacyUnscoped = true
             )
         }
+        val cacheKey = "${shopId ?: 0L}|${fallbackShopName?.trim()?.lowercase().orEmpty()}"
+        val now = System.currentTimeMillis()
+        shopScopeCache[cacheKey]?.let { (cachedAt, cachedScope) ->
+            if (now - cachedAt < SHOP_SCOPE_CACHE_TTL_MS) {
+                return cachedScope
+            }
+        }
+
         val related = linkedSetOf<Long>()
         if (shopId != null && shopId > 1L) related.add(shopId)
         var totalDistinctShops = 0
@@ -294,9 +303,11 @@ class SupabaseApiClient(
         var targetNormName = fallbackShopName?.trim()?.takeIf { it.isNotBlank() }?.let {
             AgentDeploymentStorage.normalizeShopName(it)
         }
+        var fetchOk = false
         try {
-            executeRequest("shop_profile?select=id,name,updated_at&order=updated_at.desc&limit=500") { resp ->
+            executeRequest("shop_profile?select=id,name,updated_at&order=updated_at.desc&limit=150") { resp ->
                 if (resp.isSuccessful) {
+                    fetchOk = true
                     val arr = JSONArray(resp.body?.string() ?: "[]")
                     val distinctNames = linkedSetOf<String>()
                     val allRows = mutableListOf<Pair<Long, String>>()
@@ -331,11 +342,15 @@ class SupabaseApiClient(
             (shopId != null && shopId == 1L) ||
             (hasIdOneShop && shopId == 1L) ||
             (primaryShopId != null && primaryShopId in related)
-        return RemoteShopScope(
+        val scope = RemoteShopScope(
             canonicalShopId = canonical,
             relatedShopIds = related,
             includeLegacyUnscoped = includeLegacy
         )
+        if (fetchOk) {
+            shopScopeCache[cacheKey] = now to scope
+        }
+        return scope
     }
 
     private fun rowBelongsToScope(row: JSONObject, scope: RemoteShopScope): Boolean {
@@ -418,7 +433,7 @@ class SupabaseApiClient(
             }
         }
 
-        if (scope.includeLegacyUnscoped) {
+        if (collected.isEmpty() && scope.includeLegacyUnscoped) {
             val fullEndpoint = "$table?select=*$orderPart&limit=$limit"
             executeRequest(fullEndpoint) { resp ->
                 val body = resp.body?.string() ?: ""
@@ -448,7 +463,7 @@ class SupabaseApiClient(
         table: String,
         shopId: Long?,
         orderClause: String? = null,
-        limit: Int = 2000,
+        limit: Int = 600,
         shopName: String? = null
     ): Pair<Boolean, Pair<Int, String>> {
         val scope = resolveRemoteShopScope(shopId, shopName)
@@ -523,7 +538,7 @@ class SupabaseApiClient(
     suspend fun fetchProducts(shopId: Long? = null, shopName: String? = null): Result<List<ProductEntity>> = withContext(Dispatchers.IO) {
         if (!SupabaseConfig.isConfigured) return@withContext Result.success(emptyList())
         try {
-            val (ok, codeAndBody) = getWithShopFilterFallback("products", shopId, orderClause = "name.asc", limit = 2000, shopName = shopName)
+            val (ok, codeAndBody) = getWithShopFilterFallback("products", shopId, orderClause = "name.asc", limit = 600, shopName = shopName)
             if (!ok) {
                 return@withContext Result.failure(IOException("Échec récupération produits: ${codeAndBody.first}"))
             }
@@ -600,7 +615,7 @@ class SupabaseApiClient(
     suspend fun fetchCustomers(shopId: Long? = null, shopName: String? = null): Result<List<CustomerEntity>> = withContext(Dispatchers.IO) {
         if (!SupabaseConfig.isConfigured) return@withContext Result.success(emptyList())
         try {
-            val (ok, codeAndBody) = getWithShopFilterFallback("customers", shopId, orderClause = "total_spent.desc", limit = 2000, shopName = shopName)
+            val (ok, codeAndBody) = getWithShopFilterFallback("customers", shopId, orderClause = "total_spent.desc", limit = 600, shopName = shopName)
             if (!ok) {
                 return@withContext Result.failure(IOException("Échec récupération clients: ${codeAndBody.first}"))
             }
@@ -711,7 +726,7 @@ class SupabaseApiClient(
     suspend fun fetchSales(shopId: Long, shopName: String? = null): Result<List<SaleEntity>> = withContext(Dispatchers.IO) {
         if (!SupabaseConfig.isConfigured) return@withContext Result.success(emptyList())
         try {
-            val (ok, codeAndBody) = getWithShopFilterFallback("sales", shopId, orderClause = "timestamp.desc", limit = 2000, shopName = shopName)
+            val (ok, codeAndBody) = getWithShopFilterFallback("sales", shopId, orderClause = "timestamp.desc", limit = 600, shopName = shopName)
             if (!ok) {
                 return@withContext Result.failure(IOException("Échec récupération ventes: ${codeAndBody.first}"))
             }
@@ -782,13 +797,13 @@ class SupabaseApiClient(
         if (!SupabaseConfig.isConfigured) return@withContext Result.success(emptyList())
         try {
             val scope = resolveRemoteShopScope(shopId, shopName)
-            val (ok, codeAndArr) = getScopedJsonRows("sale_items", scope, orderClause = "id.desc", limit = 5000)
+            val (ok, codeAndArr) = getScopedJsonRows("sale_items", scope, orderClause = "id.desc", limit = 1500)
             if (!ok) {
                 return@withContext Result.failure(IOException("Échec récupération détails ventes: ${codeAndArr.first}"))
             }
             var jsonArr = codeAndArr.second
             if (jsonArr.length() == 0 && validSaleIds != null && validSaleIds.isNotEmpty() && !scope.includeLegacyUnscoped) {
-                executeRequest("sale_items?select=*&order=id.desc&limit=5000") { fbResp ->
+                executeRequest("sale_items?select=*&order=id.desc&limit=1500") { fbResp ->
                     if (fbResp.isSuccessful) {
                         val rawArr = JSONArray((fbResp.body?.string() ?: "[]").ifBlank { "[]" })
                         val matchedRows = mutableListOf<JSONObject>()
@@ -857,7 +872,7 @@ class SupabaseApiClient(
         if (normalizedTarget.isBlank()) return@withContext Result.success(null)
 
         try {
-            executeRequest("shop_profile?select=id,name,deployer_id&limit=1000") { resp ->
+            executeRequest("shop_profile?select=id,name,deployer_id&limit=300") { resp ->
                 if (resp.isSuccessful) {
                     val arr = JSONArray(resp.body?.string() ?: "[]")
                     for (i in 0 until arr.length()) {
@@ -881,7 +896,7 @@ class SupabaseApiClient(
 
                 // Fallback si une ancienne table n'a pas encore la colonne deployer_id
                 if (resp.code == 400) {
-                    executeRequest("shop_profile?select=id,name&limit=1000") { fallbackResp ->
+                    executeRequest("shop_profile?select=id,name&limit=300") { fallbackResp ->
                         if (fallbackResp.isSuccessful) {
                             val arr = JSONArray(fallbackResp.body?.string() ?: "[]")
                             for (i in 0 until arr.length()) {
@@ -916,7 +931,7 @@ class SupabaseApiClient(
         if (normalizedTarget.isBlank()) return@withContext Result.success(null)
 
         try {
-            executeRequest("agent_deployments?select=id,shop_name&limit=1000") { resp ->
+            executeRequest("agent_deployments?select=id,shop_name&limit=300") { resp ->
                 if (!resp.isSuccessful) {
                     val err = resp.body?.string() ?: ""
                     return@withContext Result.failure(IOException("Erreur lecture déploiements (${resp.code}): $err"))
@@ -1063,7 +1078,7 @@ class SupabaseApiClient(
             return@withContext Result.failure(IllegalArgumentException("Veuillez renseigner l'identifiant de la boutique et le code PIN du gérant."))
         }
         try {
-            executeRequest("shop_profile?select=*&order=updated_at.desc&limit=1000") { response ->
+            executeRequest("shop_profile?select=*&order=updated_at.desc&limit=300") { response ->
                 if (!response.isSuccessful) {
                     val err = response.body?.string() ?: ""
                     return@withContext Result.failure(IOException("Erreur connexion Supabase (${response.code}): $err"))
@@ -1117,7 +1132,7 @@ class SupabaseApiClient(
     suspend fun fetchAllRegisteredShops(): Result<List<ShopProfileEntity>> = withContext(Dispatchers.IO) {
         if (!SupabaseConfig.isConfigured) return@withContext Result.success(emptyList())
         try {
-            executeRequest("shop_profile?select=*&order=updated_at.desc&limit=200") { response ->
+            executeRequest("shop_profile?select=id,name,business_type,phone,address,city,currency,slogan,receipt_footer,subscription_tier,logo_uri,deployer_id,updated_at&order=updated_at.desc&limit=120") { response ->
                 if (!response.isSuccessful) {
                     val err = response.body?.string() ?: ""
                     return@withContext Result.failure(IOException("Échec chargement boutiques (${response.code}): $err"))
@@ -1275,6 +1290,7 @@ class SupabaseApiClient(
             }
 
             if (ok) {
+                invalidateShopScopeCache()
                 android.util.Log.i("KonabSupabase", "Boutique \"$cleanName\" (ID $targetId, Agent $cleanDeployerId) synchronisée sur Supabase")
                 Result.success(targetId)
             } else {
@@ -1357,7 +1373,7 @@ class SupabaseApiClient(
     suspend fun fetchSuppliers(shopId: Long, shopName: String? = null): Result<List<SupplierEntity>> = withContext(Dispatchers.IO) {
         if (!SupabaseConfig.isConfigured) return@withContext Result.success(emptyList())
         try {
-            val (ok, codeAndBody) = getWithShopFilterFallback("suppliers", shopId, orderClause = "name.asc", limit = 2000, shopName = shopName)
+            val (ok, codeAndBody) = getWithShopFilterFallback("suppliers", shopId, orderClause = "name.asc", limit = 400, shopName = shopName)
             if (!ok) return@withContext Result.failure(IOException("Échec récupération fournisseurs: ${codeAndBody.first}"))
             val jsonArr = JSONArray(codeAndBody.second.ifBlank { "[]" })
             val list = mutableListOf<SupplierEntity>()
@@ -1418,7 +1434,7 @@ class SupabaseApiClient(
     suspend fun fetchPurchases(shopId: Long, shopName: String? = null): Result<List<PurchaseEntity>> = withContext(Dispatchers.IO) {
         if (!SupabaseConfig.isConfigured) return@withContext Result.success(emptyList())
         try {
-            val (ok, codeAndBody) = getWithShopFilterFallback("purchases", shopId, orderClause = "timestamp.desc", limit = 2000, shopName = shopName)
+            val (ok, codeAndBody) = getWithShopFilterFallback("purchases", shopId, orderClause = "timestamp.desc", limit = 600, shopName = shopName)
             if (!ok) return@withContext Result.failure(IOException("Échec récupération achats: ${codeAndBody.first}"))
             val jsonArr = JSONArray(codeAndBody.second.ifBlank { "[]" })
             val list = mutableListOf<PurchaseEntity>()
@@ -1480,7 +1496,7 @@ class SupabaseApiClient(
     suspend fun fetchCashMovements(shopId: Long, shopName: String? = null): Result<List<CashMovementEntity>> = withContext(Dispatchers.IO) {
         if (!SupabaseConfig.isConfigured) return@withContext Result.success(emptyList())
         try {
-            val (ok, codeAndBody) = getWithShopFilterFallback("cash_movements", shopId, orderClause = "timestamp.desc", limit = 2000, shopName = shopName)
+            val (ok, codeAndBody) = getWithShopFilterFallback("cash_movements", shopId, orderClause = "timestamp.desc", limit = 600, shopName = shopName)
             if (!ok) return@withContext Result.failure(IOException("Échec récupération caisse: ${codeAndBody.first}"))
             val jsonArr = JSONArray(codeAndBody.second.ifBlank { "[]" })
             val list = mutableListOf<CashMovementEntity>()
@@ -1541,7 +1557,7 @@ class SupabaseApiClient(
     suspend fun fetchCashSessions(shopId: Long, shopName: String? = null): Result<List<CashSessionEntity>> = withContext(Dispatchers.IO) {
         if (!SupabaseConfig.isConfigured) return@withContext Result.success(emptyList())
         try {
-            val (ok, codeAndBody) = getWithShopFilterFallback("cash_sessions", shopId, orderClause = "opened_at.desc", limit = 500, shopName = shopName)
+            val (ok, codeAndBody) = getWithShopFilterFallback("cash_sessions", shopId, orderClause = "opened_at.desc", limit = 200, shopName = shopName)
             if (!ok) return@withContext Result.failure(IOException("Échec récupération sessions caisse: ${codeAndBody.first}"))
             val jsonArr = JSONArray(codeAndBody.second.ifBlank { "[]" })
             val list = mutableListOf<CashSessionEntity>()
@@ -1612,7 +1628,7 @@ class SupabaseApiClient(
             // Réutiliser l'ID distant existant si la boutique a déjà une entrée dans agent_deployments
             val existingRemoteIdsByName = mutableMapOf<String, String>()
             try {
-                executeRequest("agent_deployments?select=id,shop_name&limit=1000") { existingResp ->
+                executeRequest("agent_deployments?select=id,shop_name&limit=300") { existingResp ->
                     if (existingResp.isSuccessful) {
                         val existingArr = JSONArray(existingResp.body?.string() ?: "[]")
                         for (i in 0 until existingArr.length()) {
@@ -1784,7 +1800,7 @@ class SupabaseApiClient(
     suspend fun fetchShopAds(): Result<List<ShopAdRecord>> = withContext(Dispatchers.IO) {
         if (!SupabaseConfig.isConfigured) return@withContext Result.success(emptyList())
         try {
-            executeRequest("shop_ads?select=*&order=updated_at.desc&limit=200") { resp ->
+            executeRequest("shop_ads?select=*&order=updated_at.desc&limit=100") { resp ->
                 if (!resp.isSuccessful) {
                     val err = resp.body?.string() ?: ""
                     return@withContext Result.failure(IOException("Échec chargement publicités (${resp.code}): $err"))
@@ -1891,6 +1907,7 @@ class SupabaseApiClient(
                     .url(uploadUrl)
                     .addHeader("apikey", SupabaseConfig.rawAnonKey)
                     .addHeader("Authorization", "Bearer $authToken")
+                    .addHeader("cache-control", "31536000")
                     .addHeader("x-upsert", "true")
                 return if (usePut) {
                     builder.put(file.asRequestBody(mediaType)).build()
@@ -1955,29 +1972,37 @@ class SupabaseApiClient(
     )
 
     /**
-     * Uploads a compressed shop logo JPEG into the dedicated public `shop-logos` Storage bucket,
+     * Uploads a compressed shop logo (WebP/JPEG) into the dedicated public `shop-logos` Storage bucket
+     * using a deterministic path (avoiding orphan duplicates) and cache-busting query version,
      * falling back to `shop-ads` if `shop-logos` has not been created on the remote project yet.
      */
     suspend fun uploadShopLogoMedia(
         file: File,
         shopId: Long,
-        contentType: String = "image/jpeg"
+        contentType: String = "image/webp"
     ): Result<String> {
         val safeShopId = shopId.coerceAtLeast(1L)
-        val fileName = "shop_${safeShopId}_${System.currentTimeMillis()}.jpg"
+        val ext = if (contentType.contains("webp", ignoreCase = true) || file.extension.equals("webp", ignoreCase = true)) {
+            "webp"
+        } else {
+            "jpg"
+        }
+        val effectiveType = if (ext == "webp") "image/webp" else contentType
+        val fileName = "shop_${safeShopId}.$ext"
+        val bustSuffix = "?v=${System.currentTimeMillis()}"
         val primary = uploadToStorageBucket(
             bucket = "shop-logos",
             file = file,
             remotePath = fileName,
-            contentType = contentType
+            contentType = effectiveType
         )
-        if (primary.isSuccess) return primary
+        if (primary.isSuccess) return primary.map { "$it$bustSuffix" }
         return uploadToStorageBucket(
             bucket = "shop-ads",
             file = file,
             remotePath = "shop-logos/$fileName",
-            contentType = contentType
-        )
+            contentType = effectiveType
+        ).map { "$it$bustSuffix" }
     }
 
     // --- RESTAURANT MULTI-USER SYNC, STAFF, TABLES, MENU DU JOUR & ORDERS ---
@@ -1999,7 +2024,7 @@ class SupabaseApiClient(
     suspend fun fetchPublicRestaurantsDirectory(): Result<List<PublicRestaurantListing>> = withContext(Dispatchers.IO) {
         if (!SupabaseConfig.isConfigured) return@withContext Result.success(emptyList())
         try {
-            executeRequest("shop_profile?select=*&order=updated_at.desc&limit=300") { resp ->
+            executeRequest("shop_profile?select=id,name,business_type,slogan,city,address,phone,currency,logo_uri,updated_at&order=updated_at.desc&limit=150") { resp ->
                 if (!resp.isSuccessful) {
                     return@withContext Result.failure(IOException("Échec chargement restaurants (${resp.code})"))
                 }
@@ -2042,6 +2067,8 @@ class SupabaseApiClient(
         private const val MIRROR_RESTO_TABLE = "__CLOUD_RESTO_TABLE__"
         private const val MIRROR_RESTO_ORDER = "__CLOUD_RESTO_ORDER__"
         private const val MIRROR_RESTO_MENU_DAY = "__CLOUD_RESTO_MENU_DAY__"
+        private const val SHOP_SCOPE_CACHE_TTL_MS = 5L * 60L * 1000L
+        private val shopScopeCache = ConcurrentHashMap<String, Pair<Long, RemoteShopScope>>()
     }
 
     private fun pushRestaurantMirrorEntries(
@@ -2090,7 +2117,7 @@ class SupabaseApiClient(
         }
 
         if (targetIds.isEmpty()) {
-            return executeRequest("app_notifications?type=eq.$encType&select=*&limit=2000") { resp ->
+            return executeRequest("app_notifications?type=eq.$encType&select=*&limit=500") { resp ->
                 val body = resp.body?.string() ?: "[]"
                 if (!resp.isSuccessful) {
                     return@executeRequest Result.failure(IOException("Échec lecture miroir $markerType (${resp.code})"))
@@ -2114,7 +2141,7 @@ class SupabaseApiClient(
         var anyOk = false
         var lastCode = 0
         for (sid in targetIds) {
-            executeRequest("app_notifications?shop_id=eq.$sid&type=eq.$encType&select=*&limit=2000") { resp ->
+            executeRequest("app_notifications?shop_id=eq.$sid&type=eq.$encType&select=*&limit=500") { resp ->
                 val body = resp.body?.string() ?: "[]"
                 if (resp.isSuccessful) {
                     anyOk = true
@@ -2167,7 +2194,7 @@ class SupabaseApiClient(
             return@withContext Result.failure(IllegalArgumentException("Veuillez renseigner l'identifiant (boutique ou téléphone) et le code PIN."))
         }
         try {
-            executeRequest("shop_profile?select=*&order=updated_at.desc&limit=1000") { response ->
+            executeRequest("shop_profile?select=*&order=updated_at.desc&limit=300") { response ->
                 if (!response.isSuccessful) {
                     val err = response.body?.string() ?: ""
                     return@withContext Result.failure(IOException("Erreur connexion Supabase (${response.code}): $err"))
@@ -2234,24 +2261,50 @@ class SupabaseApiClient(
                     }
                 }
 
-                // Fallback multi-utilisateurs : l'utilisateur saisit son propre téléphone ou nom d'équipier
+                // Fallback multi-utilisateurs : requête unique au lieu de boucle N+1 par boutique
                 if (firstIdMatchName == null) {
                     var matchedStaffShopName: String? = null
                     val normId = AgentDeploymentStorage.normalizeShopName(cleanId)
-                    for ((cloudId, session, match) in (restaurantRows + otherShopRows)) {
-                        val staffList = fetchRestaurantStaff(cloudId, session.shopName).getOrDefault(emptyList())
-                        val candidates = staffList.filter { s ->
-                            s.isActive && (
-                                (s.phone.isNotBlank() && MultiShopStorage.phonesMatch(cleanId, s.phone)) ||
-                                    (s.name.isNotBlank() && AgentDeploymentStorage.normalizeShopName(s.name) == normId)
-                                )
-                        }
-                        if (candidates.isNotEmpty()) {
-                            if (matchedStaffShopName == null) matchedStaffShopName = session.shopName
-                            val exact = candidates.firstOrNull { it.pin.trim() == cleanPin }
-                            if (exact != null) {
-                                return@withContext Result.success(RemoteStaffLoginResult(match = match, staff = exact))
+                    val allStaff = mutableListOf<RestaurantStaffAccount>()
+                    executeRequest("restaurant_staff?select=*&limit=300") { staffResp ->
+                        if (staffResp.isSuccessful) {
+                            val sArr = JSONArray((staffResp.body?.string() ?: "[]").ifBlank { "[]" })
+                            for (i in 0 until sArr.length()) {
+                                allStaff.add(RestaurantStaffAccount.fromJson(sArr.getJSONObject(i)))
                             }
+                        }
+                    }
+                    if (allStaff.isEmpty()) {
+                        val encType = URLEncoder.encode(MIRROR_RESTO_STAFF, "UTF-8")
+                        executeRequest("app_notifications?type=eq.$encType&select=message,shop_id,reference_id&limit=300") { mResp ->
+                            if (mResp.isSuccessful) {
+                                val mArr = JSONArray((mResp.body?.string() ?: "[]").ifBlank { "[]" })
+                                for (i in 0 until mArr.length()) {
+                                    val row = mArr.optJSONObject(i) ?: continue
+                                    val msg = row.optString("message", "").trim()
+                                    if (msg.startsWith("{")) {
+                                        try {
+                                            val parsed = RestaurantStaffAccount.fromJson(JSONObject(msg))
+                                            val resolvedSid = if (parsed.shopId > 1L) parsed.shopId else row.optLong("shop_id", row.optLong("reference_id", 0L))
+                                            allStaff.add(parsed.copy(shopId = resolvedSid))
+                                        } catch (_: Exception) {}
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    val allShopsList = restaurantRows + otherShopRows
+                    val candidates = allStaff.filter { s ->
+                        s.isActive && (
+                            (s.phone.isNotBlank() && MultiShopStorage.phonesMatch(cleanId, s.phone)) ||
+                                (s.name.isNotBlank() && AgentDeploymentStorage.normalizeShopName(s.name) == normId)
+                            )
+                    }
+                    for (cand in candidates) {
+                        val matchedShop = allShopsList.firstOrNull { (cid, _, _) -> cid == cand.shopId } ?: continue
+                        if (matchedStaffShopName == null) matchedStaffShopName = matchedShop.second.shopName
+                        if (cand.pin.trim() == cleanPin) {
+                            return@withContext Result.success(RemoteStaffLoginResult(match = matchedShop.third, staff = cand))
                         }
                     }
                     if (matchedStaffShopName != null) {
@@ -2314,7 +2367,7 @@ class SupabaseApiClient(
         try {
             val scope = resolveRemoteShopScope(shopId, shopName)
             val effectiveShopId = if (shopId > 1L) shopId else scope.canonicalShopId.coerceAtLeast(1L)
-            val (ok, codeAndArr) = getScopedJsonRows("restaurant_staff", scope, orderClause = "updated_at.asc", limit = 1000)
+            val (ok, codeAndArr) = getScopedJsonRows("restaurant_staff", scope, orderClause = "updated_at.asc", limit = 300)
             if (ok && codeAndArr.second.length() > 0) {
                 val arr = codeAndArr.second
                 val list = mutableListOf<RestaurantStaffAccount>()
@@ -2400,7 +2453,7 @@ class SupabaseApiClient(
         try {
             val scope = resolveRemoteShopScope(shopId, shopName)
             val effectiveShopId = if (shopId > 1L) shopId else scope.canonicalShopId.coerceAtLeast(1L)
-            val (ok, codeAndArr) = getScopedJsonRows("restaurant_tables", scope, orderClause = "table_number.asc", limit = 1000)
+            val (ok, codeAndArr) = getScopedJsonRows("restaurant_tables", scope, orderClause = "table_number.asc", limit = 300)
             if (ok && codeAndArr.second.length() > 0) {
                 val arr = codeAndArr.second
                 val list = mutableListOf<RestaurantTableRecord>()
@@ -2607,7 +2660,7 @@ class SupabaseApiClient(
         val ids = linkedSetOf<Long>()
         val standaloneProducts = mutableListOf<ProductEntity>()
         try {
-            val (ok, codeAndArr) = getScopedJsonRows("restaurant_menu_items", scope, orderClause = null, limit = 1000)
+            val (ok, codeAndArr) = getScopedJsonRows("restaurant_menu_items", scope, orderClause = null, limit = 400)
             if (ok) {
                 val arr = codeAndArr.second
                 for (i in 0 until arr.length()) {
@@ -2725,7 +2778,7 @@ class SupabaseApiClient(
             }
             val lookupName = resolvedShop?.name?.takeIf { it.isNotBlank() } ?: fallbackShopName
             if (lookupName.isNotBlank()) {
-                executeRequest("shop_profile?select=*&order=updated_at.desc&limit=500") { resp ->
+                executeRequest("shop_profile?select=id,name,business_type,slogan,city,address,phone,currency,logo_uri&order=updated_at.desc&limit=150") { resp ->
                     if (resp.isSuccessful) {
                         val arr = JSONArray(resp.body?.string() ?: "[]")
                         val targetNorm = AgentDeploymentStorage.normalizeShopName(lookupName)
@@ -2823,7 +2876,7 @@ class SupabaseApiClient(
     suspend fun fetchPublicCouturiersDirectory(): Result<List<PublicCouturierListing>> = withContext(Dispatchers.IO) {
         if (!SupabaseConfig.isConfigured) return@withContext Result.success(emptyList())
         try {
-            executeRequest("shop_profile?select=*&order=updated_at.desc&limit=300") { resp ->
+            executeRequest("shop_profile?select=id,name,business_type,slogan,city,address,phone,currency,logo_uri,updated_at&order=updated_at.desc&limit=150") { resp ->
                 if (!resp.isSuccessful) {
                     return@withContext Result.failure(IOException("Échec chargement couturiers (${resp.code})"))
                 }
@@ -2862,7 +2915,7 @@ class SupabaseApiClient(
     suspend fun fetchPublicCoutureModelsFeed(): Result<List<CoutureModelRecord>> = withContext(Dispatchers.IO) {
         if (!SupabaseConfig.isConfigured) return@withContext Result.success(emptyList())
         try {
-            executeRequest("couture_models?is_available=eq.true&select=*&order=updated_at.desc&limit=300") { resp ->
+            executeRequest("couture_models?is_available=eq.true&select=*&order=updated_at.desc&limit=120") { resp ->
                 if (!resp.isSuccessful) {
                     return@withContext Result.failure(IOException("Échec chargement modèles couture (${resp.code})"))
                 }
@@ -2900,7 +2953,7 @@ class SupabaseApiClient(
         }
         try {
             val scope = resolveRemoteShopScope(shopId, shopName)
-            val (ok, codeAndArr) = getScopedJsonRows("couture_models", scope, orderClause = "updated_at.desc", limit = 500)
+            val (ok, codeAndArr) = getScopedJsonRows("couture_models", scope, orderClause = "updated_at.desc", limit = 250)
             if (!ok) {
                 return@withContext Result.failure(IOException("Échec chargement modèles (${codeAndArr.first})"))
             }
@@ -2949,7 +3002,7 @@ class SupabaseApiClient(
         }
         try {
             val scope = resolveRemoteShopScope(shopId, shopName)
-            val (ok, codeAndArr) = getScopedJsonRows("couture_orders", scope, orderClause = "updated_at.desc", limit = 300)
+            val (ok, codeAndArr) = getScopedJsonRows("couture_orders", scope, orderClause = "updated_at.desc", limit = 200)
             if (!ok) {
                 return@withContext Result.failure(IOException("Échec chargement fiches couture (${codeAndArr.first})"))
             }
@@ -3020,7 +3073,7 @@ class SupabaseApiClient(
             }
             val lookupName = resolvedShop?.name?.takeIf { it.isNotBlank() } ?: fallbackShopName
             if (resolvedShop == null && lookupName.isNotBlank()) {
-                executeRequest("shop_profile?select=*&order=updated_at.desc&limit=500") { resp ->
+                executeRequest("shop_profile?select=id,name,business_type,slogan,city,address,phone,currency,logo_uri&order=updated_at.desc&limit=150") { resp ->
                     if (resp.isSuccessful) {
                         val arr = JSONArray(resp.body?.string() ?: "[]")
                         val targetNorm = AgentDeploymentStorage.normalizeShopName(lookupName)
@@ -3280,16 +3333,15 @@ class SupabaseApiClient(
     suspend fun pushAppUsers(list: List<PublicUserAccount>): Result<Int> = withContext(Dispatchers.IO) {
         if (!SupabaseConfig.isConfigured || list.isEmpty()) return@withContext Result.success(0)
         try {
-            val arr = JSONArray().apply { list.forEach { put(it.toJson()) } }
-            executeRequest(
+            val primaryArr = JSONArray().apply { list.forEach { put(it.toJson()) } }
+            val fallbackArr = JSONArray().apply { list.forEach { put(it.toBaseJson()) } }
+            val (ok, codeAndBody) = postJsonArrayWithColumnFallback(
                 endpoint = "app_users?on_conflict=id",
-                method = "POST",
-                bodyString = arr.toString(),
-                extraHeaders = mapOf("Prefer" to "resolution=merge-duplicates")
-            ) { resp ->
-                if (resp.isSuccessful) Result.success(list.size)
-                else Result.failure(IOException("Échec sync utilisateur (${resp.code})"))
-            }
+                primaryJson = primaryArr.toString(),
+                fallbackJson = fallbackArr.toString()
+            )
+            if (ok) Result.success(list.size)
+            else Result.failure(IOException("Échec sync utilisateur (${codeAndBody.first})"))
         } catch (e: Exception) {
             Result.failure(e)
         }

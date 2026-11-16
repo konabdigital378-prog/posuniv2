@@ -7,20 +7,25 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * Compte Utilisateur Public KONAB POS • Conakry Web.
+ * Compte Utilisateur Public KONAB POS.
  * Permet à n'importe quel citoyen/client de créer son compte ou se connecter,
- * obtenir sa carte numérique personnalisée et accéder aux services (Cantines, Restaurants,
- * Couture, Salubrité Poubelles, Tontines 30j) avec pré-remplissage automatique.
+ * modifier librement ses informations (nom, téléphone, ville, accompagnement, boutique affiliée),
+ * obtenir sa carte numérique personnalisée et accéder aux services.
  */
 data class PublicUserAccount(
     val id: String,
     val fullName: String,
     val phone: String,
-    val city: String = "Conakry",
+    val city: String = "",
     val neighborhood: String = "",
-    val pin: String = "0000",
+    val pin: String = "",
     val photoUri: String = "",
     val preferredActivity: String = "UTILISATEUR",
+    val isSeekingAccompaniment: Boolean = false,
+    val accompanimentDetails: String = "",
+    val isShopMember: Boolean = false,
+    val memberShopName: String = "",
+    val memberShopRole: String = "",
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()
 ) {
@@ -30,7 +35,7 @@ data class PublicUserAccount(
         return "konabpos://user?id=$uId&phone=$uPhone"
     }
 
-    fun toJson(): JSONObject = JSONObject().apply {
+    fun toBaseJson(): JSONObject = JSONObject().apply {
         put("id", id)
         put("full_name", fullName)
         put("phone", phone)
@@ -43,17 +48,42 @@ data class PublicUserAccount(
         put("updated_at", updatedAt)
     }
 
+    fun toJson(): JSONObject = toBaseJson().apply {
+        put("is_seeking_accompaniment", isSeekingAccompaniment)
+        put("accompaniment_details", accompanimentDetails)
+        put("is_shop_member", isShopMember)
+        put("member_shop_name", memberShopName)
+        put("member_shop_role", memberShopRole)
+    }
+
     companion object {
+        private fun JSONObject.optCleanString(vararg keys: String): String {
+            for (k in keys) {
+                if (has(k) && !isNull(k)) {
+                    val v = optString(k, "").trim()
+                    if (v.isNotEmpty() && !v.equals("null", ignoreCase = true)) {
+                        return v
+                    }
+                }
+            }
+            return ""
+        }
+
         fun fromJson(o: JSONObject): PublicUserAccount {
             return PublicUserAccount(
-                id = o.optString("id", "USR-${System.currentTimeMillis()}"),
-                fullName = o.optString("full_name", o.optString("fullName", "Utilisateur")),
-                phone = o.optString("phone", ""),
-                city = o.optString("city", "Conakry"),
-                neighborhood = o.optString("neighborhood", ""),
-                pin = o.optString("pin", "0000"),
-                photoUri = o.optString("photo_uri", o.optString("photoUri", "")),
-                preferredActivity = o.optString("preferred_activity", o.optString("preferredActivity", "UTILISATEUR")),
+                id = o.optCleanString("id").ifBlank { "USR-${System.currentTimeMillis()}" },
+                fullName = o.optCleanString("full_name", "fullName"),
+                phone = o.optCleanString("phone"),
+                city = o.optCleanString("city"),
+                neighborhood = o.optCleanString("neighborhood"),
+                pin = o.optCleanString("pin"),
+                photoUri = o.optCleanString("photo_uri", "photoUri"),
+                preferredActivity = o.optCleanString("preferred_activity", "preferredActivity").ifBlank { "UTILISATEUR" },
+                isSeekingAccompaniment = o.optBoolean("is_seeking_accompaniment", o.optBoolean("isSeekingAccompaniment", false)),
+                accompanimentDetails = o.optCleanString("accompaniment_details", "accompanimentDetails"),
+                isShopMember = o.optBoolean("is_shop_member", o.optBoolean("isShopMember", false)),
+                memberShopName = o.optCleanString("member_shop_name", "memberShopName"),
+                memberShopRole = o.optCleanString("member_shop_role", "memberShopRole"),
                 createdAt = o.optLong("created_at", o.optLong("createdAt", System.currentTimeMillis())),
                 updatedAt = o.optLong("updated_at", o.optLong("updatedAt", System.currentTimeMillis()))
             )
@@ -140,7 +170,20 @@ object PublicUserStorage {
         remoteUsers.forEach { remote ->
             val current = byId[remote.id]
             if (current == null || remote.updatedAt >= current.updatedAt) {
-                byId[remote.id] = remote
+                val mergedRow = if (current != null) {
+                    remote.copy(
+                        city = remote.city.ifBlank { current.city },
+                        neighborhood = remote.neighborhood.ifBlank { current.neighborhood },
+                        isSeekingAccompaniment = remote.isSeekingAccompaniment || current.isSeekingAccompaniment,
+                        accompanimentDetails = remote.accompanimentDetails.ifBlank { current.accompanimentDetails },
+                        isShopMember = remote.isShopMember || current.isShopMember,
+                        memberShopName = remote.memberShopName.ifBlank { current.memberShopName },
+                        memberShopRole = remote.memberShopRole.ifBlank { current.memberShopRole }
+                    )
+                } else {
+                    remote
+                }
+                byId[remote.id] = mergedRow
             }
         }
         val merged = byId.values.sortedByDescending { it.updatedAt }

@@ -100,8 +100,8 @@ fun DashboardScreen(
     var scannedProduct by remember { mutableStateOf<ProductEntity?>(null) }
     var unknownScannedBarcode by remember { mutableStateOf<String?>(null) }
 
-    // Calculate today's metrics
-    val startOfToday = remember {
+    // Calculate today's metrics (re-evaluate if date/data changes)
+    val startOfToday = remember(sales.size, cashMovements.size) {
         Calendar.getInstance().apply {
             set(Calendar.HOUR_OF_DAY, 0)
             set(Calendar.MINUTE, 0)
@@ -119,12 +119,13 @@ fun DashboardScreen(
     }
 
     val todayProfit = remember(todaySales) {
-        todaySales.sumOf { it.totalAmount - it.totalCostPrice }
+        todaySales.sumOf { maxOf(0L, it.totalAmount - it.totalCostPrice) }
     }
 
     val todayExpenses = remember(cashMovements, startOfToday) {
-        cashMovements.filter { it.timestamp >= startOfToday && it.type in listOf("EXPENSE", "SUPPLIER_PAYMENT") }
-            .sumOf { it.amount }
+        cashMovements.filter {
+            it.timestamp >= startOfToday && it.type in listOf("EXPENSE", "CASH_OUT", "SUPPLIER_PAYMENT", "OUT")
+        }.sumOf { it.amount }
     }
 
     val todayNetResult = todayProfit - todayExpenses
@@ -142,8 +143,8 @@ fun DashboardScreen(
     val totalCashBalance = remember(cashMovements) {
         cashMovements.sumOf { movement ->
             when (movement.type) {
-                "SALE", "CASH_IN", "DEBT_PAYMENT" -> movement.amount
-                "EXPENSE", "CASH_OUT", "SUPPLIER_PAYMENT" -> -movement.amount
+                "SALE", "CASH_IN", "DEBT_PAYMENT", "IN" -> movement.amount
+                "EXPENSE", "CASH_OUT", "SUPPLIER_PAYMENT", "OUT" -> -movement.amount
                 else -> 0L
             }
         }
@@ -170,367 +171,388 @@ fun DashboardScreen(
         contentPadding = PaddingValues(bottom = 96.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Top Header with Blue Brand Gradient and Floating Store Card
+        // Self-contained Curved Blue Header + Clean Merchant Identity Card below (no awkward overlap)
         item {
-            Box(modifier = Modifier.fillMaxWidth()) {
-                // Full-width Background Blue Banner
+            Column(modifier = Modifier.fillMaxWidth()) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(180.dp)
-                        .clip(RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp))
+                        .clip(RoundedCornerShape(bottomStart = 24.dp, bottomEnd = 24.dp))
                         .background(
                             brush = Brush.verticalGradient(
                                 colors = listOf(KonabBlue, KonabBlueDark)
                             )
                         )
                         .konabHeroShimmer()
-                )
-
-                ResponsiveMaxWidthBox(maxWidth = 1120.dp) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp)
-                            .padding(top = 16.dp)
-                    ) {
-                    // Top Bar: Greeting & Top Action Buttons
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+                ) {
+                    ResponsiveMaxWidthBox(maxWidth = 1120.dp) {
                         Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            Surface(
-                                modifier = Modifier.size(42.dp),
-                                shape = CircleShape,
-                                color = Color.White,
-                                border = BorderStroke(1.5.dp, KonabOrange.copy(alpha = 0.85f)),
-                                shadowElevation = 4.dp
-                            ) {
-                                Image(
-                                    painter = painterResource(id = R.drawable.ic_konab_logo),
-                                    contentDescription = "KONAB POS",
-                                    modifier = Modifier
-                                        .padding(3.dp)
-                                        .fillMaxSize(),
-                                    contentScale = ContentScale.Fit
-                                )
-                            }
-                            Column {
-                                Text(
-                                    text = "KONAB POS",
-                                    fontFamily = OutfitFontFamily,
-                                    style = MaterialTheme.typography.titleMedium.copy(
-                                        fontWeight = FontWeight.Black,
-                                        color = Color.White,
-                                        letterSpacing = 0.6.sp
-                                    ),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    text = shopProfile?.slogan?.ifBlank { "Plus proche de vous" } ?: "Plus proche de vous",
-                                    style = MaterialTheme.typography.bodySmall.copy(
-                                        color = KonabOrangeLight,
-                                        fontWeight = FontWeight.SemiBold
-                                    ),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
-
-                        // Top Action Icons (Scanner, Notification Center, & Security Lock)
-                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 14.dp),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // Direct Barcode Scanner Icon
-                            FilledIconButton(
-                                onClick = { showScannerModal = true },
-                                colors = IconButtonDefaults.filledIconButtonColors(
-                                    containerColor = Color.White.copy(alpha = 0.2f),
-                                    contentColor = Color.White
-                                ),
-                                modifier = Modifier
-                                    .size(44.dp)
-                                    .testTag("btn_dashboard_scanner")
+                            Row(
+                                modifier = Modifier.weight(1f),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.QrCodeScanner,
-                                    contentDescription = "Scanner un article",
-                                    modifier = Modifier.size(22.dp)
-                                )
-                            }
-
-                            // Notification Center Icon with Badge
-                            BadgedBox(
-                                badge = {
-                                    if (unreadNotificationsCount > 0) {
-                                        Badge(
-                                            containerColor = Color(0xFFEF4444),
-                                            contentColor = Color.White
-                                        ) {
-                                            Text(
-                                                text = if (unreadNotificationsCount > 9) "9+" else "$unreadNotificationsCount",
-                                                fontSize = 10.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                        }
-                                    }
-                                }
-                            ) {
-                                FilledIconButton(
-                                    onClick = { showNotificationModal = true },
-                                    colors = IconButtonDefaults.filledIconButtonColors(
-                                        containerColor = Color.White.copy(alpha = 0.2f),
-                                        contentColor = Color.White
-                                    ),
-                                    modifier = Modifier
-                                        .size(44.dp)
-                                        .testTag("btn_dashboard_notifications")
+                                Surface(
+                                    modifier = Modifier.size(40.dp),
+                                    shape = CircleShape,
+                                    color = Color.White,
+                                    border = BorderStroke(1.5.dp, KonabOrange.copy(alpha = 0.85f)),
+                                    shadowElevation = 3.dp
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Notifications,
-                                        contentDescription = "Notifications",
-                                        modifier = Modifier.size(22.dp)
+                                    Image(
+                                        painter = painterResource(id = R.drawable.ic_konab_logo),
+                                        contentDescription = "KONAB POS",
+                                        modifier = Modifier
+                                            .padding(3.dp)
+                                            .fillMaxSize(),
+                                        contentScale = ContentScale.Fit
+                                    )
+                                }
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "KONAB POS",
+                                        fontFamily = OutfitFontFamily,
+                                        style = MaterialTheme.typography.titleMedium.copy(
+                                            fontWeight = FontWeight.Black,
+                                            color = Color.White,
+                                            letterSpacing = 0.5.sp
+                                        ),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        text = shopProfile?.slogan?.ifBlank { "Plus proche de vous" } ?: "Plus proche de vous",
+                                        style = MaterialTheme.typography.bodySmall.copy(
+                                            color = KonabOrangeLight,
+                                            fontWeight = FontWeight.SemiBold
+                                        ),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                 }
                             }
 
-                            // Security Lock Button
-                            FilledIconButton(
-                                onClick = onLockApp,
-                                colors = IconButtonDefaults.filledIconButtonColors(
-                                    containerColor = Color.White.copy(alpha = 0.2f),
-                                    contentColor = Color.White
-                                ),
-                                modifier = Modifier
-                                    .size(44.dp)
-                                    .testTag("btn_lock_screen")
+                            // Top Action Icons (Scanner, Notification Center, Lock & Welcome Home)
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.Lock,
-                                    contentDescription = "Verrouiller l'application",
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-
-                            if (onReturnToWelcome != null) {
                                 FilledIconButton(
-                                    onClick = onReturnToWelcome,
+                                    onClick = { showScannerModal = true },
                                     colors = IconButtonDefaults.filledIconButtonColors(
-                                        containerColor = Color.White.copy(alpha = 0.2f),
+                                        containerColor = Color.White.copy(alpha = 0.18f),
                                         contentColor = Color.White
                                     ),
                                     modifier = Modifier
-                                        .size(44.dp)
-                                        .testTag("btn_return_welcome_menu")
+                                        .size(40.dp)
+                                        .testTag("btn_dashboard_scanner")
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Default.Home,
-                                        contentDescription = "Menu d'accueil & Agent",
+                                        imageVector = Icons.Default.QrCodeScanner,
+                                        contentDescription = "Scanner un article",
                                         modifier = Modifier.size(20.dp)
                                     )
+                                }
+
+                                BadgedBox(
+                                    badge = {
+                                        if (unreadNotificationsCount > 0) {
+                                            Badge(
+                                                containerColor = Color(0xFFEF4444),
+                                                contentColor = Color.White
+                                            ) {
+                                                Text(
+                                                    text = if (unreadNotificationsCount > 9) "9+" else "$unreadNotificationsCount",
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                        }
+                                    }
+                                ) {
+                                    FilledIconButton(
+                                        onClick = { showNotificationModal = true },
+                                        colors = IconButtonDefaults.filledIconButtonColors(
+                                            containerColor = Color.White.copy(alpha = 0.18f),
+                                            contentColor = Color.White
+                                        ),
+                                        modifier = Modifier
+                                            .size(40.dp)
+                                            .testTag("btn_dashboard_notifications")
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Notifications,
+                                            contentDescription = "Notifications",
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                }
+
+                                FilledIconButton(
+                                    onClick = onLockApp,
+                                    colors = IconButtonDefaults.filledIconButtonColors(
+                                        containerColor = Color.White.copy(alpha = 0.18f),
+                                        contentColor = Color.White
+                                    ),
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .testTag("btn_lock_screen")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Lock,
+                                        contentDescription = "Verrouiller l'application",
+                                        modifier = Modifier.size(19.dp)
+                                    )
+                                }
+
+                                if (onReturnToWelcome != null) {
+                                    FilledIconButton(
+                                        onClick = onReturnToWelcome,
+                                        colors = IconButtonDefaults.filledIconButtonColors(
+                                            containerColor = Color.White.copy(alpha = 0.18f),
+                                            contentColor = Color.White
+                                        ),
+                                        modifier = Modifier
+                                            .size(40.dp)
+                                            .testTag("btn_return_welcome_menu")
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Home,
+                                            contentDescription = "Menu d'accueil & Agent",
+                                            modifier = Modifier.size(19.dp)
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
+                }
 
-                    Spacer(modifier = Modifier.height(18.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
-                    // Floating Merchant Identity Card
+                ResponsiveMaxWidthBox(
+                    maxWidth = 1120.dp,
+                    modifier = Modifier.padding(horizontal = 16.dp)
+                ) {
                     KonabStaggeredReveal(index = 0) {
                         Card(
                             shape = RoundedCornerShape(20.dp),
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                            elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.7f)),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.65f)),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .konabPressScale(pressedScale = 0.985f)
                                 .clickable { onNavigate(KonabScreen.SETTINGS) }
                                 .testTag("card_merchant_profile")
                         ) {
-                            Row(
+                            BoxWithConstraints(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(14.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
+                                    .padding(14.dp)
                             ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    com.example.util.ShopLogoAvatar(
-                                        logoUri = shopProfile?.logoUri,
-                                        size = 46.dp,
-                                        shape = CircleShape,
-                                        contentDescription = "Logo de la boutique",
-                                        onClick = { onNavigate(com.example.ui.navigation.KonabScreen.SETTINGS) }
-                                    )
+                                val stackBadgesBelow = maxWidth < 348.dp
+                                val isCloudAuth = com.example.data.remote.supabase.SupabaseAuthManager.isAuthenticated
+                                val isConfigured = com.example.data.remote.supabase.SupabaseConfig.isConfigured
 
-                                    Spacer(modifier = Modifier.width(12.dp))
-
-                                    Column {
-                                        Text(
-                                            text = shopProfile?.name?.ifBlank { "Ma Boutique" } ?: "Ma Boutique",
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 16.sp,
-                                            color = MaterialTheme.colorScheme.onSurface,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
+                                val identityBlock: @Composable (Modifier) -> Unit = { mod ->
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = mod
+                                    ) {
+                                        com.example.util.ShopLogoAvatar(
+                                            logoUri = shopProfile?.logoUri,
+                                            size = 46.dp,
+                                            shape = CircleShape,
+                                            contentDescription = "Logo de la boutique",
+                                            onClick = { onNavigate(com.example.ui.navigation.KonabScreen.SETTINGS) }
                                         )
-                                        Spacer(modifier = Modifier.height(3.dp))
-                                        Surface(
-                                            color = sectorAccent.copy(alpha = 0.14f),
-                                            shape = RoundedCornerShape(6.dp)
-                                        ) {
+
+                                        Spacer(modifier = Modifier.width(12.dp))
+
+                                        Column(modifier = Modifier.weight(1f)) {
                                             Text(
-                                                text = "${sectorPreset.emoji} ${sectorPreset.label}",
-                                                fontSize = 10.5.sp,
+                                                text = shopProfile?.name?.ifBlank { "Ma Boutique" } ?: "Ma Boutique",
                                                 fontWeight = FontWeight.Bold,
-                                                color = sectorAccent,
+                                                fontSize = 15.5.sp,
+                                                color = MaterialTheme.colorScheme.onSurface,
                                                 maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
-                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                overflow = TextOverflow.Ellipsis
                                             )
-                                        }
-                                        Spacer(modifier = Modifier.height(3.dp))
-                                        val isCloudAuth = com.example.data.remote.supabase.SupabaseAuthManager.isAuthenticated
-                                        val isConfigured = com.example.data.remote.supabase.SupabaseConfig.isConfigured
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            modifier = Modifier.clickable { onNavigate(KonabScreen.SETTINGS) }
-                                        ) {
-                                            KonabLivePulseDot(
-                                                color = if (isCloudAuth) Color(0xFF10B981) else if (isConfigured) Color(0xFF0284C7) else KonabBlue,
-                                                size = 6.dp
-                                            )
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                            Text(
-                                                text = if (isCloudAuth) "Ouvert • Cloud Connecté" else if (isConfigured) "Ouvert • Sauvegarde Active" else "Ouvert • Local",
-                                                fontSize = 11.5.sp,
-                                                fontWeight = FontWeight.Medium,
-                                                color = if (isCloudAuth) Color(0xFF10B981) else MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
+                                            Spacer(modifier = Modifier.height(3.dp))
+                                            Surface(
+                                                color = sectorAccent.copy(alpha = 0.14f),
+                                                shape = RoundedCornerShape(6.dp)
+                                            ) {
+                                                Text(
+                                                    text = "${sectorPreset.emoji} ${sectorPreset.label}",
+                                                    fontSize = 10.5.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = sectorAccent,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                )
+                                            }
+                                            Spacer(modifier = Modifier.height(3.dp))
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                modifier = Modifier.clickable { onNavigate(KonabScreen.SETTINGS) }
+                                            ) {
+                                                KonabLivePulseDot(
+                                                    color = if (isCloudAuth) Color(0xFF10B981) else if (isConfigured) Color(0xFF0284C7) else KonabBlue,
+                                                    size = 6.dp
+                                                )
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text(
+                                                    text = if (isCloudAuth) "Ouvert • Cloud Connecté" else if (isConfigured) "Ouvert • Sauvegarde Active" else "Ouvert • Local",
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Medium,
+                                                    color = if (isCloudAuth) Color(0xFF10B981) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
                                         }
                                     }
                                 }
 
-                                // Right-side Badges: Multiboutique Switcher + Subscription Tier
-                                Column(
-                                    horizontalAlignment = Alignment.End,
-                                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Surface(
-                                        color = KonabGoldContainer,
-                                        shape = RoundedCornerShape(10.dp),
-                                        border = BorderStroke(1.dp, KonabGoldDark.copy(alpha = 0.3f)),
-                                        modifier = Modifier
-                                            .konabPressScale(pressedScale = 0.95f)
-                                            .clickable { onNavigate(KonabScreen.SUBSCRIPTION) }
-                                            .testTag("badge_subscription")
+                                val badgesBlock: @Composable (Alignment.Horizontal) -> Unit = { align ->
+                                    Column(
+                                        horizontalAlignment = align,
+                                        verticalArrangement = Arrangement.spacedBy(6.dp)
                                     ) {
-                                        Row(
-                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.WorkspacePremium,
-                                                contentDescription = null,
-                                                tint = KonabGoldDark,
-                                                modifier = Modifier.size(14.dp)
-                                            )
-                                            Text(
-                                                text = shopProfile?.subscriptionTier?.uppercase() ?: "PREMIUM",
-                                                color = KonabGoldDark,
-                                                fontWeight = FontWeight.ExtraBold,
-                                                fontSize = 11.sp
-                                            )
-                                        }
-                                    }
-
-                                    Row(
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        if (onRefreshActiveShopFromCloud != null) {
-                                            Surface(
-                                                color = KonabGreen.copy(alpha = 0.12f),
-                                                shape = RoundedCornerShape(8.dp),
-                                                border = BorderStroke(1.dp, KonabGreen.copy(alpha = 0.35f)),
-                                                modifier = Modifier
-                                                    .konabPressScale(pressedScale = 0.95f)
-                                                    .clickable(enabled = !isRefreshingCloud) {
-                                                        isRefreshingCloud = true
-                                                        onRefreshActiveShopFromCloud { _, msg ->
-                                                            isRefreshingCloud = false
-                                                            android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
-                                                        }
-                                                    }
-                                                    .testTag("btn_dashboard_cloud_refresh")
-                                            ) {
-                                                Row(
-                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(3.dp)
-                                                ) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.Sync,
-                                                        contentDescription = "Actualiser produits et ventes",
-                                                        tint = KonabGreen,
-                                                        modifier = Modifier.size(13.dp)
-                                                    )
-                                                    Text(
-                                                        text = if (isRefreshingCloud) "..." else "Synchro",
-                                                        color = KonabGreen,
-                                                        fontWeight = FontWeight.Bold,
-                                                        fontSize = 10.sp
-                                                    )
-                                                }
-                                            }
-                                        }
-
                                         Surface(
-                                            color = KonabBlue.copy(alpha = 0.12f),
-                                            shape = RoundedCornerShape(8.dp),
-                                            border = BorderStroke(1.dp, KonabBlue.copy(alpha = 0.35f)),
+                                            color = KonabGoldContainer,
+                                            shape = RoundedCornerShape(10.dp),
+                                            border = BorderStroke(1.dp, KonabGoldDark.copy(alpha = 0.3f)),
                                             modifier = Modifier
                                                 .konabPressScale(pressedScale = 0.95f)
-                                                .clickable { showMultiShopModal = true }
-                                                .testTag("btn_dashboard_multishop")
+                                                .clickable { onNavigate(KonabScreen.SUBSCRIPTION) }
+                                                .testTag("badge_subscription")
                                         ) {
                                             Row(
-                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                                                 verticalAlignment = Alignment.CenterVertically,
                                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
                                             ) {
                                                 Icon(
-                                                    imageVector = Icons.Default.Domain,
-                                                    contentDescription = "Multiboutique",
-                                                    tint = KonabBlue,
-                                                    modifier = Modifier.size(13.dp)
+                                                    imageVector = Icons.Default.WorkspacePremium,
+                                                    contentDescription = null,
+                                                    tint = KonabGoldDark,
+                                                    modifier = Modifier.size(14.dp)
                                                 )
                                                 Text(
-                                                    text = if (connectedShops.size > 1) "Boutiques (${connectedShops.size})" else "Multiboutique",
-                                                    color = KonabBlue,
-                                                    fontWeight = FontWeight.Bold,
-                                                    fontSize = 10.sp
+                                                    text = shopProfile?.subscriptionTier?.uppercase() ?: "PREMIUM",
+                                                    color = KonabGoldDark,
+                                                    fontWeight = FontWeight.ExtraBold,
+                                                    fontSize = 11.sp,
+                                                    maxLines = 1
                                                 )
+                                            }
+                                        }
+
+                                        Row(
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            if (onRefreshActiveShopFromCloud != null) {
+                                                Surface(
+                                                    color = KonabGreen.copy(alpha = 0.12f),
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    border = BorderStroke(1.dp, KonabGreen.copy(alpha = 0.35f)),
+                                                    modifier = Modifier
+                                                        .konabPressScale(pressedScale = 0.95f)
+                                                        .clickable(enabled = !isRefreshingCloud) {
+                                                            isRefreshingCloud = true
+                                                            onRefreshActiveShopFromCloud { _, msg ->
+                                                                isRefreshingCloud = false
+                                                                android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+                                                            }
+                                                        }
+                                                        .testTag("btn_dashboard_cloud_refresh")
+                                                ) {
+                                                    Row(
+                                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Sync,
+                                                            contentDescription = "Actualiser produits et ventes",
+                                                            tint = KonabGreen,
+                                                            modifier = Modifier.size(13.dp)
+                                                        )
+                                                        Text(
+                                                            text = if (isRefreshingCloud) "..." else "Synchro",
+                                                            color = KonabGreen,
+                                                            fontWeight = FontWeight.Bold,
+                                                            fontSize = 10.sp,
+                                                            maxLines = 1
+                                                        )
+                                                    }
+                                                }
+                                            }
+
+                                            Surface(
+                                                color = KonabBlue.copy(alpha = 0.12f),
+                                                shape = RoundedCornerShape(8.dp),
+                                                border = BorderStroke(1.dp, KonabBlue.copy(alpha = 0.35f)),
+                                                modifier = Modifier
+                                                    .konabPressScale(pressedScale = 0.95f)
+                                                    .clickable { showMultiShopModal = true }
+                                                    .testTag("btn_dashboard_multishop")
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Domain,
+                                                        contentDescription = "Multiboutique",
+                                                        tint = KonabBlue,
+                                                        modifier = Modifier.size(13.dp)
+                                                    )
+                                                    Text(
+                                                        text = if (connectedShops.size > 1) "Boutiques (${connectedShops.size})" else "Multiboutique",
+                                                        color = KonabBlue,
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 10.sp,
+                                                        maxLines = 1
+                                                    )
+                                                }
                                             }
                                         }
                                     }
                                 }
+
+                                if (stackBadgesBelow) {
+                                    Column(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        identityBlock(Modifier.fillMaxWidth())
+                                        badgesBlock(Alignment.Start)
+                                    }
+                                } else {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        identityBlock(Modifier.weight(1f).padding(end = 8.dp))
+                                        badgesBlock(Alignment.End)
+                                    }
+                                }
                             }
                         }
-                    }
                     }
                 }
             }
@@ -769,6 +791,8 @@ fun DashboardScreen(
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = Color(0xFF92400E),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
                                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
                                     )
                                 }
@@ -782,6 +806,8 @@ fun DashboardScreen(
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = Color(0xFF9A3412),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
                                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
                                     )
                                 }
@@ -791,10 +817,12 @@ fun DashboardScreen(
                                     modifier = Modifier.weight(1f)
                                 ) {
                                     Text(
-                                        text = "Prêt/Servi : $readyCount",
+                                        text = "Prêt : $readyCount",
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = KonabGreenDark,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
                                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
                                     )
                                 }
@@ -806,12 +834,18 @@ fun DashboardScreen(
                                 shape = RoundedCornerShape(12.dp),
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(48.dp)
+                                    .heightIn(min = 48.dp)
                                     .testTag("btn_dashboard_restaurant")
                             ) {
                                 Icon(Icons.Default.SoupKitchen, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("Gérer Commandes, Tables QR & Menu du Jour", fontWeight = FontWeight.Bold, fontSize = 12.5.sp)
+                                Text(
+                                    text = "Gérer Commandes & Tables QR",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.5.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
                             }
                         }
                     }
@@ -849,10 +883,11 @@ fun DashboardScreen(
                         ) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Row(
+                                    modifier = Modifier.weight(1f),
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
@@ -870,17 +905,21 @@ fun DashboardScreen(
                                             modifier = Modifier.size(20.dp)
                                         )
                                     }
-                                    Column {
+                                    Column(modifier = Modifier.weight(1f)) {
                                         Text(
                                             text = "Atelier Couture & Sur-Mesure",
                                             fontFamily = OutfitFontFamily,
                                             fontWeight = FontWeight.ExtraBold,
-                                            fontSize = 14.5.sp
+                                            fontSize = 14.5.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
                                         )
                                         Text(
-                                            text = "$coutureModelsCount modèle(s) QR • Prise de mesures & photos tissus",
+                                            text = "$coutureModelsCount modèle(s) QR • Mesures & tissus",
                                             fontSize = 11.5.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
                                         )
                                     }
                                 }
@@ -893,6 +932,7 @@ fun DashboardScreen(
                                         color = Color.White,
                                         fontWeight = FontWeight.ExtraBold,
                                         fontSize = 10.5.sp,
+                                        maxLines = 1,
                                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                                     )
                                 }
@@ -912,6 +952,8 @@ fun DashboardScreen(
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = Color(0xFF5B21B6),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
                                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
                                     )
                                 }
@@ -925,6 +967,8 @@ fun DashboardScreen(
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = KonabGreenDark,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
                                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
                                     )
                                 }
@@ -1081,80 +1125,101 @@ fun DashboardScreen(
                             }
                         }
 
-                        // Row 3: Live Financial Pulse
+                        // Row 3: Live Financial Pulse (Responsive)
                         Card(
                             shape = RoundedCornerShape(16.dp),
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.7f)),
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 14.dp, vertical = 12.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(
+                            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                                val compactPulse = maxWidth < 330.dp
+                                val metricSize = if (compactPulse) 12.5.sp else 14.sp
+                                Row(
                                     modifier = Modifier
-                                        .weight(1f)
-                                        .clickable { onNavigate(KonabScreen.REPORTS) }
+                                        .fillMaxWidth()
+                                        .padding(horizontal = if (compactPulse) 10.dp else 14.dp, vertical = 12.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text("Bénéfice net du jour", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Text(
-                                        text = CurrencyFormatter.formatFCFA(todayNetResult),
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        color = if (todayNetResult >= 0L) KonabGreen else KonabRed
-                                    )
-                                }
-
-                                VerticalDivider(modifier = Modifier.height(30.dp))
-
-                                Column(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .padding(horizontal = 10.dp)
-                                        .clickable { onNavigate(KonabScreen.CUSTOMERS) }
-                                ) {
-                                    Text("Crédits à recouvrer", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Text(
-                                        text = CurrencyFormatter.formatFCFA(totalCustomerReceivables),
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        color = if (totalCustomerReceivables > 0L) KonabOrange else MaterialTheme.colorScheme.onSurface
-                                    )
-                                }
-
-                                Surface(
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = if (activeCashSession != null) KonabGreenLight else KonabRedContainer,
-                                    modifier = Modifier
-                                        .konabPressScale(pressedScale = 0.96f)
-                                        .clickable { onNavigate(KonabScreen.CASH) }
-                                        .testTag("badge_cash_session_status")
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    Column(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clickable { onNavigate(KonabScreen.REPORTS) }
                                     ) {
-                                        if (activeCashSession != null) {
-                                            KonabLivePulseDot(color = KonabGreen, size = 6.dp)
-                                        } else {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(7.dp)
-                                                    .clip(CircleShape)
-                                                    .background(KonabRed)
+                                        Text(
+                                            "Bénéfice net du jour",
+                                            fontSize = 10.5.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            text = CurrencyFormatter.formatFCFA(todayNetResult),
+                                            fontSize = metricSize,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            color = if (todayNetResult >= 0L) KonabGreen else KonabRed,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+
+                                    VerticalDivider(modifier = Modifier.height(30.dp))
+
+                                    Column(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .padding(horizontal = if (compactPulse) 6.dp else 10.dp)
+                                            .clickable { onNavigate(KonabScreen.CUSTOMERS) }
+                                    ) {
+                                        Text(
+                                            "Crédits à recouvrer",
+                                            fontSize = 10.5.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            text = CurrencyFormatter.formatFCFA(totalCustomerReceivables),
+                                            fontSize = metricSize,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            color = if (totalCustomerReceivables > 0L) KonabOrange else MaterialTheme.colorScheme.onSurface,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+
+                                    Surface(
+                                        shape = RoundedCornerShape(10.dp),
+                                        color = if (activeCashSession != null) KonabGreenLight else KonabRedContainer,
+                                        modifier = Modifier
+                                            .konabPressScale(pressedScale = 0.96f)
+                                            .clickable { onNavigate(KonabScreen.CASH) }
+                                            .testTag("badge_cash_session_status")
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            if (activeCashSession != null) {
+                                                KonabLivePulseDot(color = KonabGreen, size = 6.dp)
+                                            } else {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(7.dp)
+                                                        .clip(CircleShape)
+                                                        .background(KonabRed)
+                                                )
+                                            }
+                                            Text(
+                                                text = if (activeCashSession != null) "Ouverte" else "Fermée",
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (activeCashSession != null) KonabGreenDark else KonabRed,
+                                                maxLines = 1
                                             )
                                         }
-                                        Text(
-                                            text = if (activeCashSession != null) "Ouverte" else "Fermée",
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = if (activeCashSession != null) KonabGreenDark else KonabRed
-                                        )
                                     }
                                 }
                             }
@@ -1529,7 +1594,7 @@ fun DashboardScreen(
                                     .fillMaxWidth()
                                     .padding(14.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
@@ -1571,7 +1636,7 @@ fun DashboardScreen(
 
                                     Spacer(modifier = Modifier.width(12.dp))
 
-                                    Column {
+                                    Column(modifier = Modifier.weight(1f)) {
                                         Text(
                                             text = sale.customerName.ifBlank { "Client comptoir" },
                                             fontWeight = FontWeight.Bold,
@@ -1589,7 +1654,8 @@ fun DashboardScreen(
                                                 text = CurrencyFormatter.formatTimeOnly(sale.timestamp),
                                                 fontSize = 12.sp,
                                                 fontWeight = FontWeight.Medium,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                maxLines = 1
                                             )
                                             Text(
                                                 text = "•",
@@ -1599,7 +1665,9 @@ fun DashboardScreen(
                                             Text(
                                                 text = sale.paymentMethod,
                                                 fontSize = 12.sp,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
                                             )
                                         }
                                     }
@@ -1610,7 +1678,8 @@ fun DashboardScreen(
                                         text = CurrencyFormatter.formatFCFA(sale.totalAmount),
                                         fontWeight = FontWeight.ExtraBold,
                                         color = if (sale.paymentStatus == "PAYÉ") KonabGreen else KonabRed,
-                                        fontSize = 15.sp
+                                        fontSize = 14.5.sp,
+                                        maxLines = 1
                                     )
                                     Spacer(modifier = Modifier.height(3.dp))
                                     Surface(
@@ -1626,6 +1695,7 @@ fun DashboardScreen(
                                             fontSize = 10.sp,
                                             fontWeight = FontWeight.Bold,
                                             color = if (sale.paymentStatus == "PAYÉ") KonabGreenDark else KonabRed,
+                                            maxLines = 1,
                                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                         )
                                     }
@@ -1865,12 +1935,12 @@ private fun DashboardShortcutPill(
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.7f)),
         shadowElevation = 1.dp,
         modifier = modifier
-            .height(72.dp)
+            .heightIn(min = 68.dp)
             .konabPressScale(pressedScale = 0.95f)
     ) {
         Column(
             modifier = Modifier
-                .fillMaxSize()
+                .fillMaxWidth()
                 .padding(vertical = 8.dp, horizontal = 4.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
@@ -1894,7 +1964,8 @@ private fun DashboardShortcutPill(
                 fontSize = 11.5.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }
