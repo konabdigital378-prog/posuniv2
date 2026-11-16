@@ -138,6 +138,10 @@ CREATE TABLE IF NOT EXISTS public.shop_profile (
     logo_uri TEXT,
     admin_name TEXT DEFAULT 'Gérant',
     admin_phone TEXT,
+    admin_email TEXT,
+    email TEXT,
+    user_id TEXT,
+    owner_id TEXT,
     admin_pin TEXT DEFAULT '1234',
     cashier_pin TEXT DEFAULT '0000',
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
@@ -148,10 +152,15 @@ ALTER TABLE public.shop_profile ADD COLUMN IF NOT EXISTS deployer_id TEXT;
 ALTER TABLE public.shop_profile ADD COLUMN IF NOT EXISTS logo_uri TEXT;
 ALTER TABLE public.shop_profile ADD COLUMN IF NOT EXISTS admin_name TEXT DEFAULT 'Gérant';
 ALTER TABLE public.shop_profile ADD COLUMN IF NOT EXISTS admin_phone TEXT;
+ALTER TABLE public.shop_profile ADD COLUMN IF NOT EXISTS admin_email TEXT;
+ALTER TABLE public.shop_profile ADD COLUMN IF NOT EXISTS email TEXT;
+ALTER TABLE public.shop_profile ADD COLUMN IF NOT EXISTS user_id TEXT;
+ALTER TABLE public.shop_profile ADD COLUMN IF NOT EXISTS owner_id TEXT;
 ALTER TABLE public.shop_profile ADD COLUMN IF NOT EXISTS admin_pin TEXT DEFAULT '1234';
 ALTER TABLE public.shop_profile ADD COLUMN IF NOT EXISTS cashier_pin TEXT DEFAULT '0000';
 CREATE INDEX IF NOT EXISTS idx_shop_profile_deployer_id ON public.shop_profile(deployer_id);
 CREATE INDEX IF NOT EXISTS idx_shop_profile_admin_phone ON public.shop_profile(admin_phone);
+CREATE INDEX IF NOT EXISTS idx_shop_profile_user_id ON public.shop_profile(user_id);
 
 -- Nettoyage automatique d'éventuels anciens doublons de boutiques avant l'index unique
 DELETE FROM public.shop_profile
@@ -188,7 +197,9 @@ CREATE TABLE IF NOT EXISTS public.products (
 );
 
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS shop_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS shop_name TEXT DEFAULT '';
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS gallery_images_json TEXT DEFAULT '[]';
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS images JSONB DEFAULT '[]'::jsonb;
 CREATE INDEX IF NOT EXISTS idx_products_shop_id ON public.products(shop_id);
 CREATE INDEX IF NOT EXISTS idx_products_barcode ON public.products(barcode);
 CREATE INDEX IF NOT EXISTS idx_products_category ON public.products(category);
@@ -234,6 +245,7 @@ CREATE TABLE IF NOT EXISTS public.sales (
 );
 
 ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS shop_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS shop_name TEXT DEFAULT '';
 ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS customer_id BIGINT;
 ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS total_cost_price BIGINT DEFAULT 0;
 ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS amount_paid BIGINT DEFAULT 0;
@@ -460,6 +472,8 @@ CREATE INDEX IF NOT EXISTS idx_shop_ads_is_active ON public.shop_ads(is_active);
 CREATE TABLE IF NOT EXISTS public.restaurant_staff (
     id TEXT PRIMARY KEY,
     shop_id BIGINT NOT NULL DEFAULT 0,
+    user_id TEXT DEFAULT '',
+    email TEXT DEFAULT '',
     name TEXT NOT NULL,
     phone TEXT DEFAULT '',
     role TEXT NOT NULL DEFAULT 'MANAGER',
@@ -467,7 +481,10 @@ CREATE TABLE IF NOT EXISTS public.restaurant_staff (
     is_active BOOLEAN DEFAULT true,
     updated_at BIGINT DEFAULT 0
 );
+ALTER TABLE public.restaurant_staff ADD COLUMN IF NOT EXISTS user_id TEXT DEFAULT '';
+ALTER TABLE public.restaurant_staff ADD COLUMN IF NOT EXISTS email TEXT DEFAULT '';
 CREATE INDEX IF NOT EXISTS idx_restaurant_staff_shop_id ON public.restaurant_staff(shop_id);
+CREATE INDEX IF NOT EXISTS idx_restaurant_staff_email ON public.restaurant_staff(email);
 
 -- 16. Table des Tables & QR Codes Restaurant
 CREATE TABLE IF NOT EXISTS public.restaurant_tables (
@@ -509,8 +526,24 @@ CREATE INDEX IF NOT EXISTS idx_restaurant_orders_created_at ON public.restaurant
 CREATE TABLE IF NOT EXISTS public.restaurant_menu_day (
     shop_id BIGINT PRIMARY KEY,
     product_ids_json TEXT NOT NULL DEFAULT '[]',
+    menu_item_ids TEXT DEFAULT '[]',
     updated_at BIGINT DEFAULT 0
 );
+ALTER TABLE public.restaurant_menu_day ADD COLUMN IF NOT EXISTS menu_item_ids TEXT DEFAULT '[]';
+
+-- 18b. Table des Articles Liés au Menu Restaurant (Fallback & Web QR)
+CREATE TABLE IF NOT EXISTS public.restaurant_menu_items (
+    id BIGINT PRIMARY KEY,
+    shop_id BIGINT NOT NULL DEFAULT 0,
+    product_id BIGINT,
+    name TEXT DEFAULT '',
+    category TEXT DEFAULT 'Menu du Jour',
+    sell_price BIGINT DEFAULT 0,
+    is_available BOOLEAN DEFAULT true,
+    image_uri TEXT,
+    updated_at BIGINT DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_restaurant_menu_items_shop_id ON public.restaurant_menu_items(shop_id);
 
 -- 19. Table des Modèles & Catalogues Couture
 CREATE TABLE IF NOT EXISTS public.couture_models (
@@ -590,6 +623,7 @@ ALTER TABLE public.restaurant_staff ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.restaurant_tables ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.restaurant_orders ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.restaurant_menu_day ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.restaurant_menu_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.couture_models ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.couture_orders ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.couture_clients ENABLE ROW LEVEL SECURITY;
@@ -613,6 +647,7 @@ DROP POLICY IF EXISTS "Allow anon read/write for restaurant_staff" ON public.res
 DROP POLICY IF EXISTS "Allow anon read/write for restaurant_tables" ON public.restaurant_tables;
 DROP POLICY IF EXISTS "Allow anon read/write for restaurant_orders" ON public.restaurant_orders;
 DROP POLICY IF EXISTS "Allow anon read/write for restaurant_menu_day" ON public.restaurant_menu_day;
+DROP POLICY IF EXISTS "Allow anon read/write for restaurant_menu_items" ON public.restaurant_menu_items;
 DROP POLICY IF EXISTS "Allow anon read/write for couture_models" ON public.couture_models;
 DROP POLICY IF EXISTS "Allow anon read/write for couture_orders" ON public.couture_orders;
 DROP POLICY IF EXISTS "Allow anon read/write for couture_clients" ON public.couture_clients;
@@ -635,6 +670,7 @@ CREATE POLICY "Allow anon read/write for restaurant_staff" ON public.restaurant_
 CREATE POLICY "Allow anon read/write for restaurant_tables" ON public.restaurant_tables FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow anon read/write for restaurant_orders" ON public.restaurant_orders FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow anon read/write for restaurant_menu_day" ON public.restaurant_menu_day FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow anon read/write for restaurant_menu_items" ON public.restaurant_menu_items FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow anon read/write for couture_models" ON public.couture_models FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow anon read/write for couture_orders" ON public.couture_orders FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow anon read/write for couture_clients" ON public.couture_clients FOR ALL USING (true) WITH CHECK (true);

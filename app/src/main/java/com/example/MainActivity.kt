@@ -279,7 +279,7 @@ class MainActivity : FragmentActivity() {
                                             viewModel.reloadCoutureLocalState()
                                             viewModel.syncRoleFromActiveStaff()
                                             val staff = viewModel.activeStaff.value
-                                            val isResto = shopProfile?.businessType.equals("Restaurant", ignoreCase = true)
+                                            val isResto = isRestaurantMode
                                             if (staff != null && (staff.role == com.example.data.remote.supabase.RestaurantStaffRole.KITCHEN ||
                                                     staff.role == com.example.data.remote.supabase.RestaurantStaffRole.WAITER ||
                                                     (isResto && staff.role == com.example.data.remote.supabase.RestaurantStaffRole.CASHIER))

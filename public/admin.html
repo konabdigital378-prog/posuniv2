@@ -1503,8 +1503,11 @@
                 const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
                 if (error) throw error;
                 feedback.className = 'text-xs text-emerald-600 font-bold block';
-                feedback.textContent = 'Connexion réussie !';
+                feedback.textContent = 'Connexion réussie ! Chargement de votre boutique...';
                 updateAuthUI(data.user);
+                if (isCloudMode) {
+                    await fetchCloudData(false, { preferUserScope: true, authUser: data.user });
+                }
                 setTimeout(() => closeModal('modal-supabase-auth'), 800);
             } catch (err) {
                 feedback.className = 'text-xs text-rose-600 font-bold block';
@@ -1538,6 +1541,9 @@
                 feedback.textContent = 'Compte créé avec succès !';
                 if (data.user) {
                     updateAuthUI(data.user);
+                    if (isCloudMode) {
+                        await fetchCloudData(true, { preferUserScope: true, authUser: data.user });
+                    }
                     setTimeout(() => closeModal('modal-supabase-auth'), 1000);
                 }
             } catch (err) {
@@ -1551,6 +1557,11 @@
             try {
                 await supabaseClient.auth.signOut();
                 updateAuthUI(null);
+                if (isCloudMode && dataStore?.cloudRaw) {
+                    applyActiveShopScope();
+                    renderAll();
+                    updateCharts();
+                }
                 closeModal('modal-supabase-auth');
             } catch (err) {
                 console.error(err);
@@ -1984,33 +1995,268 @@
             }
         }
 
+        function normalizeTextKey(val) {
+            return String(val || '')
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .toLowerCase()
+                .trim()
+                .replace(/\s+/g, ' ');
+        }
+
+        function normalizePhoneKey(val) {
+            return String(val || '').replace(/[^0-9]/g, '');
+        }
+
+        function phonesMatch(a, b) {
+            const pa = normalizePhoneKey(a);
+            const pb = normalizePhoneKey(b);
+            if (!pa || !pb) return false;
+            if (pa === pb) return true;
+            return pa.length >= 8 && pb.length >= 8 && pa.slice(-8) === pb.slice(-8);
+        }
+
+        function isRestaurantBusinessType(businessType) {
+            const norm = normalizeTextKey(businessType);
+            if (!norm) return false;
+            return ['restaur', 'maquis', 'bistro', 'grill', 'cafe', 'snack', 'fast food', 'fast-food', 'kiosque', 'traiteur', 'bar']
+                .some(kw => norm.includes(kw));
+        }
+
         function extractMirrorRecords(notifications, markerType) {
             return (notifications || [])
                 .filter(n => n && n.type === markerType)
-                .map(n => parseJsonSafe(n.message, null))
+                .map(n => {
+                    const parsed = parseJsonSafe(n.message, null);
+                    if (!parsed || typeof parsed !== 'object') return null;
+                    const resolvedShopId = parsed.shop_id ?? parsed.shopId ?? n.shop_id ?? n.reference_id ?? null;
+                    return resolvedShopId != null && parsed.shop_id == null
+                        ? { ...parsed, shop_id: resolvedShopId }
+                        : parsed;
+                })
                 .filter(Boolean);
         }
 
-        function rowBelongsToShop(row, activeShopId, totalShopsCount, primaryShopId = null) {
-            if (!activeShopId) return true;
-            const rowShopId = row?.shop_id;
-            if (rowShopId == null || Number(rowShopId) === 0) {
-                return totalShopsCount <= 1 || (primaryShopId && String(activeShopId) === String(primaryShopId));
-            }
-            if (String(rowShopId) === String(activeShopId)) return true;
-            // Fallback legacy single-shop rows (shop_id == 1) when only one shop exists
-            return Number(rowShopId) === 1 && totalShopsCount <= 1;
+        function mergeRowsByKey(primaryRows = [], secondaryRows = [], keyFn = (r) => `${r?.shop_id ?? r?.shopId ?? '0'}:${r?.id ?? ''}`) {
+            const merged = new Map();
+            const anonRows = [];
+            [...(primaryRows || []), ...(secondaryRows || [])].forEach(row => {
+                if (!row || typeof row !== 'object') return;
+                const key = keyFn(row);
+                if (!key || key.endsWith(':')) {
+                    anonRows.push(row);
+                    return;
+                }
+                if (!merged.has(key)) {
+                    merged.set(key, row);
+                } else {
+                    const prev = merged.get(key);
+                    merged.set(key, { ...prev, ...row });
+                }
+            });
+            return [...merged.values(), ...anonRows];
         }
 
-        function applyActiveShopScope(preferredShopId = null) {
+        function resolveUserAssignedShopContext(shops = [], staffList = [], authUser = null) {
+            const user = authUser || (typeof currentAuthUser !== 'undefined' ? currentAuthUser : null);
+            const assignedShopIds = new Set();
+            if (!user) {
+                return {
+                    hasUser: false,
+                    authUserId: null,
+                    assignedShopIds
+                };
+            }
+
+            const meta = user.user_metadata || {};
+            const appMeta = user.app_metadata || {};
+            const addAssignedId = (val) => {
+                if (val == null) return;
+                const s = String(val).trim();
+                if (s && s !== '0') assignedShopIds.add(s);
+            };
+
+            [
+                meta.shop_id,
+                meta.cloud_shop_id,
+                meta.active_shop_id,
+                meta.shopId,
+                meta.cloudShopId,
+                appMeta.shop_id,
+                appMeta.cloud_shop_id
+            ].forEach(addAssignedId);
+
+            [meta.shop_ids, appMeta.shop_ids].forEach(arr => {
+                if (Array.isArray(arr)) arr.forEach(addAssignedId);
+            });
+
+            const userEmail = normalizeTextKey(user.email || meta.email);
+            const userPhone = normalizePhoneKey(user.phone || meta.phone || meta.telephone);
+            const userName = normalizeTextKey(meta.name || meta.full_name);
+            const metaShopName = normalizeTextKey(meta.shop_name || meta.shopName);
+            const metaDeployer = normalizeTextKey(meta.deployer_id || appMeta.deployer_id);
+
+            (staffList || []).forEach(st => {
+                if (!st || st.is_active === false || st.isActive === false) return;
+                const stShopId = st.shop_id ?? st.shopId;
+                if (stShopId == null || Number(stShopId) === 0) return;
+                const stEmail = normalizeTextKey(st.email);
+                const stPhone = st.phone || st.telephone;
+                const stUserId = st.user_id || st.userId;
+                const stName = normalizeTextKey(st.name);
+                const matches = (stUserId && String(stUserId) === String(user.id)) ||
+                    (userEmail && stEmail && stEmail === userEmail) ||
+                    (userPhone && stPhone && phonesMatch(userPhone, stPhone)) ||
+                    (userName && stName && stName === userName);
+                if (matches) addAssignedId(stShopId);
+            });
+
+            (shops || []).forEach(s => {
+                if (!s || s.id == null) return;
+                const sName = normalizeTextKey(s.name);
+                const sEmail = normalizeTextKey(s.email || s.admin_email);
+                const sOwner = s.user_id || s.owner_id;
+                const sDeployer = normalizeTextKey(s.deployer_id);
+                const matches = (sOwner && String(sOwner) === String(user.id)) ||
+                    (metaShopName && sName && sName === metaShopName) ||
+                    (userEmail && sEmail && sEmail === userEmail) ||
+                    (userPhone && (phonesMatch(userPhone, s.admin_phone) || phonesMatch(userPhone, s.phone))) ||
+                    (metaDeployer && sDeployer && sDeployer === metaDeployer);
+                if (matches) addAssignedId(s.id);
+            });
+
+            return {
+                hasUser: true,
+                authUserId: user.id || null,
+                assignedShopIds
+            };
+        }
+
+        function buildActiveShopScope(raw = {}, preferredShopId = null, preferUserScope = false, authUser = null) {
+            const shops = raw.shops || [];
+            const staffList = raw.restaurantStaff || [];
+            const user = authUser || (typeof currentAuthUser !== 'undefined' ? currentAuthUser : null);
+            const userCtx = resolveUserAssignedShopContext(shops, staffList, user);
+
+            let savedSelected = null;
+            try {
+                savedSelected = dataStore.selectedShopId || localStorage.getItem('konab_selected_shop_id') || localStorage.getItem('konab_cloud_shop_id');
+            } catch (e) {
+                savedSelected = dataStore.selectedShopId || null;
+            }
+
+            const findShopById = (idVal) => {
+                if (idVal == null || idVal === '') return null;
+                return shops.find(s => String(s.id) === String(idVal)) || null;
+            };
+
+            let activeShop = null;
+            if (preferredShopId != null && String(preferredShopId).trim() !== '') {
+                activeShop = findShopById(preferredShopId) || { id: preferredShopId, name: '' };
+            } else if (userCtx.assignedShopIds.size > 0) {
+                const persistedAssigned = (!preferUserScope && savedSelected && userCtx.assignedShopIds.has(String(savedSelected)))
+                    ? (findShopById(savedSelected) || { id: savedSelected, name: '' })
+                    : null;
+                if (persistedAssigned) {
+                    activeShop = persistedAssigned;
+                } else {
+                    const matchedAssigned = shops.find(s => userCtx.assignedShopIds.has(String(s.id)));
+                    if (matchedAssigned) {
+                        activeShop = matchedAssigned;
+                    } else {
+                        const firstAssignedId = Array.from(userCtx.assignedShopIds)[0];
+                        activeShop = { id: firstAssignedId, name: user?.user_metadata?.shop_name || '' };
+                    }
+                }
+            } else {
+                activeShop = findShopById(savedSelected) || shops[0] || null;
+            }
+
+            const relatedShopIds = new Set();
+            if (activeShop && activeShop.id != null) {
+                relatedShopIds.add(String(activeShop.id));
+            }
+
+            const activeNormName = normalizeTextKey(activeShop?.name);
+            const activePhone = activeShop?.admin_phone || activeShop?.phone || '';
+            if (activeNormName) {
+                shops.forEach(s => {
+                    if (!s || s.id == null) return;
+                    if (normalizeTextKey(s.name) === activeNormName) {
+                        const candPhone = s.admin_phone || s.phone || '';
+                        if (!activePhone || !candPhone || phonesMatch(activePhone, candPhone)) {
+                            relatedShopIds.add(String(s.id));
+                        }
+                    }
+                });
+            }
+            if (userCtx.assignedShopIds.size > 0 && activeShop && userCtx.assignedShopIds.has(String(activeShop.id)) && !activeNormName) {
+                userCtx.assignedShopIds.forEach(id => relatedShopIds.add(String(id)));
+            }
+
+            const explicitShop1 = shops.find(s => Number(s.id) === 1);
+            const primaryShopId = explicitShop1 ? explicitShop1.id : (shops[0]?.id ?? null);
+            const allowLegacyShop1 = shops.length <= 1 ||
+                relatedShopIds.has('1') ||
+                (primaryShopId != null && relatedShopIds.has(String(primaryShopId)));
+
+            return {
+                activeShop,
+                totalShopsCount: shops.length,
+                primaryShopId,
+                relatedShopIds,
+                activeShopName: activeShop?.name || '',
+                authUserId: userCtx.authUserId,
+                allowLegacyShop1,
+                assignedShopIds: userCtx.assignedShopIds
+            };
+        }
+
+        function rowBelongsToShop(row, activeShopId, totalShopsCount, primaryShopId = null, scopeContext = null) {
+            if (!row || typeof row !== 'object') return false;
+            const relatedIds = scopeContext?.relatedShopIds instanceof Set
+                ? scopeContext.relatedShopIds
+                : new Set(
+                    Array.isArray(scopeContext?.relatedShopIds)
+                        ? scopeContext.relatedShopIds.map(String)
+                        : (activeShopId != null ? [String(activeShopId)] : [])
+                );
+            if (activeShopId != null) relatedIds.add(String(activeShopId));
+
+            if (!activeShopId && relatedIds.size === 0) return true;
+
+            const rowShopId = row.shop_id ?? row.shopId;
+            const rowShopName = normalizeTextKey(row.shop_name ?? row.shopName);
+            const activeNormName = normalizeTextKey(scopeContext?.activeShopName);
+            const rowMatchesName = Boolean(activeNormName && rowShopName && rowShopName === activeNormName);
+            const rowMatchesAuthUser = Boolean(scopeContext?.authUserId && row.user_id && String(row.user_id) === String(scopeContext.authUserId));
+
+            if (rowShopId == null || Number(rowShopId) === 0) {
+                if (totalShopsCount <= 1 || rowMatchesName || rowMatchesAuthUser) return true;
+                return Boolean(primaryShopId && relatedIds.has(String(primaryShopId)));
+            }
+            if (relatedIds.has(String(rowShopId))) return true;
+            if (Number(rowShopId) === 1) {
+                if (totalShopsCount <= 1 || rowMatchesName || rowMatchesAuthUser) return true;
+                return scopeContext?.allowLegacyShop1 === true;
+            }
+            return rowMatchesName;
+        }
+
+        function applyActiveShopScope(preferredShopId = null, options = {}) {
             const raw = dataStore.cloudRaw;
             const shops = raw.shops || [];
             dataStore.allShops = shops;
 
-            let chosenShopId = preferredShopId || dataStore.selectedShopId || localStorage.getItem('konab_selected_shop_id') || localStorage.getItem('konab_cloud_shop_id');
-            let activeShop = shops.find(s => String(s.id) === String(chosenShopId)) || shops[0] || null;
-            if (activeShop) {
-                chosenShopId = String(activeShop.id);
+            const scope = buildActiveShopScope(
+                raw,
+                preferredShopId,
+                Boolean(options.preferUserScope),
+                options.authUser || null
+            );
+            const activeShop = scope.activeShop;
+            if (activeShop && activeShop.id != null) {
+                const chosenShopId = String(activeShop.id);
                 dataStore.selectedShopId = chosenShopId;
                 dataStore.shop = activeShop;
                 try {
@@ -2019,9 +2265,9 @@
                 } catch (e) {}
             }
 
-            const totalShops = shops.length;
-            const primaryShopId = shops[0]?.id || null;
-            const filterRows = (arr) => (arr || []).filter(r => rowBelongsToShop(r, activeShop?.id, totalShops, primaryShopId));
+            const totalShops = scope.totalShopsCount;
+            const primaryShopId = scope.primaryShopId;
+            const filterRows = (arr) => (arr || []).filter(r => rowBelongsToShop(r, activeShop?.id, totalShops, primaryShopId, scope));
 
             const shopsById = {};
             shops.forEach(s => { shopsById[String(s.id)] = s; });
@@ -2036,7 +2282,7 @@
             const scopedSaleItems = (raw.saleItems || [])
                 .filter(it => {
                     if (scopedSaleIds.size > 0 && it.sale_id != null && scopedSaleIds.has(String(it.sale_id))) return true;
-                    return rowBelongsToShop(it, activeShop?.id, totalShops, primaryShopId);
+                    return rowBelongsToShop(it, activeShop?.id, totalShops, primaryShopId, scope);
                 })
                 .map(it => ({
                     ...it,
@@ -2064,14 +2310,29 @@
                 };
             });
 
+            const productMatchesMenuSet = (prodId) => {
+                const pidStr = String(prodId);
+                if (menuIdsForShop.has(pidStr)) return true;
+                const pNum = Number(prodId);
+                if (!Number.isFinite(pNum) || pNum <= 0) return false;
+                for (const mId of menuIdsForShop) {
+                    const mNum = Number(mId);
+                    if (!Number.isFinite(mNum) || mNum <= 0) continue;
+                    if (Math.abs(pNum % 1000000) === Math.abs(mNum % 1000000) && (pNum > 1000000 || mNum > 1000000)) {
+                        return true;
+                    }
+                }
+                return false;
+            };
+
             const hydratedProducts = scopedProducts.map(p => ({
                 ...p,
-                is_menu_of_day: menuIdsForShop.has(String(p.id))
+                is_menu_of_day: productMatchesMenuSet(p.id)
             }));
 
             let scopedMenuItems = [];
             if (menuIdsForShop.size > 0) {
-                scopedMenuItems = hydratedProducts.filter(p => menuIdsForShop.has(String(p.id)));
+                scopedMenuItems = hydratedProducts.filter(p => p.is_menu_of_day);
                 scopedMenuDay.forEach(entry => {
                     (entry.linked_items || []).forEach(li => {
                         if (li && li.id != null && !scopedMenuItems.some(existing => String(existing.id) === String(li.id))) {
@@ -2080,7 +2341,7 @@
                     });
                 });
             } else {
-                const isRestoShop = String(activeShop?.business_type || '').toLowerCase().includes('restaur');
+                const isRestoShop = isRestaurantBusinessType(activeShop?.business_type);
                 scopedMenuItems = isRestoShop
                     ? hydratedProducts.filter(p => p.is_available !== false)
                     : [];
@@ -2135,7 +2396,38 @@
             return ids;
         }
 
-        async function fetchRestaurantData(client = supabaseClient, existingNotifications = null, preloadedProducts = null, preloadedShops = null) {
+        async function fetchTableForShopIds(client, tableName, shopIds = [], orderCol = null, limitCount = 2000) {
+            const cleanIds = Array.from(new Set(
+                (shopIds || [])
+                    .map(id => {
+                        if (id == null) return null;
+                        const s = String(id).trim();
+                        if (!s || s === '0') return null;
+                        const n = Number(s);
+                        return Number.isFinite(n) && n > 0 ? n : s;
+                    })
+                    .filter(v => v != null)
+            ));
+            if (!client || cleanIds.length === 0) return [];
+            try {
+                let q = client.from(tableName).select('*');
+                q = cleanIds.length === 1 ? q.eq('shop_id', cleanIds[0]) : q.in('shop_id', cleanIds);
+                if (orderCol) q = q.order(orderCol, { ascending: false });
+                if (limitCount) q = q.limit(limitCount);
+                let res = await q;
+                if (res.error && orderCol) {
+                    let retryQ = client.from(tableName).select('*');
+                    retryQ = cleanIds.length === 1 ? retryQ.eq('shop_id', cleanIds[0]) : retryQ.in('shop_id', cleanIds);
+                    res = await retryQ.limit(limitCount);
+                }
+                if (!res.error && Array.isArray(res.data)) return res.data;
+            } catch (e) {
+                console.warn(`Note lecture ciblée ${tableName}:`, e);
+            }
+            return [];
+        }
+
+        async function fetchRestaurantData(client = supabaseClient, existingNotifications = null, preloadedProducts = null, preloadedShops = null, targetShopIds = []) {
             if (!client) {
                 return { staff: [], tables: [], orders: [], menuDay: [], linkedMenuItems: [], products: [] };
             }
@@ -2158,29 +2450,44 @@
                 resTables,
                 resOrders,
                 resNotifs,
-                resMenuItemsTable
+                resMenuItemsTable,
+                targetedMenuDay,
+                targetedStaff,
+                targetedTables,
+                targetedOrders,
+                targetedMenuItemsTable
             ] = await Promise.all([
                 fetchMenuDayExplicit(),
                 fetchTableSafe(client, 'restaurant_staff', 'updated_at', false, 1000),
                 fetchTableSafe(client, 'restaurant_tables', 'updated_at', false, 1000),
                 fetchTableSafe(client, 'restaurant_orders', 'created_at', false, 1000),
                 existingNotifications ? Promise.resolve({ data: existingNotifications }) : fetchTableSafe(client, 'app_notifications', 'timestamp', false, 2000),
-                fetchTableSafe(client, 'restaurant_menu_items', 'id', false, 1000)
+                fetchTableSafe(client, 'restaurant_menu_items', 'id', false, 1000),
+                fetchTableForShopIds(client, 'restaurant_menu_day', targetShopIds, 'updated_at', 1000),
+                fetchTableForShopIds(client, 'restaurant_staff', targetShopIds, 'updated_at', 1000),
+                fetchTableForShopIds(client, 'restaurant_tables', targetShopIds, 'updated_at', 1000),
+                fetchTableForShopIds(client, 'restaurant_orders', targetShopIds, 'created_at', 1000),
+                fetchTableForShopIds(client, 'restaurant_menu_items', targetShopIds, 'id', 1000)
             ]);
 
             const notifs = resNotifs.data || existingNotifications || [];
-            const staff = (resStaff.data && resStaff.data.length > 0)
-                ? resStaff.data
-                : extractMirrorRecords(notifs, '__CLOUD_RESTO_STAFF__');
-            const tables = (resTables.data && resTables.data.length > 0)
-                ? resTables.data
-                : extractMirrorRecords(notifs, '__CLOUD_RESTO_TABLE__');
-            const orders = (resOrders.data && resOrders.data.length > 0)
-                ? resOrders.data
-                : extractMirrorRecords(notifs, '__CLOUD_RESTO_ORDER__');
-            const rawMenuDay = (menuDayNative && menuDayNative.length > 0)
-                ? menuDayNative
-                : extractMirrorRecords(notifs, '__CLOUD_RESTO_MENU_DAY__');
+            const staff = mergeRowsByKey(
+                extractMirrorRecords(notifs, '__CLOUD_RESTO_STAFF__'),
+                mergeRowsByKey(resStaff.data || [], targetedStaff || [])
+            );
+            const tables = mergeRowsByKey(
+                extractMirrorRecords(notifs, '__CLOUD_RESTO_TABLE__'),
+                mergeRowsByKey(resTables.data || [], targetedTables || [])
+            );
+            const orders = mergeRowsByKey(
+                extractMirrorRecords(notifs, '__CLOUD_RESTO_ORDER__'),
+                mergeRowsByKey(resOrders.data || [], targetedOrders || [])
+            );
+            const rawMenuDay = mergeRowsByKey(
+                extractMirrorRecords(notifs, '__CLOUD_RESTO_MENU_DAY__'),
+                mergeRowsByKey(menuDayNative || [], targetedMenuDay || [])
+            );
+            const mergedMenuItemsRows = mergeRowsByKey(resMenuItemsTable.data || [], targetedMenuItemsTable || []);
 
             // Résoudre le catalogue complet de produits liés à restaurant_menu_day
             let catalogProducts = Array.isArray(preloadedProducts) ? [...preloadedProducts] : [];
@@ -2210,10 +2517,14 @@
                     }
                 });
             });
-            (resMenuItemsTable.data || []).forEach(mi => {
+            (mergedMenuItemsRows || []).forEach(mi => {
                 if (mi && mi.product_id != null) referencedIds.add(String(mi.product_id));
                 else if (mi && mi.id != null && mi.name) {
-                    productsById[String(mi.id)] = normalizeProductRecord(mi, shopsMap);
+                    const normMi = normalizeProductRecord(mi, shopsMap);
+                    productsById[String(mi.id)] = normMi;
+                    if (!catalogProducts.some(cp => String(cp.id) === String(mi.id))) {
+                        catalogProducts.push(normMi);
+                    }
                     referencedIds.add(String(mi.id));
                 }
             });
@@ -2309,7 +2620,15 @@
                         updateAuthUI(authData.user);
                     }
                     client.auth.onAuthStateChange((event, session) => {
-                        updateAuthUI(session ? session.user : null);
+                        const nextUser = session ? session.user : null;
+                        updateAuthUI(nextUser);
+                        if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
+                            fetchCloudData(true, { preferUserScope: event === 'SIGNED_IN', authUser: nextUser });
+                        } else if (event === 'SIGNED_OUT' && dataStore?.cloudRaw) {
+                            applyActiveShopScope(null, { authUser: null });
+                            renderAll();
+                            updateCharts();
+                        }
                     });
                 } catch(e) {
                     console.warn('Auth check skipped:', e);
@@ -2328,17 +2647,49 @@
             }
         }
 
-        async function fetchCloudData(silent = false) {
+        async function fetchCloudData(silent = false, options = {}) {
             if (!supabaseClient) return;
             try {
                 if (!silent) {
                     updateSyncStatus('Synchronisation en cours...', true);
                 }
 
-                // 1) Charger shop_profile en priorité pour résoudre la hiérarchie multi-boutiques & multi-utilisateurs
-                const resShops = await fetchTableSafe(supabaseClient, 'shop_profile', 'updated_at', false, 1000);
+                // 0) Résoudre l'utilisateur connecté pour cibler son/ses shop_id assigné(s)
+                let activeAuthUser = options.authUser !== undefined
+                    ? options.authUser
+                    : (typeof currentAuthUser !== 'undefined' ? currentAuthUser : null);
+                if (!activeAuthUser && supabaseClient.auth && typeof supabaseClient.auth.getUser === 'function') {
+                    try {
+                        const { data: authData } = await supabaseClient.auth.getUser();
+                        if (authData && authData.user) {
+                            activeAuthUser = authData.user;
+                            if (typeof updateAuthUI === 'function') updateAuthUI(activeAuthUser);
+                        }
+                    } catch (e) {}
+                }
 
-                // 2) Charger toutes les tables métier & relations en parallèle (y compris cash_sessions, sale_items, purchases, app_notifications)
+                // 1) Charger shop_profile & app_notifications en priorité pour résoudre l'identité multi-utilisateur
+                const [resShops, resNotifs, resStaffDirect] = await Promise.all([
+                    fetchTableSafe(supabaseClient, 'shop_profile', 'updated_at', false, 1000),
+                    fetchTableSafe(supabaseClient, 'app_notifications', 'timestamp', false, 2000),
+                    fetchTableSafe(supabaseClient, 'restaurant_staff', 'updated_at', false, 1000)
+                ]);
+
+                const shopsList = resShops.data || [];
+                const initialNotifs = resNotifs.data || [];
+                const initialStaff = mergeRowsByKey(
+                    extractMirrorRecords(initialNotifs, '__CLOUD_RESTO_STAFF__'),
+                    resStaffDirect.data || []
+                );
+                const preScope = buildActiveShopScope(
+                    { shops: shopsList, restaurantStaff: initialStaff },
+                    options.preferredShopId || null,
+                    Boolean(options.preferUserScope),
+                    activeAuthUser
+                );
+                const targetShopIds = Array.from(preScope.relatedShopIds || []);
+
+                // 2) Charger toutes les tables métier globalement ET de façon ciblée par shop_id
                 const [
                     resProd,
                     resSales,
@@ -2348,7 +2699,14 @@
                     resPurch,
                     resSessions,
                     resCashMovs,
-                    resNotifs
+                    targetedProds,
+                    targetedSales,
+                    targetedCust,
+                    targetedSupp,
+                    targetedPurch,
+                    targetedSessions,
+                    targetedMovs,
+                    targetedNotifs
                 ] = await Promise.all([
                     fetchTableSafe(supabaseClient, 'products', 'id', false, 2000),
                     fetchTableSafe(supabaseClient, 'sales', 'timestamp', false, 2000),
@@ -2358,30 +2716,56 @@
                     fetchTableSafe(supabaseClient, 'purchases', 'timestamp', false, 2000),
                     fetchTableSafe(supabaseClient, 'cash_sessions', 'opened_at', false, 1000),
                     fetchTableSafe(supabaseClient, 'cash_movements', 'timestamp', false, 3000),
-                    fetchTableSafe(supabaseClient, 'app_notifications', 'timestamp', false, 2000)
+                    fetchTableForShopIds(supabaseClient, 'products', targetShopIds, 'id', 2000),
+                    fetchTableForShopIds(supabaseClient, 'sales', targetShopIds, 'timestamp', 2000),
+                    fetchTableForShopIds(supabaseClient, 'customers', targetShopIds, 'id', 2000),
+                    fetchTableForShopIds(supabaseClient, 'suppliers', targetShopIds, 'id', 1000),
+                    fetchTableForShopIds(supabaseClient, 'purchases', targetShopIds, 'timestamp', 2000),
+                    fetchTableForShopIds(supabaseClient, 'cash_sessions', targetShopIds, 'opened_at', 1000),
+                    fetchTableForShopIds(supabaseClient, 'cash_movements', targetShopIds, 'timestamp', 3000),
+                    fetchTableForShopIds(supabaseClient, 'app_notifications', targetShopIds, 'timestamp', 2000)
                 ]);
 
-                const notifs = resNotifs.data || [];
-                const shopsList = resShops.data || [];
+                const notifs = mergeRowsByKey(initialNotifs, targetedNotifs, r => String(r?.id ?? ''));
+                const mergedProducts = mergeRowsByKey(resProd.data || [], targetedProds, r => String(r?.id ?? ''));
+                const mergedSales = mergeRowsByKey(resSales.data || [], targetedSales, r => String(r?.id ?? ''));
+
+                let mergedSaleItems = resItems.data || [];
+                const scopedSaleIdsMissingItems = mergedSales
+                    .filter(s => rowBelongsToShop(s, preScope.activeShop?.id, preScope.totalShopsCount, preScope.primaryShopId, preScope))
+                    .map(s => Number(s.id))
+                    .filter(id => Number.isFinite(id) && id > 0 && !mergedSaleItems.some(it => String(it.sale_id) === String(id)));
+                if (scopedSaleIdsMissingItems.length > 0) {
+                    try {
+                        const { data: extraItems, error: extraItemsErr } = await supabaseClient
+                            .from('sale_items')
+                            .select('*')
+                            .in('sale_id', scopedSaleIdsMissingItems.slice(0, 200));
+                        if (!extraItemsErr && Array.isArray(extraItems)) {
+                            mergedSaleItems = mergeRowsByKey(mergedSaleItems, extraItems, r => String(r?.id ?? ''));
+                        }
+                    } catch (e) {}
+                }
 
                 // 3) Charger explicitement restaurant_menu_day et les plats/articles liés au restaurant au démarrage
                 const restaurantData = await fetchRestaurantData(
                     supabaseClient,
                     notifs,
-                    resProd.data || [],
-                    shopsList
+                    mergedProducts,
+                    shopsList,
+                    targetShopIds
                 );
 
                 dataStore.cloudRaw = {
                     shops: shopsList,
-                    products: restaurantData.products.length > 0 ? restaurantData.products : (resProd.data || []),
-                    sales: resSales.data || [],
-                    saleItems: resItems.data || [],
-                    customers: resCust.data || [],
-                    suppliers: resSupp.data || [],
-                    purchases: resPurch.data || [],
-                    cashSessions: resSessions.data || [],
-                    cashMovements: resCashMovs.data || [],
+                    products: restaurantData.products.length > 0 ? restaurantData.products : mergedProducts,
+                    sales: mergedSales,
+                    saleItems: mergedSaleItems,
+                    customers: mergeRowsByKey(resCust.data || [], targetedCust, r => String(r?.id ?? '')),
+                    suppliers: mergeRowsByKey(resSupp.data || [], targetedSupp, r => String(r?.id ?? '')),
+                    purchases: mergeRowsByKey(resPurch.data || [], targetedPurch, r => String(r?.id ?? '')),
+                    cashSessions: mergeRowsByKey(resSessions.data || [], targetedSessions, r => String(r?.id ?? '')),
+                    cashMovements: mergeRowsByKey(resCashMovs.data || [], targetedMovs, r => String(r?.id ?? '')),
                     restaurantStaff: restaurantData.staff,
                     restaurantTables: restaurantData.tables,
                     restaurantOrders: restaurantData.orders,
@@ -2391,7 +2775,10 @@
                 };
 
                 // Appliquer le filtrage relationnel de la boutique active et relier produits/ventes/caisse/menus
-                applyActiveShopScope();
+                applyActiveShopScope(options.preferredShopId || null, {
+                    preferUserScope: Boolean(options.preferUserScope),
+                    authUser: activeAuthUser
+                });
 
                 lastAutoSyncDate = new Date();
                 updateLastSyncLabel();
@@ -4384,46 +4771,135 @@
         function renderSqlSchema() {
             const schemaPre = document.getElementById('sql-schema-pre');
             if (schemaPre) {
-                schemaPre.textContent = `-- SCHEMA SQL OFFICIEL KONAB POS POUR SUPABASE
+                schemaPre.textContent = `-- SCHEMA SQL OFFICIEL KONAB POS POUR SUPABASE (MULTIBOUTIQUE, MULTI-UTILISATEURS & RESTAURANT)
 CREATE TABLE IF NOT EXISTS public.shop_profile (
-    id BIGINT PRIMARY KEY, name TEXT NOT NULL, business_type TEXT, phone TEXT, address TEXT, city TEXT, currency TEXT DEFAULT 'FCFA', slogan TEXT, receipt_footer TEXT, deployer_id TEXT, updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+    id BIGINT PRIMARY KEY, name TEXT NOT NULL, business_type TEXT DEFAULT 'Boutique', phone TEXT, address TEXT, city TEXT, currency TEXT DEFAULT 'FCFA', slogan TEXT, receipt_footer TEXT, subscription_tier TEXT DEFAULT 'Premium', deployer_id TEXT, logo_uri TEXT, admin_name TEXT DEFAULT 'Gérant', admin_phone TEXT, admin_email TEXT, email TEXT, user_id TEXT, owner_id TEXT, admin_pin TEXT DEFAULT '1234', cashier_pin TEXT DEFAULT '0000', updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 ALTER TABLE public.shop_profile ADD COLUMN IF NOT EXISTS deployer_id TEXT;
+ALTER TABLE public.shop_profile ADD COLUMN IF NOT EXISTS logo_uri TEXT;
+ALTER TABLE public.shop_profile ADD COLUMN IF NOT EXISTS admin_name TEXT DEFAULT 'Gérant';
+ALTER TABLE public.shop_profile ADD COLUMN IF NOT EXISTS admin_phone TEXT;
+ALTER TABLE public.shop_profile ADD COLUMN IF NOT EXISTS admin_email TEXT;
+ALTER TABLE public.shop_profile ADD COLUMN IF NOT EXISTS email TEXT;
+ALTER TABLE public.shop_profile ADD COLUMN IF NOT EXISTS user_id TEXT;
+ALTER TABLE public.shop_profile ADD COLUMN IF NOT EXISTS owner_id TEXT;
+ALTER TABLE public.shop_profile ADD COLUMN IF NOT EXISTS admin_pin TEXT DEFAULT '1234';
+ALTER TABLE public.shop_profile ADD COLUMN IF NOT EXISTS cashier_pin TEXT DEFAULT '0000';
+CREATE INDEX IF NOT EXISTS idx_shop_profile_deployer_id ON public.shop_profile(deployer_id);
+CREATE INDEX IF NOT EXISTS idx_shop_profile_admin_phone ON public.shop_profile(admin_phone);
+CREATE INDEX IF NOT EXISTS idx_shop_profile_user_id ON public.shop_profile(user_id);
+
 CREATE TABLE IF NOT EXISTS public.products (
-    id BIGINT PRIMARY KEY, name TEXT NOT NULL, category TEXT, sell_price BIGINT NOT NULL, buy_price BIGINT NOT NULL, stock_quantity INTEGER NOT NULL, min_stock_alert INTEGER DEFAULT 5, barcode TEXT, unit TEXT DEFAULT 'pièce', is_available BOOLEAN DEFAULT true, image_uri TEXT, images JSONB DEFAULT '[]'::jsonb
+    id BIGINT PRIMARY KEY, shop_id BIGINT NOT NULL DEFAULT 0, shop_name TEXT DEFAULT '', name TEXT NOT NULL, category TEXT DEFAULT 'Général', sell_price BIGINT NOT NULL DEFAULT 0, buy_price BIGINT NOT NULL DEFAULT 0, stock_quantity INTEGER NOT NULL DEFAULT 0, min_stock_alert INTEGER NOT NULL DEFAULT 5, barcode TEXT, unit TEXT DEFAULT 'pièce', icon_name TEXT DEFAULT 'default', is_available BOOLEAN DEFAULT true, image_uri TEXT, gallery_images_json TEXT DEFAULT '[]', images JSONB DEFAULT '[]'::jsonb
 );
--- Migration pour ajouter les colonnes images à une table existante :
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS shop_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS shop_name TEXT DEFAULT '';
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS image_uri TEXT;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS gallery_images_json TEXT DEFAULT '[]';
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS images JSONB DEFAULT '[]'::jsonb;
+CREATE INDEX IF NOT EXISTS idx_products_shop_id ON public.products(shop_id);
+
 CREATE TABLE IF NOT EXISTS public.customers (
-    id BIGINT PRIMARY KEY, name TEXT NOT NULL, phone TEXT, address TEXT, debt_amount BIGINT DEFAULT 0, total_spent BIGINT DEFAULT 0, total_sales_count INTEGER DEFAULT 0, created_at BIGINT
+    id BIGINT PRIMARY KEY, shop_id BIGINT NOT NULL DEFAULT 0, name TEXT NOT NULL, phone TEXT, address TEXT, debt_amount BIGINT DEFAULT 0, total_spent BIGINT DEFAULT 0, total_sales_count INTEGER DEFAULT 0, status TEXT DEFAULT 'Nouveau', created_at BIGINT DEFAULT 0
 );
+ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS shop_id BIGINT NOT NULL DEFAULT 0;
+CREATE INDEX IF NOT EXISTS idx_customers_shop_id ON public.customers(shop_id);
+
 CREATE TABLE IF NOT EXISTS public.sales (
-    id BIGINT PRIMARY KEY, transaction_number TEXT UNIQUE NOT NULL, timestamp BIGINT NOT NULL, customer_name TEXT, subtotal BIGINT, discount_amount BIGINT, total_amount BIGINT NOT NULL, payment_method TEXT, payment_status TEXT, cashier_name TEXT, notes TEXT
+    id BIGINT PRIMARY KEY, shop_id BIGINT NOT NULL DEFAULT 0, shop_name TEXT DEFAULT '', transaction_number TEXT NOT NULL, timestamp BIGINT NOT NULL, customer_id BIGINT, customer_name TEXT DEFAULT 'Client comptant', subtotal BIGINT NOT NULL, discount_amount BIGINT DEFAULT 0, total_amount BIGINT NOT NULL, total_cost_price BIGINT DEFAULT 0, payment_method TEXT DEFAULT 'ESPECES', payment_status TEXT DEFAULT 'PAYE', amount_paid BIGINT DEFAULT 0, cashier_name TEXT DEFAULT 'Admin', notes TEXT, is_cancelled BOOLEAN DEFAULT false, cancelled_at BIGINT, cancellation_reason TEXT, cancelled_by TEXT
 );
+ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS shop_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS shop_name TEXT DEFAULT '';
+ALTER TABLE public.sales DROP CONSTRAINT IF EXISTS sales_transaction_number_key;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_sales_shop_transaction_number ON public.sales(shop_id, transaction_number);
+
 CREATE TABLE IF NOT EXISTS public.sale_items (
-    id BIGINT PRIMARY KEY, sale_id BIGINT NOT NULL, product_id BIGINT NOT NULL, product_name TEXT NOT NULL, quantity INTEGER NOT NULL, unit_price BIGINT NOT NULL, total_price BIGINT NOT NULL
+    id BIGINT PRIMARY KEY, shop_id BIGINT NOT NULL DEFAULT 0, sale_id BIGINT NOT NULL, product_id BIGINT NOT NULL, product_name TEXT NOT NULL, quantity INTEGER NOT NULL, unit_price BIGINT NOT NULL, unit_buy_price BIGINT NOT NULL DEFAULT 0, total_price BIGINT NOT NULL
 );
+ALTER TABLE public.sale_items ADD COLUMN IF NOT EXISTS shop_id BIGINT NOT NULL DEFAULT 0;
+CREATE INDEX IF NOT EXISTS idx_sale_items_shop_id ON public.sale_items(shop_id);
+CREATE INDEX IF NOT EXISTS idx_sale_items_sale_id ON public.sale_items(sale_id);
+
 CREATE TABLE IF NOT EXISTS public.suppliers (
-    id BIGINT PRIMARY KEY, name TEXT NOT NULL, phone TEXT, address TEXT, debt_amount BIGINT DEFAULT 0, total_purchased BIGINT DEFAULT 0
+    id BIGINT PRIMARY KEY, shop_id BIGINT NOT NULL DEFAULT 0, name TEXT NOT NULL, phone TEXT, address TEXT, debt_amount BIGINT DEFAULT 0, total_purchased BIGINT DEFAULT 0, created_at BIGINT DEFAULT 0
+);
+ALTER TABLE public.suppliers ADD COLUMN IF NOT EXISTS shop_id BIGINT NOT NULL DEFAULT 0;
+CREATE TABLE IF NOT EXISTS public.purchases (
+    id BIGINT PRIMARY KEY, shop_id BIGINT NOT NULL DEFAULT 0, invoice_number TEXT NOT NULL, timestamp BIGINT NOT NULL, supplier_id BIGINT NOT NULL, supplier_name TEXT NOT NULL, product_id BIGINT NOT NULL, product_name TEXT NOT NULL, quantity INTEGER NOT NULL, unit_cost BIGINT NOT NULL, total_cost BIGINT NOT NULL, is_paid_from_cash BOOLEAN DEFAULT true, notes TEXT
 );
 CREATE TABLE IF NOT EXISTS public.cash_sessions (
-    id BIGINT PRIMARY KEY, opened_at BIGINT NOT NULL, closed_at BIGINT, opening_balance BIGINT, closing_expected_balance BIGINT, closing_actual_balance BIGINT, difference BIGINT, status TEXT, opened_by TEXT, closed_by TEXT
+    id BIGINT PRIMARY KEY, shop_id BIGINT NOT NULL DEFAULT 0, opened_at BIGINT NOT NULL, closed_at BIGINT, opening_balance BIGINT DEFAULT 0, closing_expected_balance BIGINT DEFAULT 0, closing_actual_balance BIGINT DEFAULT 0, difference BIGINT DEFAULT 0, status TEXT DEFAULT 'OPEN', opened_by TEXT DEFAULT 'Gérant', closed_by TEXT, closing_notes TEXT
 );
 CREATE TABLE IF NOT EXISTS public.cash_movements (
-    id BIGINT PRIMARY KEY, timestamp BIGINT NOT NULL, type TEXT NOT NULL, amount BIGINT NOT NULL, reason TEXT NOT NULL, payment_method TEXT, operator_name TEXT
+    id BIGINT PRIMARY KEY, shop_id BIGINT NOT NULL DEFAULT 0, timestamp BIGINT NOT NULL, type TEXT NOT NULL, amount BIGINT NOT NULL, reason TEXT NOT NULL, payment_method TEXT DEFAULT 'Espèces', operator_name TEXT DEFAULT 'Gérant', related_id BIGINT
 );
--- Activer les politiques RLS publiques pour l'accès mobile et web
-ALTER TABLE public.products ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Anon Full Access" ON public.products FOR ALL USING (true) WITH CHECK (true);
-ALTER TABLE public.sales ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Anon Full Access" ON public.sales FOR ALL USING (true) WITH CHECK (true);
-ALTER TABLE public.customers ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Anon Full Access" ON public.customers FOR ALL USING (true) WITH CHECK (true);
-ALTER TABLE public.cash_movements ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Anon Full Access" ON public.cash_movements FOR ALL USING (true) WITH CHECK (true);
+CREATE TABLE IF NOT EXISTS public.app_notifications (
+    id BIGINT PRIMARY KEY, shop_id BIGINT NOT NULL DEFAULT 0, title TEXT NOT NULL, message TEXT NOT NULL, type TEXT NOT NULL, priority TEXT DEFAULT 'NORMAL', timestamp BIGINT NOT NULL, is_read BOOLEAN DEFAULT false, action_route TEXT, reference_id BIGINT
+);
+CREATE TABLE IF NOT EXISTS public.restaurant_staff (
+    id TEXT PRIMARY KEY, shop_id BIGINT NOT NULL DEFAULT 0, user_id TEXT DEFAULT '', email TEXT DEFAULT '', name TEXT NOT NULL, phone TEXT DEFAULT '', role TEXT NOT NULL DEFAULT 'MANAGER', pin TEXT NOT NULL DEFAULT '1234', is_active BOOLEAN DEFAULT true, updated_at BIGINT DEFAULT 0
+);
+ALTER TABLE public.restaurant_staff ADD COLUMN IF NOT EXISTS user_id TEXT DEFAULT '';
+ALTER TABLE public.restaurant_staff ADD COLUMN IF NOT EXISTS email TEXT DEFAULT '';
+CREATE TABLE IF NOT EXISTS public.restaurant_tables (
+    id TEXT PRIMARY KEY, shop_id BIGINT NOT NULL DEFAULT 0, table_number TEXT NOT NULL, zone TEXT DEFAULT 'Salle Principale', seats INTEGER DEFAULT 4, is_active BOOLEAN DEFAULT true, updated_at BIGINT DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS public.restaurant_orders (
+    id TEXT PRIMARY KEY, shop_id BIGINT NOT NULL DEFAULT 0, order_number TEXT NOT NULL, table_name TEXT NOT NULL, customer_name TEXT DEFAULT 'Client Table', customer_phone TEXT DEFAULT '', source TEXT DEFAULT 'QR_TABLE', status TEXT NOT NULL DEFAULT 'PENDING_MANAGER', items_json TEXT NOT NULL DEFAULT '[]', total_amount BIGINT DEFAULT 0, notes TEXT DEFAULT '', created_by_role TEXT DEFAULT 'CLIENT_QR', created_by_name TEXT DEFAULT 'Client', assigned_to_kitchen_by TEXT DEFAULT '', sale_id BIGINT, created_at BIGINT DEFAULT 0, updated_at BIGINT DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS public.restaurant_menu_day (
+    shop_id BIGINT PRIMARY KEY, product_ids_json TEXT NOT NULL DEFAULT '[]', menu_item_ids TEXT DEFAULT '[]', updated_at BIGINT DEFAULT 0
+);
+ALTER TABLE public.restaurant_menu_day ADD COLUMN IF NOT EXISTS menu_item_ids TEXT DEFAULT '[]';
+CREATE TABLE IF NOT EXISTS public.restaurant_menu_items (
+    id BIGINT PRIMARY KEY, shop_id BIGINT NOT NULL DEFAULT 0, product_id BIGINT, name TEXT DEFAULT '', category TEXT DEFAULT 'Menu du Jour', sell_price BIGINT DEFAULT 0, is_available BOOLEAN DEFAULT true, image_uri TEXT, updated_at BIGINT DEFAULT 0
+);
+-- Politiques RLS publiques
 ALTER TABLE public.shop_profile ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Anon Full Access" ON public.shop_profile FOR ALL USING (true) WITH CHECK (true);`;
+DROP POLICY IF EXISTS "Allow anon read/write for shop_profile" ON public.shop_profile;
+CREATE POLICY "Allow anon read/write for shop_profile" ON public.shop_profile FOR ALL USING (true) WITH CHECK (true);
+ALTER TABLE public.products ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow anon read/write for products" ON public.products;
+CREATE POLICY "Allow anon read/write for products" ON public.products FOR ALL USING (true) WITH CHECK (true);
+ALTER TABLE public.customers ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow anon read/write for customers" ON public.customers;
+CREATE POLICY "Allow anon read/write for customers" ON public.customers FOR ALL USING (true) WITH CHECK (true);
+ALTER TABLE public.sales ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow anon read/write for sales" ON public.sales;
+CREATE POLICY "Allow anon read/write for sales" ON public.sales FOR ALL USING (true) WITH CHECK (true);
+ALTER TABLE public.sale_items ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow anon read/write for sale_items" ON public.sale_items;
+CREATE POLICY "Allow anon read/write for sale_items" ON public.sale_items FOR ALL USING (true) WITH CHECK (true);
+ALTER TABLE public.suppliers ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow anon read/write for suppliers" ON public.suppliers;
+CREATE POLICY "Allow anon read/write for suppliers" ON public.suppliers FOR ALL USING (true) WITH CHECK (true);
+ALTER TABLE public.purchases ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow anon read/write for purchases" ON public.purchases;
+CREATE POLICY "Allow anon read/write for purchases" ON public.purchases FOR ALL USING (true) WITH CHECK (true);
+ALTER TABLE public.cash_sessions ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow anon read/write for cash_sessions" ON public.cash_sessions;
+CREATE POLICY "Allow anon read/write for cash_sessions" ON public.cash_sessions FOR ALL USING (true) WITH CHECK (true);
+ALTER TABLE public.cash_movements ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow anon read/write for cash_movements" ON public.cash_movements;
+CREATE POLICY "Allow anon read/write for cash_movements" ON public.cash_movements FOR ALL USING (true) WITH CHECK (true);
+ALTER TABLE public.app_notifications ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow anon read/write for app_notifications" ON public.app_notifications;
+CREATE POLICY "Allow anon read/write for app_notifications" ON public.app_notifications FOR ALL USING (true) WITH CHECK (true);
+ALTER TABLE public.restaurant_staff ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow anon read/write for restaurant_staff" ON public.restaurant_staff;
+CREATE POLICY "Allow anon read/write for restaurant_staff" ON public.restaurant_staff FOR ALL USING (true) WITH CHECK (true);
+ALTER TABLE public.restaurant_tables ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow anon read/write for restaurant_tables" ON public.restaurant_tables;
+CREATE POLICY "Allow anon read/write for restaurant_tables" ON public.restaurant_tables FOR ALL USING (true) WITH CHECK (true);
+ALTER TABLE public.restaurant_orders ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow anon read/write for restaurant_orders" ON public.restaurant_orders;
+CREATE POLICY "Allow anon read/write for restaurant_orders" ON public.restaurant_orders FOR ALL USING (true) WITH CHECK (true);
+ALTER TABLE public.restaurant_menu_day ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow anon read/write for restaurant_menu_day" ON public.restaurant_menu_day;
+CREATE POLICY "Allow anon read/write for restaurant_menu_day" ON public.restaurant_menu_day FOR ALL USING (true) WITH CHECK (true);
+ALTER TABLE public.restaurant_menu_items ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow anon read/write for restaurant_menu_items" ON public.restaurant_menu_items;
+CREATE POLICY "Allow anon read/write for restaurant_menu_items" ON public.restaurant_menu_items FOR ALL USING (true) WITH CHECK (true);`;
             }
         }
 

@@ -398,6 +398,12 @@ object CoutureQrParser {
         if (clean.isBlank()) return null
 
         val lower = clean.lowercase(Locale.ROOT)
+        if (lower.startsWith("konabpos://menu")) return null
+        if ((lower.contains("table=") || lower.contains("mode=menu") || lower.contains("menu=1")) &&
+            !lower.contains("couture") && !lower.contains("modelid=")
+        ) {
+            return null
+        }
         val queryPart = when {
             lower.startsWith(SCHEME_PREFIX) -> {
                 val idx = clean.indexOf('?')

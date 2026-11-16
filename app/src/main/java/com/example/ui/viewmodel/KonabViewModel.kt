@@ -104,11 +104,17 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
 
     private val notifiedRestaurantEventKeys = java.util.Collections.synchronizedSet(mutableSetOf<String>())
 
+    private fun isRestaurantType(businessType: String?): Boolean {
+        val bType = businessType.orEmpty()
+        return RestaurantDirectoryHelper.isRestaurantShop(bType) ||
+            BusinessTypePresets.getPreset(bType).sectorFeatures.hasTables
+    }
+
     fun reloadRestaurantLocalState() {
         val app = getApplication<Application>()
         val shopId = supabaseSyncManager.getOrCreateCloudShopId()
         val shop = shopProfile.value
-        if (shop != null && shop.businessType.equals("Restaurant", ignoreCase = true)) {
+        if (shop != null && isRestaurantType(shop.businessType)) {
             val staff = RestaurantStorage.ensureDefaultRestaurantTeam(
                 context = app,
                 shopId = shopId,
@@ -137,19 +143,19 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // DataStore Local Admin Account Stream
+    // DataStore Local Admin Account Stream (Eagerly pour garantir la fraîcheur hors-écran)
     val adminAccount: StateFlow<com.example.data.local.datastore.LocalAdminAccount> = repository.adminAccount
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), com.example.data.local.datastore.LocalAdminAccount())
+        .stateIn(viewModelScope, SharingStarted.Eagerly, com.example.data.local.datastore.LocalAdminAccount())
 
     val isSetupCompleted: StateFlow<Boolean> = repository.isSetupCompleted
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     // Streams
     val shopProfile: StateFlow<ShopProfileEntity?> = repository.shopProfile
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     val products: StateFlow<List<ProductEntity>> = repository.allProducts
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     val customers: StateFlow<List<CustomerEntity>> = repository.allCustomers
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -164,7 +170,7 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val allSales: StateFlow<List<SaleEntity>> = repository.allSales
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     val allSaleItems: StateFlow<List<SaleItemEntity>> = repository.allSaleItems
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -316,7 +322,10 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             kotlinx.coroutines.delay(2000L)
             try {
-                if (supabaseSyncManager.isAutoSyncEnabled() && SupabaseConfig.isConfigured) {
+                val profile = repository.getShopProfileOnce()
+                if (profile != null && profile.isConfigured && profile.name.isNotBlank() &&
+                    supabaseSyncManager.isAutoSyncEnabled() && SupabaseConfig.isConfigured
+                ) {
                     supabaseSyncManager.syncAll(repository)
                     reloadConnectedShopsState()
                     reloadRestaurantLocalState()
@@ -772,7 +781,7 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
                     staff.role.name
                 }
                 _isLocked.value = false
-                val isResto = session.businessType.equals("Restaurant", ignoreCase = true)
+                val isResto = isRestaurantType(session.businessType)
                 if (staff != null && (staff.role == RestaurantStaffRole.KITCHEN || staff.role == RestaurantStaffRole.WAITER || (isResto && staff.role == RestaurantStaffRole.CASHIER))) {
                     resetTo(KonabScreen.RESTAURANT)
                 } else {
@@ -1332,7 +1341,7 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
         periodicSyncJob?.cancel()
         periodicSyncJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             while (isActive) {
-                val isResto = shopProfile.value?.businessType.equals("Restaurant", ignoreCase = true)
+                val isResto = isRestaurantType(shopProfile.value?.businessType)
                 val isCouture = CoutureDirectoryHelper.isCoutureShop(shopProfile.value?.businessType)
                 kotlinx.coroutines.delay(if (isResto || isCouture) 15_000L else 45_000L)
                 if (supabaseSyncManager.isAutoSyncEnabled() && SupabaseConfig.isConfigured) {
@@ -2067,7 +2076,7 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
                 (parsed.shopName.isNotBlank() && localShop.name.equals(parsed.shopName, ignoreCase = true))
             )
 
-        if (matchesLocalShop && localShop != null && products.value.isNotEmpty()) {
+        if (matchesLocalShop && localShop != null && (products.value.isNotEmpty() || !SupabaseConfig.isConfigured)) {
             val allProds = products.value.filter { it.isAvailable }
             val menuIds = _menuOfDayProductIds.value
             val menuProds = if (menuIds.isNotEmpty()) {
@@ -2089,16 +2098,24 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
                 tables = _restaurantTables.value
             )
             _isLoadingQrMenu.value = false
-            return true
+            if (!SupabaseConfig.isConfigured || (parsed.shopId <= 1L && parsed.shopName.isBlank())) {
+                return true
+            }
         }
 
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            if (matchesLocalShop) {
+                try {
+                    supabaseSyncManager.pullLedgerAndRestaurantNow(repository)
+                    reloadRestaurantLocalState()
+                } catch (_: Exception) {}
+            }
             val res = supabaseSyncManager.fetchPublicMenuForQr(parsed)
             withContext(kotlinx.coroutines.Dispatchers.Main) {
                 _isLoadingQrMenu.value = false
                 if (res.isSuccess) {
                     val fetched = res.getOrThrow()
-                    _publicQrMenuBundle.value = if (expectedRestaurant != null) {
+                    val enriched = if (expectedRestaurant != null) {
                         fetched.copy(
                             shopName = fetched.shopName.ifBlank { expectedRestaurant.name },
                             city = fetched.city.ifBlank { expectedRestaurant.city },
@@ -2110,9 +2127,35 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
                     } else {
                         fetched
                     }
-                } else {
-                    _qrMenuError.value = res.exceptionOrNull()?.localizedMessage
-                        ?: "Impossible de charger le menu du jour pour ce restaurant."
+                    if (enriched.products.isNotEmpty() || _publicQrMenuBundle.value == null) {
+                        _publicQrMenuBundle.value = enriched
+                    }
+                } else if (_publicQrMenuBundle.value == null) {
+                    if (matchesLocalShop && localShop != null) {
+                        val allProds = products.value.filter { it.isAvailable }
+                        val menuIds = _menuOfDayProductIds.value
+                        val menuProds = if (menuIds.isNotEmpty()) {
+                            allProds.filter { it.id in menuIds }.ifEmpty { allProds }
+                        } else {
+                            allProds
+                        }
+                        _publicQrMenuBundle.value = SupabaseApiClient.PublicRestaurantMenuBundle(
+                            shopId = activeId,
+                            shopName = localShop.name,
+                            city = localShop.city,
+                            phone = localShop.phone,
+                            currency = localShop.currency.ifBlank { "FCFA" },
+                            products = menuProds,
+                            menuDayIds = menuIds,
+                            slogan = localShop.slogan,
+                            address = localShop.address,
+                            logoUri = localShop.logoUri,
+                            tables = _restaurantTables.value
+                        )
+                    } else {
+                        _qrMenuError.value = res.exceptionOrNull()?.localizedMessage
+                            ?: "Impossible de charger le menu du jour pour ce restaurant."
+                    }
                 }
             }
         }
@@ -2540,7 +2583,9 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
                 logoUri = localShop.logoUri
             )
             _isLoadingCoutureCatalog.value = false
-            return true
+            if (!SupabaseConfig.isConfigured || (parsed.shopId <= 1L && parsed.shopName.isBlank())) {
+                return true
+            }
         }
 
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
@@ -2559,8 +2604,10 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
                             logoUri = fetched.logoUri ?: expectedShop.logoUri
                         )
                     } else fetched
-                    _publicCoutureBundle.value = enriched
-                } else {
+                    if (enriched.models.isNotEmpty() || _publicCoutureBundle.value == null) {
+                        _publicCoutureBundle.value = enriched
+                    }
+                } else if (_publicCoutureBundle.value == null) {
                     _coutureCatalogError.value = res.exceptionOrNull()?.localizedMessage
                         ?: "Impossible de charger le catalogue de ce couturier."
                 }

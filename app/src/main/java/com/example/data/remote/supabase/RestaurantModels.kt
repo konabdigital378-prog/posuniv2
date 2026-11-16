@@ -50,15 +50,30 @@ data class RestaurantStaffAccount(
 
     companion object {
         fun fromJson(o: JSONObject): RestaurantStaffAccount {
+            val resolvedShopId = when {
+                o.has("shop_id") -> o.optLong("shop_id", 0L)
+                o.has("shopId") -> o.optLong("shopId", 0L)
+                else -> 0L
+            }
+            val resolvedActive = when {
+                o.has("is_active") -> o.optBoolean("is_active", true)
+                o.has("isActive") -> o.optBoolean("isActive", true)
+                else -> true
+            }
+            val resolvedUpdated = when {
+                o.has("updated_at") -> o.optLong("updated_at", System.currentTimeMillis())
+                o.has("updatedAt") -> o.optLong("updatedAt", System.currentTimeMillis())
+                else -> System.currentTimeMillis()
+            }
             return RestaurantStaffAccount(
                 id = o.optString("id", "STAFF-${System.currentTimeMillis()}"),
-                shopId = o.optLong("shop_id", 0L),
+                shopId = resolvedShopId,
                 name = o.optString("name", "Membre").trim(),
                 phone = o.optString("phone", "").trim(),
                 role = RestaurantStaffRole.fromString(o.optString("role", "MANAGER")),
                 pin = o.optString("pin", "1234").trim().ifBlank { "1234" },
-                isActive = o.optBoolean("is_active", true),
-                updatedAt = o.optLong("updated_at", System.currentTimeMillis())
+                isActive = resolvedActive,
+                updatedAt = resolvedUpdated
             )
         }
     }
@@ -93,14 +108,34 @@ data class RestaurantTableRecord(
 
     companion object {
         fun fromJson(o: JSONObject): RestaurantTableRecord {
+            val resolvedShopId = when {
+                o.has("shop_id") -> o.optLong("shop_id", 0L)
+                o.has("shopId") -> o.optLong("shopId", 0L)
+                else -> 0L
+            }
+            val resolvedTableNumber = o.optString("table_number", "")
+                .ifBlank { o.optString("tableNumber", "") }
+                .ifBlank { o.optString("name", "") }
+                .trim()
+                .ifBlank { "Table 1" }
+            val resolvedActive = when {
+                o.has("is_active") -> o.optBoolean("is_active", true)
+                o.has("isActive") -> o.optBoolean("isActive", true)
+                else -> true
+            }
+            val resolvedUpdated = when {
+                o.has("updated_at") -> o.optLong("updated_at", System.currentTimeMillis())
+                o.has("updatedAt") -> o.optLong("updatedAt", System.currentTimeMillis())
+                else -> System.currentTimeMillis()
+            }
             return RestaurantTableRecord(
                 id = o.optString("id", "TBL-${System.currentTimeMillis()}"),
-                shopId = o.optLong("shop_id", 0L),
-                tableNumber = o.optString("table_number", "Table 1").trim().ifBlank { "Table 1" },
+                shopId = resolvedShopId,
+                tableNumber = resolvedTableNumber,
                 zone = o.optString("zone", "Salle Principale").trim().ifBlank { "Salle Principale" },
                 seats = o.optInt("seats", 4).coerceIn(1, 30),
-                isActive = o.optBoolean("is_active", true),
-                updatedAt = o.optLong("updated_at", System.currentTimeMillis())
+                isActive = resolvedActive,
+                updatedAt = resolvedUpdated
             )
         }
     }
@@ -148,9 +183,9 @@ data class RestaurantOrderItem(
     companion object {
         fun fromJson(o: JSONObject): RestaurantOrderItem {
             return RestaurantOrderItem(
-                productId = o.optLong("product_id", 0L),
-                productName = o.optString("product_name", "Plat").trim(),
-                unitPrice = o.optLong("unit_price", 0L),
+                productId = if (o.has("product_id")) o.optLong("product_id", 0L) else o.optLong("productId", 0L),
+                productName = o.optString("product_name", "").ifBlank { o.optString("productName", "Plat") }.trim(),
+                unitPrice = if (o.has("unit_price")) o.optLong("unit_price", 0L) else o.optLong("unitPrice", 0L),
                 quantity = o.optInt("quantity", 1).coerceAtLeast(1),
                 note = o.optString("note", "").trim()
             )
@@ -221,32 +256,41 @@ data class RestaurantOrderRecord(
         fun fromJson(o: JSONObject): RestaurantOrderRecord {
             val parsedItems = when {
                 o.has("items_json") -> parseItemsJson(o.optString("items_json", "[]"))
+                o.has("itemsJson") -> parseItemsJson(o.optString("itemsJson", "[]"))
                 o.has("items") && o.optJSONArray("items") != null -> {
                     val arr = o.getJSONArray("items")
                     (0 until arr.length()).map { RestaurantOrderItem.fromJson(arr.getJSONObject(it)) }
                 }
                 else -> emptyList()
             }
-            val computedTotal = o.optLong("total_amount", parsedItems.sumOf { it.totalPrice })
-            val parsedSaleId = if (o.has("sale_id") && !o.isNull("sale_id")) o.optLong("sale_id", 0L).takeIf { it > 0L } else null
+            val computedTotal = when {
+                o.has("total_amount") -> o.optLong("total_amount", parsedItems.sumOf { it.totalPrice })
+                o.has("totalAmount") -> o.optLong("totalAmount", parsedItems.sumOf { it.totalPrice })
+                else -> parsedItems.sumOf { it.totalPrice }
+            }
+            val parsedSaleId = when {
+                o.has("sale_id") && !o.isNull("sale_id") -> o.optLong("sale_id", 0L).takeIf { it > 0L }
+                o.has("saleId") && !o.isNull("saleId") -> o.optLong("saleId", 0L).takeIf { it > 0L }
+                else -> null
+            }
             return RestaurantOrderRecord(
                 id = o.optString("id", "ORD-${System.currentTimeMillis()}"),
-                shopId = o.optLong("shop_id", 0L),
-                orderNumber = o.optString("order_number", "CMD-001"),
-                tableName = o.optString("table_name", "Table 1").trim().ifBlank { "Table 1" },
-                customerName = o.optString("customer_name", "Client Table").trim(),
-                customerPhone = o.optString("customer_phone", "").trim(),
+                shopId = if (o.has("shop_id")) o.optLong("shop_id", 0L) else o.optLong("shopId", 0L),
+                orderNumber = o.optString("order_number", "").ifBlank { o.optString("orderNumber", "CMD-001") },
+                tableName = o.optString("table_name", "").ifBlank { o.optString("tableName", "") }.trim().ifBlank { "Table 1" },
+                customerName = o.optString("customer_name", "").ifBlank { o.optString("customerName", "Client Table") }.trim(),
+                customerPhone = o.optString("customer_phone", "").ifBlank { o.optString("customerPhone", "") }.trim(),
                 source = o.optString("source", "QR_TABLE").trim(),
                 status = RestaurantOrderStatus.fromString(o.optString("status", "PENDING_MANAGER")),
                 items = parsedItems,
                 totalAmount = computedTotal,
                 notes = o.optString("notes", "").trim(),
-                createdByRole = o.optString("created_by_role", "CLIENT_QR").trim(),
-                createdByName = o.optString("created_by_name", "Client").trim(),
-                assignedToKitchenBy = o.optString("assigned_to_kitchen_by", "").trim(),
+                createdByRole = o.optString("created_by_role", "").ifBlank { o.optString("createdByRole", "CLIENT_QR") }.trim(),
+                createdByName = o.optString("created_by_name", "").ifBlank { o.optString("createdByName", "Client") }.trim(),
+                assignedToKitchenBy = o.optString("assigned_to_kitchen_by", "").ifBlank { o.optString("assignedToKitchenBy", "") }.trim(),
                 saleId = parsedSaleId,
-                createdAt = o.optLong("created_at", System.currentTimeMillis()),
-                updatedAt = o.optLong("updated_at", System.currentTimeMillis())
+                createdAt = if (o.has("created_at")) o.optLong("created_at", System.currentTimeMillis()) else o.optLong("createdAt", System.currentTimeMillis()),
+                updatedAt = if (o.has("updated_at")) o.optLong("updated_at", System.currentTimeMillis()) else o.optLong("updatedAt", System.currentTimeMillis())
             )
         }
     }
@@ -294,14 +338,45 @@ object RestaurantQrParser {
         val clean = raw?.trim().orEmpty()
         if (clean.isBlank()) return null
 
+        // Support JSON table QR payloads as well
+        if (clean.startsWith("{") && clean.endsWith("}")) {
+            try {
+                val obj = JSONObject(clean)
+                val sid = when {
+                    obj.has("shopId") -> obj.optLong("shopId", 0L)
+                    obj.has("shop_id") -> obj.optLong("shop_id", 0L)
+                    else -> 0L
+                }
+                val sName = obj.optString("shopName", "")
+                    .ifBlank { obj.optString("shop_name", "") }
+                    .ifBlank { obj.optString("shop", "") }
+                    .trim()
+                val tName = obj.optString("tableName", "")
+                    .ifBlank { obj.optString("table_name", "") }
+                    .ifBlank { obj.optString("table", "") }
+                    .trim()
+                    .ifBlank { "Table 1" }
+                if (sid > 0L || sName.isNotBlank()) {
+                    return ParsedTableQr(shopId = sid, shopName = sName, tableName = tName)
+                }
+            } catch (_: Exception) {}
+        }
+
         val lower = clean.lowercase(Locale.ROOT)
+        if (lower.startsWith("konabpos://couture")) return null
+
         val queryPart = when {
             lower.startsWith(SCHEME_PREFIX) -> {
                 val idx = clean.indexOf('?')
                 if (idx >= 0) clean.substring(idx + 1) else ""
             }
             (lower.contains("konab") || lower.contains("menu=1") || lower.contains("mode=menu")) &&
-                (lower.contains("table=") || lower.contains("t=")) -> {
+                (lower.contains("table=") || lower.contains("t=") || lower.contains("shopid=") || lower.contains("shop=")) -> {
+                val idx = clean.indexOf('?')
+                if (idx >= 0) clean.substring(idx + 1) else clean
+            }
+            (lower.contains("table=") || lower.contains("t=")) &&
+                (lower.contains("shopid=") || lower.contains("s=") || lower.contains("shop=") || lower.contains("n=")) -> {
                 val idx = clean.indexOf('?')
                 if (idx >= 0) clean.substring(idx + 1) else clean
             }
@@ -741,12 +816,17 @@ data class PublicRestaurantListing(
 }
 
 object RestaurantDirectoryHelper {
-    private val RESTAURANT_KEYWORDS = listOf("restaurant", "maquis", "bistro", "grill", "café", "cafe", "snack", "fast food", "traiteur")
+    private val RESTAURANT_KEYWORDS = listOf(
+        "restaurant", "restaur", "maquis", "bistro", "grill",
+        "café", "cafe", "snack", "fast food", "fast-food", "kiosque", "traiteur", "bar"
+    )
 
     fun isRestaurantShop(businessType: String?): Boolean {
         val clean = businessType?.trim()?.lowercase(Locale.ROOT).orEmpty()
         if (clean.isBlank()) return false
-        return clean == "restaurant" || RESTAURANT_KEYWORDS.any { clean.contains(it) }
+        return clean == "restaurant" ||
+            RESTAURANT_KEYWORDS.any { clean.contains(it) } ||
+            com.example.util.BusinessTypePresets.getPreset(businessType.orEmpty()).sectorFeatures.hasTables
     }
 
     fun mergeAndFilterDirectory(

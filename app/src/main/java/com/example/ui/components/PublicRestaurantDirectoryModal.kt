@@ -364,6 +364,8 @@ fun PublicRestaurantDirectoryModal(
 
     if (showScanner) {
         RealBarcodeScannerModal(
+            title = "Scanner QR Code Table",
+            subtitle = "Visez le QR code posé sur la table ou importez son image PNG",
             onDismiss = { showScanner = false },
             onBarcodeScanned = { scanned ->
                 showScanner = false

@@ -7,8 +7,10 @@ import com.example.data.local.KonabDatabase
 import com.example.data.local.datastore.KonabDataStore
 import com.example.data.local.entity.ProductEntity
 import com.example.data.local.entity.SaleItemEntity
+import com.example.data.local.entity.ShopProfileEntity
 import com.example.data.remote.supabase.AgentDeploymentStorage
 import com.example.data.remote.supabase.MultiShopStorage
+import com.example.data.remote.supabase.RestaurantDirectoryHelper
 import com.example.data.remote.supabase.RestaurantOrderItem
 import com.example.data.remote.supabase.RestaurantOrderRecord
 import com.example.data.remote.supabase.RestaurantOrderStatus
@@ -498,5 +500,146 @@ class CrossDeviceRoleAndMenuSyncTest {
         val mergedSales = repository.getAllSalesOnce()
         assertEquals("Le nouveau reçu créé à distance doit apparaître via pullLedgerAndRestaurantNow", 2, mergedSales.size)
         assertTrue(mergedSales.any { it.transactionNumber == "20261115-0099-AB" })
+    }
+
+    @Test
+    fun `native restaurant tables returning HTTP 200 empty still fall back to app_notifications cloud mirrors including Maquis`() = runBlocking {
+        // simulateMissingRestaurantTables = false => GET restaurant_* retourne 200 [] mais app_notifications contient le miroir admin/app
+        val fake = RealisticSupabaseInterceptor(
+            simulateMissingRestaurantTables = false,
+            rejectProductsImageUri = true
+        )
+        val apiClient = SupabaseApiClient(OkHttpClient.Builder().addInterceptor(fake).build())
+        val syncManager = SupabaseSyncManager(context, apiClient)
+        val shopId = 1799000666777L
+
+        assertTrue(RestaurantDirectoryHelper.isRestaurantShop("Maquis"))
+        assertTrue(RestaurantDirectoryHelper.isRestaurantShop("Kiosque & Fast-Food"))
+
+        fake.table("shop_profile")[shopId.toString()] = JSONObject().apply {
+            put("id", shopId)
+            put("name", "Maquis Chez Tantie")
+            put("business_type", "Maquis")
+            put("phone", "70334455")
+            put("admin_phone", "70334455")
+            put("admin_pin", "5566")
+            put("currency", "FCFA")
+        }
+        val prodScopedId = MultiShopStorage.scopedCloudId(shopId, 12L)
+        fake.table("products")[prodScopedId.toString()] = JSONObject().apply {
+            put("id", prodScopedId)
+            put("shop_id", shopId)
+            put("name", "Poisson Braisé Alloco")
+            put("category", "Grillades")
+            put("buy_price", 2000L)
+            put("sell_price", 3500L)
+            put("stock_quantity", 18)
+            put("is_available", true)
+        }
+        val dish2ScopedId = MultiShopStorage.scopedCloudId(shopId, 15L)
+        // Nouveau format alternate de menu web : table restaurant_menu_items + miroir menu_item_ids
+        fake.table("restaurant_menu_items")[dish2ScopedId.toString()] = JSONObject().apply {
+            put("id", dish2ScopedId)
+            put("shop_id", shopId)
+            put("name", "Attiéké Poulet")
+            put("category", "Plats du jour")
+            put("price", 2500L)
+            put("is_available", true)
+        }
+        fake.table("app_notifications")["90001"] = JSONObject().apply {
+            put("id", 90001L)
+            put("shop_id", shopId)
+            put("title", "Menu du jour")
+            put("type", "__CLOUD_RESTO_MENU_DAY__")
+            put("action_route", "day")
+            put("message", JSONObject().apply {
+                put("menu_item_ids", JSONArray().put(prodScopedId).put(dish2ScopedId))
+            }.toString())
+        }
+        fake.table("app_notifications")["90002"] = JSONObject().apply {
+            put("id", 90002L)
+            put("shop_id", shopId)
+            put("title", "Table Terrasse")
+            put("type", "__CLOUD_RESTO_TABLE__")
+            put("action_route", "TBL-TERR")
+            put("message", JSONObject().apply {
+                put("id", "TBL-TERR")
+                put("shopId", shopId)
+                put("tableNumber", "Terrasse 4")
+                put("zone", "Extérieur")
+                put("seats", 6)
+            }.toString())
+        }
+
+        val bundleRes = apiClient.fetchPublicRestaurantMenuBundle(
+            shopId = shopId,
+            fallbackShopName = "Maquis Chez Tantie"
+        )
+        assertTrue("Bundle Maquis chargé : ${bundleRes.exceptionOrNull()?.message}", bundleRes.isSuccess)
+        val bundle = bundleRes.getOrThrow()
+        assertEquals("Les plats de products + restaurant_menu_items doivent tous apparaître", 2, bundle.products.size)
+        assertTrue(bundle.products.any { it.name == "Poisson Braisé Alloco" })
+        assertTrue(bundle.products.any { it.name == "Attiéké Poulet" && it.sellPrice == 2500L })
+        assertTrue("Le Menu du Jour en miroir doit être lu même si native table renvoie 200 []", bundle.menuDayIds.contains(prodScopedId))
+        assertTrue("La table miroir doit être lue même si restaurant_tables renvoie 200 []", bundle.tables.any { it.tableNumber == "Terrasse 4" })
+
+        val loginRes = syncManager.loginAndHydrateShopRemote("Maquis Chez Tantie", "5566", repository)
+        assertTrue("Connexion Maquis réussie : ${loginRes.exceptionOrNull()?.message}", loginRes.isSuccess)
+        assertTrue(RestaurantStorage.getTables(context, shopId).any { it.tableNumber == "Terrasse 4" })
+        val localProd = repository.getAllProductsOnce().first { it.name == "Poisson Braisé Alloco" }
+        assertTrue(
+            "Le product ID local doit être mappé dans menuOfDayProductIds",
+            RestaurantStorage.getMenuOfDayProductIds(context, shopId).contains(localProd.id)
+        )
+    }
+
+    @Test
+    fun `mergeRemoteUpdates refreshes existing product category unit barcode imageUri and gallery by name`() = runBlocking {
+        repository.saveShopProfile(
+            ShopProfileEntity(
+                name = "Boutique Test",
+                businessType = "Alimentation",
+                isConfigured = true
+            )
+        )
+        repository.insertProduct(
+            ProductEntity(
+                name = "Jus de Bissap 1L",
+                category = "Boissons",
+                buyPrice = 500L,
+                sellPrice = 800L,
+                stockQuantity = 10,
+                unit = "Bouteille",
+                barcode = "111",
+                imageUri = "https://old.img/bissap.jpg"
+            )
+        )
+
+        val remoteUpdated = ProductEntity(
+            name = "Jus de Bissap 1L",
+            category = "Jus Naturels",
+            buyPrice = 600L,
+            sellPrice = 1000L,
+            stockQuantity = 25,
+            unit = "Carafe",
+            barcode = "222999",
+            imageUri = "https://cdn.konab.bf/new-bissap.jpg",
+            galleryImagesJson = """["https://cdn.konab.bf/new-bissap.jpg"]"""
+        )
+        val mergedCount = repository.mergeRemoteUpdates(
+            remoteProducts = listOf(remoteUpdated),
+            remoteSales = emptyList(),
+            remoteSaleItems = emptyList(),
+            remoteCustomers = emptyList()
+        )
+        assertTrue(mergedCount > 0)
+
+        val merged = repository.getAllProductsOnce().first { it.name == "Jus de Bissap 1L" }
+        assertEquals("Jus Naturels", merged.category)
+        assertEquals("Carafe", merged.unit)
+        assertEquals("222999", merged.barcode)
+        assertEquals(1000L, merged.sellPrice)
+        assertEquals(25, merged.stockQuantity)
+        assertEquals("https://cdn.konab.bf/new-bissap.jpg", merged.imageUri)
     }
 }

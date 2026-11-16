@@ -653,10 +653,22 @@ class KonabRepository(
                         existingByName.sellPrice != rp.sellPrice ||
                         existingByName.buyPrice != rp.buyPrice ||
                         existingByName.isAvailable != rp.isAvailable ||
-                        (rp.imageUri.isNotBlank() && existingByName.imageUri != rp.imageUri)
+                        existingByName.category != rp.category ||
+                        existingByName.unit != rp.unit ||
+                        existingByName.barcode != rp.barcode ||
+                        (rp.imageUri.isNotBlank() && existingByName.imageUri != rp.imageUri) ||
+                        (rp.galleryImagesJson.isNotBlank() && rp.galleryImagesJson != "[]" && existingByName.galleryImagesJson != rp.galleryImagesJson)
                     ) {
                         toInsert.add(
-                            rp.copy(id = existingByName.id)
+                            rp.copy(
+                                id = existingByName.id,
+                                imageUri = rp.imageUri.ifBlank { existingByName.imageUri },
+                                galleryImagesJson = if (rp.galleryImagesJson.isNotBlank() && rp.galleryImagesJson != "[]") {
+                                    rp.galleryImagesJson
+                                } else {
+                                    existingByName.galleryImagesJson
+                                }
+                            )
                         )
                     }
                 }

@@ -22,8 +22,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -41,6 +43,7 @@ fun RestaurantTablesQrTab(
     shopName: String,
     city: String,
     phone: String,
+    cloudShopId: Long = 0L,
     tables: List<RestaurantTableRecord>,
     onSaveTable: (RestaurantTableRecord) -> Unit,
     onGenerateBatchTables: (Int, String) -> Unit,
@@ -128,11 +131,14 @@ fun RestaurantTablesQrTab(
             }
         } else {
             items(tables, key = { it.id }) { table ->
-                val qrUri = remember(table.id, table.shopId, table.tableNumber, shopName) {
-                    table.buildQrUri(shopName)
+                val effectiveTable = remember(table, cloudShopId) {
+                    if (table.shopId <= 1L && cloudShopId > 1L) table.copy(shopId = cloudShopId) else table
+                }
+                val qrUri = remember(effectiveTable.id, effectiveTable.shopId, effectiveTable.tableNumber, shopName) {
+                    effectiveTable.buildQrUri(shopName)
                 }
                 val qrThumb: Bitmap = remember(qrUri) {
-                    QrCodeHelper.generateQrBitmap(qrUri, sizePx = 220, margin = 1)
+                    QrCodeHelper.generateQrBitmap(qrUri, sizePx = 240, margin = 3)
                 }
 
                 Card(
@@ -184,7 +190,7 @@ fun RestaurantTablesQrTab(
                                 )
                                 Spacer(modifier = Modifier.height(6.dp))
                                 OutlinedButton(
-                                    onClick = { posterPreviewTable = table },
+                                    onClick = { posterPreviewTable = effectiveTable },
                                     shape = RoundedCornerShape(10.dp),
                                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                                     modifier = Modifier
@@ -214,8 +220,8 @@ fun RestaurantTablesQrTab(
                         ) {
                             Button(
                                 onClick = {
-                                    val poster = RestaurantQrCardHelper.buildTableQrCardBitmap(shopName, table, city, phone)
-                                    val res = RestaurantQrCardHelper.saveTableQrPngToDevice(context, poster, shopName, table.tableNumber)
+                                    val poster = RestaurantQrCardHelper.buildTableQrCardBitmap(shopName, effectiveTable, city, phone)
+                                    val res = RestaurantQrCardHelper.saveTableQrPngToDevice(context, poster, shopName, effectiveTable.tableNumber)
                                     Toast.makeText(
                                         context,
                                         res.getOrElse { it.localizedMessage ?: "Erreur d'enregistrement PNG" },
@@ -237,8 +243,8 @@ fun RestaurantTablesQrTab(
 
                             Button(
                                 onClick = {
-                                    val poster = RestaurantQrCardHelper.buildTableQrCardBitmap(shopName, table, city, phone)
-                                    val res = RestaurantQrCardHelper.printTableQrCard(context, poster, shopName, table.tableNumber)
+                                    val poster = RestaurantQrCardHelper.buildTableQrCardBitmap(shopName, effectiveTable, city, phone)
+                                    val res = RestaurantQrCardHelper.printTableQrCard(context, poster, shopName, effectiveTable.tableNumber)
                                     if (res.isFailure) {
                                         Toast.makeText(
                                             context,
@@ -262,8 +268,8 @@ fun RestaurantTablesQrTab(
 
                             OutlinedButton(
                                 onClick = {
-                                    val poster = RestaurantQrCardHelper.buildTableQrCardBitmap(shopName, table, city, phone)
-                                    val res = RestaurantQrCardHelper.shareTableQrPng(context, poster, shopName, table.tableNumber)
+                                    val poster = RestaurantQrCardHelper.buildTableQrCardBitmap(shopName, effectiveTable, city, phone)
+                                    val res = RestaurantQrCardHelper.shareTableQrPng(context, poster, shopName, effectiveTable.tableNumber)
                                     if (res.isFailure) {
                                         Toast.makeText(context, "Partage indisponible", Toast.LENGTH_SHORT).show()
                                     }
@@ -329,6 +335,9 @@ private fun TablePosterPreviewDialog(
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
+    @Suppress("DEPRECATION")
+    val clipboard = LocalClipboardManager.current
+    val qrUri = remember(shopName, table) { table.buildQrUri(shopName) }
     val posterBitmap = remember(shopName, city, phone, table) {
         RestaurantQrCardHelper.buildTableQrCardBitmap(shopName, table, city, phone)
     }
@@ -424,6 +433,22 @@ private fun TablePosterPreviewDialog(
                         Spacer(modifier = Modifier.width(6.dp))
                         Text("Imprimer / Tirer", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                     }
+                }
+
+                OutlinedButton(
+                    onClick = {
+                        clipboard.setText(AnnotatedString(qrUri))
+                        Toast.makeText(context, "Lien QR copié : $qrUri", Toast.LENGTH_SHORT).show()
+                    },
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .testTag("btn_copy_table_qr_uri")
+                ) {
+                    Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Copier le lien QR (${table.tableNumber})", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
                 }
             }
         }

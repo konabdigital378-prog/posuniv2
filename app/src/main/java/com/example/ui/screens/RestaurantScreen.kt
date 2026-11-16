@@ -368,6 +368,7 @@ fun RestaurantScreen(
                             shopName = shopProfile?.name ?: "Mon Restaurant",
                             city = shopProfile?.city.orEmpty(),
                             phone = shopProfile?.phone.orEmpty(),
+                            cloudShopId = cloudShopId,
                             tables = tables,
                             onSaveTable = onSaveTable,
                             onGenerateBatchTables = onGenerateBatchTables,

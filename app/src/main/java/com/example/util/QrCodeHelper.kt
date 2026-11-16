@@ -54,9 +54,9 @@ object QrCodeHelper {
         for (b in data) {
             val factor = b xor remainder[0]
             for (j in 0 until ecCount - 1) {
-                remainder[j] = remainder[j + 1] xor gfMul(gen[j + 1], factor)
+                remainder[j] = remainder[j + 1] xor gfMul(gen[ecCount - 1 - j], factor)
             }
-            remainder[ecCount - 1] = gfMul(gen[ecCount], factor)
+            remainder[ecCount - 1] = gfMul(gen[0], factor)
         }
         return remainder
     }
@@ -307,23 +307,22 @@ object QrCodeHelper {
             upward = !upward
         }
 
-        // 7. Write Format Info (Mask 0 + Error Correction L = 01)
-        // Format info for L + Mask 0 is 0x77C4 (15 bits)
+        // 7. Write Format Info (Mask 0 + Error Correction L = 01 -> 0x77C4)
+        // ISO/IEC 18004: Bit 14 (MSB) at (8,0)/(dim-1,8) ... Bit 0 (LSB) at (0,8)/(8,dim-1)
         val formatBits = 0x77C4
-        for (i in 0..14) {
-            val b = ((formatBits shr i) and 1) == 1
-            if (i < 6) {
-                matrix[8][i] = b
-                matrix[dim - 1 - i][8] = b
-            } else if (i == 6) {
-                matrix[8][7] = b
-                matrix[dim - 7][8] = b
-            } else if (i in 7..8) {
-                matrix[8][i] = b
-                matrix[dim - 15 + i][8] = b
+        for (bitIdx in 0..14) {
+            val b = ((formatBits shr bitIdx) and 1) == 1
+            when {
+                bitIdx <= 5 -> matrix[bitIdx][8] = b
+                bitIdx == 6 -> matrix[7][8] = b
+                bitIdx == 7 -> matrix[8][8] = b
+                bitIdx == 8 -> matrix[8][7] = b
+                else -> matrix[8][14 - bitIdx] = b
+            }
+            if (bitIdx <= 7) {
+                matrix[8][dim - 1 - bitIdx] = b
             } else {
-                matrix[14 - i][8] = b
-                matrix[8][dim - 15 + i] = b
+                matrix[dim - 15 + bitIdx][8] = b
             }
         }
 
@@ -331,12 +330,13 @@ object QrCodeHelper {
     }
 
     /**
-     * Renders text into an Android Bitmap with quiet zones.
+     * Renders text into an Android Bitmap with crisp quiet zones and zero sub-pixel gaps.
      */
     fun generateQrBitmap(text: String, sizePx: Int = 240, margin: Int = 2): Bitmap {
         val matrix = encodeToMatrix(text)
         val matrixDim = matrix.size
-        val fullDim = matrixDim + (margin * 2)
+        val effectiveMargin = margin.coerceAtLeast(2)
+        val fullDim = matrixDim + (effectiveMargin * 2)
 
         val bitmap = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
@@ -350,12 +350,12 @@ object QrCodeHelper {
         val scale = sizePx.toFloat() / fullDim.toFloat()
 
         for (r in 0 until matrixDim) {
+            val top = kotlin.math.round((r + effectiveMargin) * scale)
+            val bottom = kotlin.math.round((r + effectiveMargin + 1) * scale)
             for (c in 0 until matrixDim) {
                 if (matrix[r][c]) {
-                    val left = (c + margin) * scale
-                    val top = (r + margin) * scale
-                    val right = (c + margin + 1) * scale
-                    val bottom = (r + margin + 1) * scale
+                    val left = kotlin.math.round((c + effectiveMargin) * scale)
+                    val right = kotlin.math.round((c + effectiveMargin + 1) * scale)
                     canvas.drawRect(left, top, right, bottom, paint)
                 }
             }

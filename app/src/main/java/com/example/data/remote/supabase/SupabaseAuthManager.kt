@@ -75,13 +75,21 @@ object SupabaseAuthManager {
     private var currentSession: SupabaseAuthSession? = null
 
     val currentToken: String?
-        get() = currentSession?.accessToken
+        get() = currentSession?.takeIf { !it.isExpired }?.accessToken
 
     val currentUser: SupabaseUser?
-        get() = currentSession?.user
+        get() = currentSession?.takeIf { !it.isExpired }?.user
 
     val isAuthenticated: Boolean
         get() = currentSession != null && !(currentSession?.isExpired ?: true)
+
+    fun clearExpiredSessionIfNeeded() {
+        val session = currentSession
+        if (session != null && session.isExpired) {
+            currentSession = null
+            _authState.value = AuthState.Unauthenticated
+        }
+    }
 
     /**
      * Initializes auth state from saved preferences on application startup
@@ -112,8 +120,13 @@ object SupabaseAuthManager {
                     expiresAt = expiresAt,
                     user = user
                 )
-                currentSession = session
-                _authState.value = AuthState.Authenticated(session)
+                if (session.isExpired) {
+                    currentSession = null
+                    _authState.value = AuthState.Unauthenticated
+                } else {
+                    currentSession = session
+                    _authState.value = AuthState.Authenticated(session)
+                }
             } else {
                 _authState.value = AuthState.Unauthenticated
             }

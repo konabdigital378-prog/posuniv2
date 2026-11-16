@@ -92,6 +92,12 @@ class SupabaseSyncManager(
         )
     }
 
+    private fun isRestaurantBusiness(businessType: String?): Boolean {
+        val bType = businessType.orEmpty()
+        return RestaurantDirectoryHelper.isRestaurantShop(bType) ||
+            com.example.util.BusinessTypePresets.getPreset(bType).sectorFeatures.hasTables
+    }
+
     fun clearCredentials() {
         SupabaseConfig.clearCustomConfig(context)
         _syncState.value = _syncState.value.copy(
@@ -292,7 +298,7 @@ class SupabaseSyncManager(
 
         val deployerId = activeAgent.id.trim().uppercase()
         val effectiveAdminPhone = adminPhone.trim().ifBlank { phone.trim() }
-        val effectiveTeamCfg = if (businessType.equals("Restaurant", ignoreCase = true)) {
+        val effectiveTeamCfg = if (isRestaurantBusiness(businessType)) {
             restaurantTeam ?: RestaurantTeamConfig()
         } else null
         val effectiveCashierPin = effectiveTeamCfg?.cashierPin?.trim()?.ifBlank { "0000" } ?: "0000"
@@ -448,7 +454,7 @@ class SupabaseSyncManager(
             }
         } catch (_: Exception) {}
 
-        if (businessType.equals("Restaurant", ignoreCase = true)) {
+        if (isRestaurantBusiness(businessType)) {
             val teamCfg = effectiveTeamCfg ?: RestaurantTeamConfig()
             val createdStaff = RestaurantStorage.ensureDefaultRestaurantTeam(
                 context = context,
@@ -831,7 +837,7 @@ class SupabaseSyncManager(
             }
 
             // 8. Données Restaurant synchronisées (Équipe, Tables QR, Commandes Cuisine, Menu du jour)
-            if (shop?.businessType.equals("Restaurant", ignoreCase = true) ||
+            if (isRestaurantBusiness(shop?.businessType) ||
                 RestaurantStorage.getOrders(context, activeCloudShopId).isNotEmpty() ||
                 RestaurantStorage.getTables(context, activeCloudShopId).isNotEmpty()
             ) {
@@ -848,7 +854,7 @@ class SupabaseSyncManager(
                     count += apiClient.pushRestaurantOrders(orders, activeCloudShopId).getOrDefault(0)
                 }
                 val menuIds = RestaurantStorage.getMenuOfDayProductIds(context, activeCloudShopId)
-                if (menuIds.isNotEmpty() || shop?.businessType.equals("Restaurant", ignoreCase = true)) {
+                if (menuIds.isNotEmpty() || isRestaurantBusiness(shop?.businessType)) {
                     apiClient.pushMenuOfDay(activeCloudShopId, menuIds)
                 }
             }
@@ -896,9 +902,10 @@ class SupabaseSyncManager(
 
     private suspend fun pullRemoteSnapshotForShop(match: RemoteShopLoginMatch): Result<MultiShopSnapshot> {
         val shopId = match.cloudShopId
-        val productsRes = apiClient.fetchProducts(shopId)
-        val salesRes = apiClient.fetchSales(shopId)
-        if (productsRes.isFailure && salesRes.isFailure) {
+        val shopName = match.session.shopName
+        val productsRes = apiClient.fetchProducts(shopId, shopName = shopName)
+        val salesRes = apiClient.fetchSales(shopId, shopName = shopName)
+        if (productsRes.isFailure || salesRes.isFailure) {
             return Result.failure(
                 productsRes.exceptionOrNull()
                     ?: salesRes.exceptionOrNull()
@@ -908,12 +915,12 @@ class SupabaseSyncManager(
         val products = productsRes.getOrDefault(emptyList())
         val sales = salesRes.getOrDefault(emptyList())
         val saleIds = sales.map { it.id }.toSet()
-        val saleItems = apiClient.fetchSaleItems(shopId, validSaleIds = saleIds.takeIf { it.isNotEmpty() }).getOrDefault(emptyList())
-        val customers = apiClient.fetchCustomers(shopId).getOrDefault(emptyList())
-        val suppliers = apiClient.fetchSuppliers(shopId).getOrDefault(emptyList())
-        val purchases = apiClient.fetchPurchases(shopId).getOrDefault(emptyList())
-        val cashMovements = apiClient.fetchCashMovements(shopId).getOrDefault(emptyList())
-        val cashSessions = apiClient.fetchCashSessions(shopId).getOrDefault(emptyList())
+        val saleItems = apiClient.fetchSaleItems(shopId, validSaleIds = saleIds.takeIf { it.isNotEmpty() }, shopName = shopName).getOrDefault(emptyList())
+        val customers = apiClient.fetchCustomers(shopId, shopName = shopName).getOrDefault(emptyList())
+        val suppliers = apiClient.fetchSuppliers(shopId, shopName = shopName).getOrDefault(emptyList())
+        val purchases = apiClient.fetchPurchases(shopId, shopName = shopName).getOrDefault(emptyList())
+        val cashMovements = apiClient.fetchCashMovements(shopId, shopName = shopName).getOrDefault(emptyList())
+        val cashSessions = apiClient.fetchCashSessions(shopId, shopName = shopName).getOrDefault(emptyList())
 
         return Result.success(
             MultiShopSnapshot(
@@ -989,9 +996,13 @@ class SupabaseSyncManager(
                             BiometricSecurityHelper.setShopConfiguredCache(context, true)
 
                             // Hydrater l'état restaurant (équipe, tables, commandes, menu du jour)
-                            pullRestaurantStateInternal(match.cloudShopId)
+                            pullRestaurantStateInternal(
+                                shopId = match.cloudShopId,
+                                shopName = snapshot.session.shopName,
+                                localProducts = snapshot.products
+                            )
                             if (CoutureDirectoryHelper.isCoutureShop(snapshot.session.businessType)) {
-                                pullCoutureStateInternal(match.cloudShopId)
+                                pullCoutureStateInternal(match.cloudShopId, snapshot.session.shopName)
                             }
                             if (staffLogin.staff != null) {
                                 RestaurantStorage.setActiveStaff(context, match.cloudShopId, staffLogin.staff.id)
@@ -1014,6 +1025,29 @@ class SupabaseSyncManager(
                             )
                             NotificationHelper.sendCloudSyncSuccess(context, msg)
                             return@withLock Result.success(snapshot.session)
+                        } else {
+                            val cachedSnap = MultiShopStorage.loadLocalSnapshotCache(context, match.cloudShopId)
+                            if (cachedSnap != null && cachedSnap.products.isNotEmpty()) {
+                                repository.replaceLocalWorkspaceFromCloud(cachedSnap)
+                                saveCloudShopId(match.cloudShopId, match.session.shopName)
+                                MultiShopStorage.saveConnectedShop(context, cachedSnap.session)
+                                BiometricSecurityHelper.setShopConfiguredCache(context, true)
+                                pullRestaurantStateInternal(
+                                    shopId = match.cloudShopId,
+                                    shopName = cachedSnap.session.shopName,
+                                    localProducts = cachedSnap.products
+                                )
+                                if (staffLogin.staff != null) {
+                                    RestaurantStorage.setActiveStaff(context, match.cloudShopId, staffLogin.staff.id)
+                                }
+                                val msg = "Connecté à « ${cachedSnap.session.shopName} » (cache local, sync Cloud incomplète)"
+                                _syncState.value = _syncState.value.copy(isSyncing = false, isError = false, statusMessage = msg)
+                                return@withLock Result.success(cachedSnap.session)
+                            }
+                            val errMsg = snapRes.exceptionOrNull()?.localizedMessage
+                                ?: "Authentification réussie pour « ${match.session.shopName} », mais impossible de charger les données depuis Supabase."
+                            _syncState.value = _syncState.value.copy(isSyncing = false, isError = true, statusMessage = errMsg)
+                            return@withLock Result.failure(IllegalStateException(errMsg))
                         }
                     } else {
                         // Aucun match distant : vérifier s'il s'agit d'une boutique locale pas encore poussée
@@ -1104,9 +1138,13 @@ class SupabaseSyncManager(
                     MultiShopStorage.saveConnectedShop(context, snapshot.session)
                     MultiShopStorage.saveLocalSnapshotCache(context, snapshot)
                     BiometricSecurityHelper.setShopConfiguredCache(context, true)
-                    pullRestaurantStateInternal(target.cloudShopId)
+                    pullRestaurantStateInternal(
+                        shopId = target.cloudShopId,
+                        shopName = snapshot.session.shopName,
+                        localProducts = snapshot.products
+                    )
                     if (CoutureDirectoryHelper.isCoutureShop(target.businessType)) {
-                        pullCoutureStateInternal(target.cloudShopId)
+                        pullCoutureStateInternal(target.cloudShopId, snapshot.session.shopName)
                     }
                     val now = System.currentTimeMillis()
                     saveLastSyncTimestamp(now)
@@ -1167,19 +1205,19 @@ class SupabaseSyncManager(
         val shopId = getOrCreateCloudShopId()
         if (shopId <= 1L) return 0
 
-        val remoteProducts = apiClient.fetchProducts(shopId).getOrDefault(emptyList())
-        val remoteSales = apiClient.fetchSales(shopId).getOrDefault(emptyList())
+        val remoteProducts = apiClient.fetchProducts(shopId, shopName = shop.name).getOrDefault(emptyList())
+        val remoteSales = apiClient.fetchSales(shopId, shopName = shop.name).getOrDefault(emptyList())
         val remoteSaleIds = remoteSales.map { it.id }.toSet()
         val remoteSaleItems = if (remoteSales.isNotEmpty()) {
-            apiClient.fetchSaleItems(shopId, validSaleIds = remoteSaleIds).getOrDefault(emptyList())
+            apiClient.fetchSaleItems(shopId, validSaleIds = remoteSaleIds, shopName = shop.name).getOrDefault(emptyList())
         } else {
             emptyList()
         }
-        val remoteCustomers = apiClient.fetchCustomers(shopId).getOrDefault(emptyList())
-        val remoteCashSessions = apiClient.fetchCashSessions(shopId).getOrDefault(emptyList())
-        val remoteCashMovements = apiClient.fetchCashMovements(shopId).getOrDefault(emptyList())
-        val remoteSuppliers = apiClient.fetchSuppliers(shopId).getOrDefault(emptyList())
-        val remotePurchases = apiClient.fetchPurchases(shopId).getOrDefault(emptyList())
+        val remoteCustomers = apiClient.fetchCustomers(shopId, shopName = shop.name).getOrDefault(emptyList())
+        val remoteCashSessions = apiClient.fetchCashSessions(shopId, shopName = shop.name).getOrDefault(emptyList())
+        val remoteCashMovements = apiClient.fetchCashMovements(shopId, shopName = shop.name).getOrDefault(emptyList())
+        val remoteSuppliers = apiClient.fetchSuppliers(shopId, shopName = shop.name).getOrDefault(emptyList())
+        val remotePurchases = apiClient.fetchPurchases(shopId, shopName = shop.name).getOrDefault(emptyList())
 
         val merged = repository.mergeRemoteUpdates(
             remoteProducts = remoteProducts,
@@ -1192,16 +1230,21 @@ class SupabaseSyncManager(
             remotePurchases = remotePurchases,
             shopId = shopId
         )
-        val restaurantMerged = if (shop.businessType.equals("Restaurant", ignoreCase = true) ||
-            RestaurantStorage.getOrders(context, shopId).isNotEmpty()
+        val restaurantMerged = if (isRestaurantBusiness(shop.businessType) ||
+            RestaurantStorage.getOrders(context, shopId).isNotEmpty() ||
+            RestaurantStorage.getTables(context, shopId).isNotEmpty()
         ) {
-            pullRestaurantStateInternal(shopId)
+            pullRestaurantStateInternal(
+                shopId = shopId,
+                shopName = shop.name,
+                localProducts = repository.getAllProductsOnce()
+            )
         } else 0
         val coutureMerged = if (CoutureDirectoryHelper.isCoutureShop(shop.businessType) ||
             CoutureStorage.getOrders(context, shopId).isNotEmpty() ||
             CoutureStorage.getModels(context, shopId).isNotEmpty()
         ) {
-            pullCoutureStateInternal(shopId)
+            pullCoutureStateInternal(shopId, shop.name)
         } else 0
         repository.exportMultiShopSnapshot(shopId)?.let { snap ->
             MultiShopStorage.saveConnectedShop(context, snap.session)
@@ -1224,11 +1267,15 @@ class SupabaseSyncManager(
 
     // --- SYNCHRONISATION TEMPS RÉEL RESTAURANT ---
 
-    private suspend fun pullRestaurantStateInternal(shopId: Long): Int {
+    private suspend fun pullRestaurantStateInternal(
+        shopId: Long,
+        shopName: String? = null,
+        localProducts: List<com.example.data.local.entity.ProductEntity> = emptyList()
+    ): Int {
         if (!SupabaseConfig.isConfigured || shopId <= 1L) return 0
         var updates = 0
         try {
-            val remoteStaff = apiClient.fetchRestaurantStaff(shopId).getOrDefault(emptyList())
+            val remoteStaff = apiClient.fetchRestaurantStaff(shopId, shopName).getOrDefault(emptyList())
             if (remoteStaff.isNotEmpty()) {
                 RestaurantStorage.mergeStaffFromCloud(context, shopId, remoteStaff)
                 updates += remoteStaff.size
@@ -1236,7 +1283,7 @@ class SupabaseSyncManager(
         } catch (_: Exception) {}
 
         try {
-            val remoteTables = apiClient.fetchRestaurantTables(shopId).getOrDefault(emptyList())
+            val remoteTables = apiClient.fetchRestaurantTables(shopId, shopName).getOrDefault(emptyList())
             if (remoteTables.isNotEmpty()) {
                 RestaurantStorage.mergeTablesFromCloud(context, shopId, remoteTables)
                 updates += remoteTables.size
@@ -1244,7 +1291,7 @@ class SupabaseSyncManager(
         } catch (_: Exception) {}
 
         try {
-            val remoteOrders = apiClient.fetchRestaurantOrders(shopId).getOrDefault(emptyList())
+            val remoteOrders = apiClient.fetchRestaurantOrders(shopId, shopName).getOrDefault(emptyList())
             if (remoteOrders.isNotEmpty()) {
                 RestaurantStorage.mergeOrdersFromCloud(context, shopId, remoteOrders)
                 updates += remoteOrders.size
@@ -1252,9 +1299,25 @@ class SupabaseSyncManager(
         } catch (_: Exception) {}
 
         try {
-            val remoteMenu = apiClient.fetchMenuOfDay(shopId).getOrDefault(emptySet())
+            val remoteMenu = apiClient.fetchMenuOfDay(shopId, shopName).getOrDefault(emptySet())
             if (remoteMenu.isNotEmpty()) {
-                RestaurantStorage.setMenuOfDayProductIds(context, shopId, remoteMenu)
+                val normalizedMenu = if (localProducts.isNotEmpty()) {
+                    val mapped = linkedSetOf<Long>()
+                    for (mid in remoteMenu) {
+                        val matchedProd = localProducts.firstOrNull { p ->
+                            p.id == mid ||
+                                MultiShopStorage.scopedCloudId(shopId, p.id) == mid ||
+                                (mid >= 1_000_000_000_000L && MultiShopStorage.scopedCloudId(shopId, p.id) == mid) ||
+                                (p.id in 1L..999_999L && mid == MultiShopStorage.scopedCloudId(shopId, p.id))
+                        }
+                        if (matchedProd != null) mapped.add(matchedProd.id)
+                        else mapped.add(mid)
+                    }
+                    mapped
+                } else {
+                    remoteMenu
+                }
+                RestaurantStorage.setMenuOfDayProductIds(context, shopId, normalizedMenu)
                 updates++
             }
         } catch (_: Exception) {}
@@ -1262,9 +1325,9 @@ class SupabaseSyncManager(
         return updates
     }
 
-    suspend fun pullRestaurantStateNow(shopId: Long): Result<Int> {
+    suspend fun pullRestaurantStateNow(shopId: Long, shopName: String? = null): Result<Int> {
         if (!SupabaseConfig.isConfigured || shopId <= 1L) return Result.success(0)
-        return Result.success(pullRestaurantStateInternal(shopId))
+        return Result.success(pullRestaurantStateInternal(shopId, shopName))
     }
 
     suspend fun syncRestaurantOrderNow(shopId: Long, order: RestaurantOrderRecord): Result<Int> {
@@ -1689,11 +1752,11 @@ class SupabaseSyncManager(
         return count
     }
 
-    private suspend fun pullCoutureStateInternal(shopId: Long): Int {
+    private suspend fun pullCoutureStateInternal(shopId: Long, shopName: String? = null): Int {
         if (!SupabaseConfig.isConfigured || shopId <= 1L) return 0
         var updates = 0
         try {
-            val remoteModels = apiClient.fetchCoutureModels(shopId).getOrDefault(emptyList())
+            val remoteModels = apiClient.fetchCoutureModels(shopId, shopName).getOrDefault(emptyList())
             if (remoteModels.isNotEmpty()) {
                 CoutureStorage.mergeModelsFromCloud(context, shopId, remoteModels)
                 updates += remoteModels.size
@@ -1701,7 +1764,7 @@ class SupabaseSyncManager(
         } catch (_: Exception) {}
 
         try {
-            val remoteOrders = apiClient.fetchCoutureOrders(shopId).getOrDefault(emptyList())
+            val remoteOrders = apiClient.fetchCoutureOrders(shopId, shopName).getOrDefault(emptyList())
             if (remoteOrders.isNotEmpty()) {
                 CoutureStorage.mergeOrdersFromCloud(context, shopId, remoteOrders)
                 updates += remoteOrders.size
@@ -1711,9 +1774,9 @@ class SupabaseSyncManager(
         return updates
     }
 
-    suspend fun pullCoutureStateNow(shopId: Long): Result<Int> {
+    suspend fun pullCoutureStateNow(shopId: Long, shopName: String? = null): Result<Int> {
         if (!SupabaseConfig.isConfigured || shopId <= 1L) return Result.success(0)
-        return Result.success(pullCoutureStateInternal(shopId))
+        return Result.success(pullCoutureStateInternal(shopId, shopName))
     }
 
     suspend fun syncCoutureModelNow(shopId: Long, model: CoutureModelRecord, shopName: String): Result<CoutureModelRecord> {

@@ -152,7 +152,7 @@ object RestaurantQrCardHelper {
         canvas.drawRoundRect(qrBox, 32f, 32f, qrFrameBorder)
 
         val qrUri = table.buildQrUri(shopName)
-        val qrBitmap = QrCodeHelper.generateQrBitmap(qrUri, sizePx = 500, margin = 2)
+        val qrBitmap = QrCodeHelper.generateQrBitmap(qrUri, sizePx = 500, margin = 3)
         canvas.drawBitmap(qrBitmap, 200f, 544f, null)
 
         // Call to action instructions

@@ -729,6 +729,8 @@ fun SetupWizard(
         // Modal : Scanner QR Code Table Restaurant -> Menu du Jour
         if (showWelcomeQrScanner) {
             com.example.ui.components.RealBarcodeScannerModal(
+                title = "Scanner QR Table ou Couture",
+                subtitle = "Visez le QR code ou importez son image PNG pour ouvrir le menu",
                 onDismiss = { showWelcomeQrScanner = false },
                 onBarcodeScanned = { scanned ->
                     showWelcomeQrScanner = false
