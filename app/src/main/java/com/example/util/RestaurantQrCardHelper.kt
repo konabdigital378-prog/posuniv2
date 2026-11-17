@@ -4,10 +4,14 @@ import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.LinearGradient
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.RectF
+import android.graphics.Shader
 import android.graphics.Typeface
 import android.net.Uri
 import android.os.Build
@@ -22,10 +26,13 @@ import android.print.PrintDocumentInfo
 import android.print.PrintManager
 import android.print.pdf.PrintedPdfDocument
 import android.provider.MediaStore
+import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import com.example.R
 import com.example.data.remote.supabase.RestaurantTableRecord
 import java.io.File
 import java.io.FileOutputStream
+import java.util.Locale
 
 /**
  * Generates clean, high-resolution printable/downloadable PNG table QR cards
@@ -37,142 +44,446 @@ object RestaurantQrCardHelper {
         shopName: String,
         table: RestaurantTableRecord,
         city: String = "",
-        phone: String = ""
+        phone: String = "",
+        context: Context? = null,
+        logoUri: String? = null
     ): Bitmap {
         val width = 900
         val height = 1240
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
 
-        // Warm off-white background
-        canvas.drawColor(Color.parseColor("#F8FAFC"))
+        // Clean light canvas backdrop
+        canvas.drawColor(Color.parseColor("#F1F5F9"))
 
+        val cardLeft = 36f
+        val cardTop = 36f
+        val cardRight = width - 36f
+        val cardBottom = height - 36f
+        val cardRadius = 42f
+        val cardRect = RectF(cardLeft, cardTop, cardRight, cardBottom)
+
+        // Subtle ambient elevation shadow behind card
+        val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.argb(26, 6, 36, 94)
+            style = Paint.Style.FILL
+        }
+        canvas.drawRoundRect(
+            RectF(cardLeft + 4f, cardTop + 8f, cardRight + 4f, cardBottom + 10f),
+            cardRadius, cardRadius, shadowPaint
+        )
+
+        // Main white card surface
         val cardPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.WHITE
             style = Paint.Style.FILL
         }
-        val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#DCE6F5")
-            style = Paint.Style.STROKE
-            strokeWidth = 4f
-        }
-        val cardRect = RectF(36f, 36f, width - 36f, height - 36f)
-        canvas.drawRoundRect(cardRect, 42f, 42f, cardPaint)
-        canvas.drawRoundRect(cardRect, 42f, 42f, borderPaint)
+        canvas.drawRoundRect(cardRect, cardRadius, cardRadius, cardPaint)
 
-        // Header banner (Royal Konab Blue)
+        // Clip inside card bounds for clean header/footer corners
+        val cardClipPath = Path().apply {
+            addRoundRect(cardRect, cardRadius, cardRadius, Path.Direction.CW)
+        }
+        val cardSave = canvas.save()
+        canvas.clipPath(cardClipPath)
+
+        // 1. Rich Royal Konab Blue Gradient Header
+        val headerBottom = 326f
+        val headerRect = RectF(cardLeft, cardTop, cardRight, headerBottom)
         val headerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#0B57D0")
+            shader = LinearGradient(
+                cardLeft, cardTop, cardRight, headerBottom,
+                intArrayOf(
+                    Color.parseColor("#06245E"),
+                    Color.parseColor("#073B9A"),
+                    Color.parseColor("#0E4DA4")
+                ),
+                floatArrayOf(0f, 0.55f, 1f),
+                Shader.TileMode.CLAMP
+            )
+        }
+        canvas.drawRect(headerRect, headerPaint)
+
+        // Subtle decorative geometric arcs inside header
+        val decorLight = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            alpha = 18
+        }
+        canvas.drawCircle(cardRight - 40f, cardTop + 40f, 175f, decorLight)
+        val decorWarm = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#FFA43A")
+            alpha = 26
+        }
+        canvas.drawCircle(cardLeft + 55f, headerBottom - 10f, 130f, decorWarm)
+
+        // Vibrant Orange-Gold separator bar under header
+        val stripePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            shader = LinearGradient(
+                cardLeft, 0f, cardRight, 0f,
+                Color.parseColor("#FF7900"),
+                Color.parseColor("#FFA43A"),
+                Shader.TileMode.CLAMP
+            )
+        }
+        canvas.drawRect(cardLeft, headerBottom - 9f, cardRight, headerBottom, stripePaint)
+
+        // 2. Restaurant Logo Badge (centered at top of header)
+        val logoCx = width / 2f
+        val logoCy = 114f
+        val logoRadius = 56f
+        val logoRingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#FFA43A")
             style = Paint.Style.FILL
         }
-        val headerRect = RectF(36f, 36f, width - 36f, 290f)
-        canvas.drawRoundRect(headerRect, 42f, 42f, headerPaint)
-        // Square off bottom corners of header banner
-        canvas.drawRect(36f, 240f, width - 36f, 292f, headerPaint)
+        canvas.drawCircle(logoCx, logoCy, logoRadius + 5f, logoRingPaint)
 
-        // Accent gold/orange stripe
-        val accentPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#EA580C")
+        val logoBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            style = Paint.Style.FILL
         }
-        canvas.drawRect(36f, 286f, width - 36f, 298f, accentPaint)
+        canvas.drawCircle(logoCx, logoCy, logoRadius, logoBgPaint)
 
-        // Header badge text
+        val shopLogoBitmap = context?.let { ctx ->
+            val raw = logoUri?.trim().orEmpty()
+            if (raw.isNotBlank()) ShopLogoHelper.loadLogoBitmap(ctx, raw) else null
+        }
+        if (shopLogoBitmap != null) {
+            drawCenterCroppedCircleBitmap(canvas, shopLogoBitmap, logoCx, logoCy, logoRadius - 4f)
+        } else {
+            // Crisp branded monogram fallback when no custom logo is uploaded yet
+            val monoRect = RectF(logoCx - logoRadius + 4f, logoCy - logoRadius + 4f, logoCx + logoRadius - 4f, logoCy + logoRadius - 4f)
+            val monoBg = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                shader = LinearGradient(
+                    monoRect.left, monoRect.top, monoRect.right, monoRect.bottom,
+                    Color.parseColor("#FF7900"),
+                    Color.parseColor("#EA580C"),
+                    Shader.TileMode.CLAMP
+                )
+            }
+            canvas.drawOval(monoRect, monoBg)
+            val initial = shopName.trim().take(1).uppercase(Locale.ROOT).ifBlank { "R" }
+            val monoText = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.WHITE
+                textSize = 54f
+                textAlign = Paint.Align.CENTER
+                typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
+            }
+            canvas.drawText(initial, logoCx, logoCy + 19f, monoText)
+        }
+
+        // 3. Restaurant Name (prominent below logo)
+        val displayShopName = shopName.ifBlank { "Mon Restaurant" }.take(30)
+        val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            textAlign = Paint.Align.CENTER
+            typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
+            textSize = fitTextSize(displayShopName, 50f, 30f, 740f, this)
+        }
+        canvas.drawText(displayShopName, width / 2f, 224f, titlePaint)
+
+        // Restaurant badge & city/phone subtitle
         val badgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#FED7AA")
-            textSize = 26f
+            color = Color.parseColor("#FDE68A")
+            textSize = 21f
             textAlign = Paint.Align.CENTER
             typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
             letterSpacing = 0.14f
         }
-        canvas.drawText("RESTAURANT • MENU DU JOUR", width / 2f, 108f, badgePaint)
+        canvas.drawText("RESTAURANT • MENU DU JOUR", width / 2f, 262f, badgePaint)
 
-        // Shop name
-        val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.WHITE
-            textSize = if (shopName.length > 20) 44f else 54f
-            textAlign = Paint.Align.CENTER
-            typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
-        }
-        canvas.drawText(shopName.ifBlank { "Mon Restaurant" }.take(28), width / 2f, 186f, titlePaint)
-
-        // Subtitle (City / Phone)
         val subText = listOfNotNull(
             city.takeIf { it.isNotBlank() },
             phone.takeIf { it.isNotBlank() }
-        ).joinToString(" • ").ifBlank { "Service Rapide & Commande Directe" }
+        ).joinToString(" • ").ifBlank { "Commande Directe à Table" }
         val subPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#DBEAFE")
-            textSize = 26f
+            textSize = 22f
             textAlign = Paint.Align.CENTER
             typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.NORMAL)
         }
-        canvas.drawText(subText.take(46), width / 2f, 244f, subPaint)
+        canvas.drawText(subText.take(46), width / 2f, 296f, subPaint)
 
-        // Table pill badge
+        // 4. Prominent Table Number Pill Badge
+        val tableLabel = table.tableNumber.trim().ifBlank { "TABLE 1" }.uppercase(Locale.ROOT)
+        val pillRect = RectF(108f, 354f, width - 108f, 452f)
+        val pillShadow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.argb(24, 234, 88, 12)
+        }
+        canvas.drawRoundRect(
+            RectF(pillRect.left, pillRect.top + 5f, pillRect.right, pillRect.bottom + 5f),
+            28f, 28f, pillShadow
+        )
         val tablePillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#FFF7ED")
         }
         val tablePillStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#EA580C")
+            color = Color.parseColor("#FF7900")
             style = Paint.Style.STROKE
-            strokeWidth = 3f
+            strokeWidth = 4f
         }
-        val pillRect = RectF(170f, 336f, width - 170f, 434f)
-        canvas.drawRoundRect(pillRect, 49f, 49f, tablePillPaint)
-        canvas.drawRoundRect(pillRect, 49f, 49f, tablePillStroke)
+        canvas.drawRoundRect(pillRect, 28f, 28f, tablePillPaint)
+        canvas.drawRoundRect(pillRect, 28f, 28f, tablePillStroke)
 
         val tableTitlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#9A3412")
-            textSize = 48f
             textAlign = Paint.Align.CENTER
             typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
+            textSize = fitTextSize(tableLabel, 50f, 32f, pillRect.width() - 64f, this)
         }
-        canvas.drawText(table.tableNumber.uppercase(), width / 2f, 400f, tableTitlePaint)
+        val textCenterY = pillRect.centerY() - ((tableTitlePaint.descent() + tableTitlePaint.ascent()) / 2f)
+        canvas.drawText(tableLabel, width / 2f, textCenterY, tableTitlePaint)
 
         // Zone & Seats metadata
         val metaPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#475569")
-            textSize = 26f
+            textSize = 24f
             textAlign = Paint.Align.CENTER
             typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
         }
-        canvas.drawText("${table.zone} • ${table.seats} places", width / 2f, 482f, metaPaint)
+        canvas.drawText("${table.zone} • ${table.seats} places", width / 2f, 490f, metaPaint)
 
-        // QR Frame box
-        val qrFramePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.WHITE
+        // 5. QR Code Showcase Frame with Modern Corner Accents
+        val qrBox = RectF(185f, 514f, width - 185f, 1044f)
+        val qrBoxShadow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.argb(20, 15, 23, 42)
         }
-        val qrFrameBorder = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#0B57D0")
+        canvas.drawRoundRect(
+            RectF(qrBox.left + 3f, qrBox.top + 6f, qrBox.right + 3f, qrBox.bottom + 6f),
+            34f, 34f, qrBoxShadow
+        )
+        canvas.drawRoundRect(qrBox, 34f, 34f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE })
+        canvas.drawRoundRect(qrBox, 34f, 34f, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#CBD5E1")
             style = Paint.Style.STROKE
-            strokeWidth = 5f
-        }
-        val qrBox = RectF(170f, 514f, width - 170f, 1074f)
-        canvas.drawRoundRect(qrBox, 32f, 32f, qrFramePaint)
-        canvas.drawRoundRect(qrBox, 32f, 32f, qrFrameBorder)
+            strokeWidth = 3f
+        })
+
+        // Orange/Blue corner brackets around QR frame
+        drawQrCornerBrackets(
+            canvas = canvas,
+            rect = qrBox,
+            cornerRadius = 34f,
+            armLen = 46f,
+            color = Color.parseColor("#FF7900"),
+            strokeWidth = 7f
+        )
 
         val qrUri = table.buildQrUri(shopName)
-        val qrBitmap = QrCodeHelper.generateQrBitmap(qrUri, sizePx = 500, margin = 3)
-        canvas.drawBitmap(qrBitmap, 200f, 544f, null)
+        val qrBitmap = QrCodeHelper.generateQrBitmap(qrUri, sizePx = 472, margin = 3)
+        canvas.drawBitmap(qrBitmap, 214f, 543f, null)
 
-        // Call to action instructions
+        // 6. Scan CTA above bottom Konab POS footer
         val ctaPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#0F172A")
-            textSize = 31f
+            textSize = 27f
             textAlign = Paint.Align.CENTER
             typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
         }
-        canvas.drawText("Scannez pour voir le Menu du Jour", width / 2f, 1134f, ctaPaint)
+        canvas.drawText("Scannez pour voir le Menu & Commander", width / 2f, 1084f, ctaPaint)
 
-        val ctaSubPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#059669")
-            textSize = 25f
-            textAlign = Paint.Align.CENTER
-            typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
+        // 7. Bottom Footer Bar with Konab POS Logo at the Bottom
+        val footerTop = 1114f
+        val footerRect = RectF(cardLeft, footerTop, cardRight, cardBottom)
+        val footerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            shader = LinearGradient(
+                cardLeft, footerTop, cardRight, cardBottom,
+                Color.parseColor("#06245E"),
+                Color.parseColor("#073B9A"),
+                Shader.TileMode.CLAMP
+            )
         }
-        canvas.drawText("Choisissez vos plats • Envoyez directement en salle", width / 2f, 1176f, ctaSubPaint)
+        canvas.drawRect(footerRect, footerPaint)
+        canvas.drawRect(cardLeft, footerTop, cardRight, footerTop + 5f, stripePaint)
+
+        drawKonabFooterBranding(
+            canvas = canvas,
+            context = context,
+            centerX = width / 2f,
+            centerY = (footerTop + cardBottom) / 2f + 2f,
+            tagline = "Menu Digital & Commande Directe"
+        )
+
+        canvas.restoreToCount(cardSave)
+
+        // Crisp outer card stroke
+        val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#CBD5E1")
+            style = Paint.Style.STROKE
+            strokeWidth = 3.5f
+        }
+        canvas.drawRoundRect(cardRect, cardRadius, cardRadius, borderPaint)
 
         return bitmap
+    }
+
+    internal fun drawCenterCroppedCircleBitmap(
+        canvas: Canvas,
+        bmp: Bitmap,
+        cx: Float,
+        cy: Float,
+        radius: Float
+    ) {
+        if (bmp.width <= 0 || bmp.height <= 0) return
+        val save = canvas.save()
+        val clipPath = Path().apply {
+            addCircle(cx, cy, radius, Path.Direction.CW)
+        }
+        canvas.clipPath(clipPath)
+        val diameter = radius * 2f
+        val srcRatio = bmp.width.toFloat() / bmp.height.toFloat()
+        val drawRect = if (srcRatio >= 1f) {
+            val scaledW = diameter * srcRatio
+            val dx = (scaledW - diameter) / 2f
+            RectF(cx - radius - dx, cy - radius, cx + radius + dx, cy + radius)
+        } else {
+            val scaledH = diameter / srcRatio
+            val dy = (scaledH - diameter) / 2f
+            RectF(cx - radius, cy - radius - dy, cx + radius, cy + radius + dy)
+        }
+        canvas.drawBitmap(bmp, null, drawRect, Paint(Paint.FILTER_BITMAP_FLAG))
+        canvas.restoreToCount(save)
+    }
+
+    internal fun drawQrCornerBrackets(
+        canvas: Canvas,
+        rect: RectF,
+        cornerRadius: Float,
+        armLen: Float,
+        color: Int,
+        strokeWidth: Float
+    ) {
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            this.color = color
+            style = Paint.Style.STROKE
+            this.strokeWidth = strokeWidth
+            strokeCap = Paint.Cap.ROUND
+            strokeJoin = Paint.Join.ROUND
+        }
+        val d = cornerRadius * 2f
+        // Top-left
+        val tl = Path().apply {
+            moveTo(rect.left, rect.top + armLen)
+            lineTo(rect.left, rect.top + cornerRadius)
+            arcTo(RectF(rect.left, rect.top, rect.left + d, rect.top + d), 180f, 90f, false)
+            lineTo(rect.left + armLen, rect.top)
+        }
+        canvas.drawPath(tl, paint)
+        // Top-right
+        val tr = Path().apply {
+            moveTo(rect.right - armLen, rect.top)
+            lineTo(rect.right - cornerRadius, rect.top)
+            arcTo(RectF(rect.right - d, rect.top, rect.right, rect.top + d), 270f, 90f, false)
+            lineTo(rect.right, rect.top + armLen)
+        }
+        canvas.drawPath(tr, paint)
+        // Bottom-right
+        val br = Path().apply {
+            moveTo(rect.right, rect.bottom - armLen)
+            lineTo(rect.right, rect.bottom - cornerRadius)
+            arcTo(RectF(rect.right - d, rect.bottom - d, rect.right, rect.bottom), 0f, 90f, false)
+            lineTo(rect.right - armLen, rect.bottom)
+        }
+        canvas.drawPath(br, paint)
+        // Bottom-left
+        val bl = Path().apply {
+            moveTo(rect.left + armLen, rect.bottom)
+            lineTo(rect.left + cornerRadius, rect.bottom)
+            arcTo(RectF(rect.left, rect.bottom - d, rect.left + d, rect.bottom), 90f, 90f, false)
+            lineTo(rect.left, rect.bottom - armLen)
+        }
+        canvas.drawPath(bl, paint)
+    }
+
+    internal fun drawKonabFooterBranding(
+        canvas: Canvas,
+        context: Context?,
+        centerX: Float,
+        centerY: Float,
+        tagline: String
+    ) {
+        val brandText = "KONAB POS"
+        val sepText = " • $tagline"
+
+        val brandPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            textSize = 24f
+            typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
+            letterSpacing = 0.05f
+        }
+        val sepPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#FDE68A")
+            textSize = 20f
+            typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
+        }
+
+        val logoRadius = 24f
+        val gap = 14f
+        val brandWidth = brandPaint.measureText(brandText)
+        val sepWidth = sepPaint.measureText(sepText)
+        val totalWidth = (logoRadius * 2f) + gap + brandWidth + sepWidth
+        val startX = centerX - (totalWidth / 2f)
+
+        val logoCx = startX + logoRadius
+        val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#FF7900")
+        }
+        canvas.drawCircle(logoCx, centerY, logoRadius + 2.5f, ringPaint)
+        val whitePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
+        canvas.drawCircle(logoCx, centerY, logoRadius, whitePaint)
+
+        val konabBmp = context?.let { ctx ->
+            try {
+                BitmapFactory.decodeResource(ctx.resources, R.drawable.ic_konab_logo)
+                    ?: ContextCompat.getDrawable(ctx, R.drawable.ic_konab_logo)?.let { d ->
+                        val size = (logoRadius * 2f).toInt().coerceAtLeast(32)
+                        val b = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+                        val c = Canvas(b)
+                        d.setBounds(0, 0, size, size)
+                        d.draw(c)
+                        b
+                    }
+            } catch (_: Throwable) {
+                null
+            }
+        }
+
+        if (konabBmp != null) {
+            drawCenterCroppedCircleBitmap(canvas, konabBmp, logoCx, centerY, logoRadius - 3f)
+        } else {
+            val kPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.parseColor("#073B9A")
+                textSize = 24f
+                textAlign = Paint.Align.CENTER
+                typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
+            }
+            val kY = centerY - ((kPaint.descent() + kPaint.ascent()) / 2f)
+            canvas.drawText("K", logoCx, kY, kPaint)
+        }
+
+        val textX = startX + (logoRadius * 2f) + gap
+        val brandY = centerY - ((brandPaint.descent() + brandPaint.ascent()) / 2f)
+        canvas.drawText(brandText, textX, brandY, brandPaint)
+
+        val sepY = centerY - ((sepPaint.descent() + sepPaint.ascent()) / 2f)
+        canvas.drawText(sepText, textX + brandWidth, sepY, sepPaint)
+    }
+
+    internal fun fitTextSize(
+        text: String,
+        maxSize: Float,
+        minSize: Float,
+        maxWidthPx: Float,
+        paint: Paint
+    ): Float {
+        var size = maxSize
+        while (size > minSize) {
+            paint.textSize = size
+            if (paint.measureText(text) <= maxWidthPx) {
+                return size
+            }
+            size -= 2f
+        }
+        return minSize
     }
 
     private fun sanitizedFileName(shopName: String, tableName: String): String {

@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -19,30 +20,40 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.example.R
 import com.example.data.remote.supabase.RestaurantTableRecord
 import com.example.ui.components.KonabEmptyState
 import com.example.ui.theme.*
 import com.example.util.QrCodeHelper
 import com.example.util.RestaurantQrCardHelper
+import com.example.util.ShopLogoAvatar
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.util.Locale
 
 @Composable
 fun RestaurantTablesQrTab(
     shopName: String,
     city: String,
     phone: String,
+    logoUri: String? = null,
     cloudShopId: Long = 0L,
     tables: List<RestaurantTableRecord>,
     onSaveTable: (RestaurantTableRecord) -> Unit,
@@ -51,6 +62,7 @@ fun RestaurantTablesQrTab(
     onPreviewTableMenu: (String) -> Unit
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var showAddTableDialog by remember { mutableStateOf(false) }
     var posterPreviewTable by remember { mutableStateOf<RestaurantTableRecord?>(null) }
 
@@ -73,17 +85,30 @@ fun RestaurantTablesQrTab(
                     modifier = Modifier.padding(14.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Text(
-                        text = "QR Codes Tables Téléchargeables & Imprimables",
-                        fontFamily = OutfitFontFamily,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp
-                    )
-                    Text(
-                        text = "Téléchargez chaque affiche au format PNG haute résolution ou lancez l'impression papier pour vos tables. Tout scan ouvre le Menu du Jour.",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        ShopLogoAvatar(
+                            logoUri = logoUri,
+                            size = 42.dp,
+                            shape = CircleShape,
+                            contentDescription = "Logo $shopName"
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "QR Codes Tables Designer",
+                                fontFamily = OutfitFontFamily,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp
+                            )
+                            Text(
+                                text = "Affiches personnalisées avec logo du restaurant, N° de table et signature Konab POS.",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -142,160 +167,297 @@ fun RestaurantTablesQrTab(
                 }
 
                 Card(
-                    shape = RoundedCornerShape(18.dp),
+                    shape = RoundedCornerShape(20.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
+                    border = BorderStroke(1.dp, KonabBlue.copy(alpha = 0.28f)),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag("card_table_qr_${table.tableNumber}")
                 ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        // Branded Header Strip with Restaurant Logo & Name + Prominent Table Pill
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = Color.White,
-                                border = BorderStroke(1.dp, KonabBlue.copy(alpha = 0.35f)),
-                                modifier = Modifier.size(86.dp)
-                            ) {
-                                Image(
-                                    bitmap = qrThumb.asImageBitmap(),
-                                    contentDescription = "QR Code ${table.tableNumber}",
-                                    contentScale = ContentScale.Fit,
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .padding(6.dp)
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(
+                                    Brush.horizontalGradient(
+                                        listOf(Color(0xFF06245E), Color(0xFF073B9A))
+                                    )
                                 )
-                            }
-
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            ShopLogoAvatar(
+                                logoUri = logoUri,
+                                size = 36.dp,
+                                shape = CircleShape,
+                                contentDescription = "Logo $shopName"
+                            )
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = table.tableNumber,
+                                    text = shopName.ifBlank { "Mon Restaurant" },
                                     fontFamily = OutfitFontFamily,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    fontSize = 16.sp
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.5.sp,
+                                    color = Color.White,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                                 Text(
                                     text = "${table.zone} • ${table.seats} places",
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    fontSize = 11.sp,
+                                    color = Color(0xFFDBEAFE),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
-                                Spacer(modifier = Modifier.height(6.dp))
-                                OutlinedButton(
-                                    onClick = { posterPreviewTable = effectiveTable },
-                                    shape = RoundedCornerShape(10.dp),
-                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                                    modifier = Modifier
-                                        .height(38.dp)
-                                        .testTag("btn_preview_poster_${table.tableNumber}")
-                                ) {
-                                    Icon(Icons.Default.Visibility, contentDescription = null, modifier = Modifier.size(15.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Aperçu Poster PNG", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
-                                }
                             }
-
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = Color(0xFFFFF7ED),
+                                border = BorderStroke(1.5.dp, Color(0xFFFF7900))
+                            ) {
+                                Text(
+                                    text = table.tableNumber.trim().ifBlank { "TABLE" }.uppercase(Locale.ROOT),
+                                    fontFamily = OutfitFontFamily,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 12.sp,
+                                    color = Color(0xFF9A3412),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                                )
+                            }
                             IconButton(
                                 onClick = { onDeleteTable(table.id) },
                                 modifier = Modifier
                                     .minimumInteractiveComponentSize()
                                     .testTag("btn_delete_table_${table.tableNumber}")
                             ) {
-                                Icon(Icons.Default.DeleteOutline, contentDescription = "Supprimer ${table.tableNumber}", tint = KonabRed)
+                                Icon(
+                                    Icons.Default.DeleteOutline,
+                                    contentDescription = "Supprimer ${table.tableNumber}",
+                                    tint = Color(0xFFFCA5A5)
+                                )
                             }
                         }
 
-                        // Action Bar: Télécharger PNG / Imprimer / Partager / Tester Menu
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        // Thin Orange Brand Accent Divider
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(3.dp)
+                                .background(
+                                    Brush.horizontalGradient(
+                                        listOf(Color(0xFFFF7900), Color(0xFFFFA43A))
+                                    )
+                                )
+                        )
+
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Button(
-                                onClick = {
-                                    val poster = RestaurantQrCardHelper.buildTableQrCardBitmap(shopName, effectiveTable, city, phone)
-                                    val res = RestaurantQrCardHelper.saveTableQrPngToDevice(context, poster, shopName, effectiveTable.tableNumber)
-                                    Toast.makeText(
-                                        context,
-                                        res.getOrElse { it.localizedMessage ?: "Erreur d'enregistrement PNG" },
-                                        Toast.LENGTH_LONG
-                                    ).show()
-                                },
-                                colors = ButtonDefaults.buttonColors(containerColor = KonabBlue),
-                                shape = RoundedCornerShape(10.dp),
-                                contentPadding = PaddingValues(horizontal = 8.dp),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(48.dp)
-                                    .testTag("btn_download_png_${table.tableNumber}")
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
-                                Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("PNG", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                            }
+                                Surface(
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = Color.White,
+                                    border = BorderStroke(2.dp, Color(0xFFFF7900).copy(alpha = 0.7f)),
+                                    shadowElevation = 2.dp,
+                                    modifier = Modifier.size(94.dp)
+                                ) {
+                                    Image(
+                                        bitmap = qrThumb.asImageBitmap(),
+                                        contentDescription = "QR Code ${table.tableNumber}",
+                                        contentScale = ContentScale.Fit,
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .padding(6.dp)
+                                    )
+                                }
 
-                            Button(
-                                onClick = {
-                                    val poster = RestaurantQrCardHelper.buildTableQrCardBitmap(shopName, effectiveTable, city, phone)
-                                    val res = RestaurantQrCardHelper.printTableQrCard(context, poster, shopName, effectiveTable.tableNumber)
-                                    if (res.isFailure) {
-                                        Toast.makeText(
-                                            context,
-                                            res.exceptionOrNull()?.localizedMessage ?: "Impression indisponible",
-                                            Toast.LENGTH_LONG
-                                        ).show()
+                                Column(
+                                    modifier = Modifier.weight(1f),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text(
+                                        text = table.tableNumber,
+                                        fontFamily = OutfitFontFamily,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        fontSize = 18.sp,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Surface(
+                                            shape = CircleShape,
+                                            color = Color.White,
+                                            border = BorderStroke(1.dp, KonabBlue.copy(alpha = 0.25f)),
+                                            modifier = Modifier.size(18.dp)
+                                        ) {
+                                            Image(
+                                                painter = painterResource(id = R.drawable.ic_konab_logo),
+                                                contentDescription = null,
+                                                contentScale = ContentScale.Crop,
+                                                modifier = Modifier.fillMaxSize()
+                                            )
+                                        }
+                                        Text(
+                                            text = "KONAB POS • Menu Digital",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = KonabBlue
+                                        )
                                     }
-                                },
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEA580C)),
-                                shape = RoundedCornerShape(10.dp),
-                                contentPadding = PaddingValues(horizontal = 8.dp),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(48.dp)
-                                    .testTag("btn_print_qr_${table.tableNumber}")
-                            ) {
-                                Icon(Icons.Default.Print, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Tirer", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                            }
-
-                            OutlinedButton(
-                                onClick = {
-                                    val poster = RestaurantQrCardHelper.buildTableQrCardBitmap(shopName, effectiveTable, city, phone)
-                                    val res = RestaurantQrCardHelper.shareTableQrPng(context, poster, shopName, effectiveTable.tableNumber)
-                                    if (res.isFailure) {
-                                        Toast.makeText(context, "Partage indisponible", Toast.LENGTH_SHORT).show()
+                                    OutlinedButton(
+                                        onClick = { posterPreviewTable = effectiveTable },
+                                        shape = RoundedCornerShape(10.dp),
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                        modifier = Modifier
+                                            .heightIn(min = 48.dp)
+                                            .testTag("btn_preview_poster_${table.tableNumber}")
+                                    ) {
+                                        Icon(Icons.Default.Visibility, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Aperçu Affiche PNG", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                     }
-                                },
-                                shape = RoundedCornerShape(10.dp),
-                                contentPadding = PaddingValues(horizontal = 8.dp),
-                                modifier = Modifier
-                                    .weight(0.9f)
-                                    .height(48.dp)
-                                    .testTag("btn_share_qr_${table.tableNumber}")
-                            ) {
-                                Icon(Icons.Default.Share, contentDescription = "Partager PNG", modifier = Modifier.size(16.dp))
+                                }
                             }
 
-                            OutlinedButton(
-                                onClick = { onPreviewTableMenu(table.tableNumber) },
-                                shape = RoundedCornerShape(10.dp),
-                                contentPadding = PaddingValues(horizontal = 8.dp),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(48.dp)
-                                    .testTag("btn_test_menu_${table.tableNumber}")
+                            // Action Bar: Télécharger PNG / Imprimer / Partager / Tester Menu
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                Icon(Icons.Default.RestaurantMenu, contentDescription = null, modifier = Modifier.size(15.dp))
-                                Spacer(modifier = Modifier.width(3.dp))
-                                Text("Menu", fontWeight = FontWeight.Bold, fontSize = 11.5.sp)
+                                Button(
+                                    onClick = {
+                                        scope.launch {
+                                            val poster = withContext(Dispatchers.IO) {
+                                                RestaurantQrCardHelper.buildTableQrCardBitmap(
+                                                    shopName = shopName,
+                                                    table = effectiveTable,
+                                                    city = city,
+                                                    phone = phone,
+                                                    context = context,
+                                                    logoUri = logoUri
+                                                )
+                                            }
+                                            val res = withContext(Dispatchers.IO) {
+                                                RestaurantQrCardHelper.saveTableQrPngToDevice(
+                                                    context, poster, shopName, effectiveTable.tableNumber
+                                                )
+                                            }
+                                            Toast.makeText(
+                                                context,
+                                                res.getOrElse { it.localizedMessage ?: "Erreur d'enregistrement PNG" },
+                                                Toast.LENGTH_LONG
+                                            ).show()
+                                        }
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = KonabBlue),
+                                    shape = RoundedCornerShape(10.dp),
+                                    contentPadding = PaddingValues(horizontal = 8.dp),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(48.dp)
+                                        .testTag("btn_download_png_${table.tableNumber}")
+                                ) {
+                                    Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("PNG", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                }
+
+                                Button(
+                                    onClick = {
+                                        scope.launch {
+                                            val poster = withContext(Dispatchers.IO) {
+                                                RestaurantQrCardHelper.buildTableQrCardBitmap(
+                                                    shopName = shopName,
+                                                    table = effectiveTable,
+                                                    city = city,
+                                                    phone = phone,
+                                                    context = context,
+                                                    logoUri = logoUri
+                                                )
+                                            }
+                                            val res = RestaurantQrCardHelper.printTableQrCard(
+                                                context, poster, shopName, effectiveTable.tableNumber
+                                            )
+                                            if (res.isFailure) {
+                                                Toast.makeText(
+                                                    context,
+                                                    res.exceptionOrNull()?.localizedMessage ?: "Impression indisponible",
+                                                    Toast.LENGTH_LONG
+                                                ).show()
+                                            }
+                                        }
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEA580C)),
+                                    shape = RoundedCornerShape(10.dp),
+                                    contentPadding = PaddingValues(horizontal = 8.dp),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(48.dp)
+                                        .testTag("btn_print_qr_${table.tableNumber}")
+                                ) {
+                                    Icon(Icons.Default.Print, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Tirer", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                }
+
+                                OutlinedButton(
+                                    onClick = {
+                                        scope.launch {
+                                            val poster = withContext(Dispatchers.IO) {
+                                                RestaurantQrCardHelper.buildTableQrCardBitmap(
+                                                    shopName = shopName,
+                                                    table = effectiveTable,
+                                                    city = city,
+                                                    phone = phone,
+                                                    context = context,
+                                                    logoUri = logoUri
+                                                )
+                                            }
+                                            val res = RestaurantQrCardHelper.shareTableQrPng(
+                                                context, poster, shopName, effectiveTable.tableNumber
+                                            )
+                                            if (res.isFailure) {
+                                                Toast.makeText(context, "Partage indisponible", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                    },
+                                    shape = RoundedCornerShape(10.dp),
+                                    contentPadding = PaddingValues(horizontal = 8.dp),
+                                    modifier = Modifier
+                                        .weight(0.9f)
+                                        .height(48.dp)
+                                        .testTag("btn_share_qr_${table.tableNumber}")
+                                ) {
+                                    Icon(Icons.Default.Share, contentDescription = "Partager PNG", modifier = Modifier.size(16.dp))
+                                }
+
+                                OutlinedButton(
+                                    onClick = { onPreviewTableMenu(table.tableNumber) },
+                                    shape = RoundedCornerShape(10.dp),
+                                    contentPadding = PaddingValues(horizontal = 8.dp),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(48.dp)
+                                        .testTag("btn_test_menu_${table.tableNumber}")
+                                ) {
+                                    Icon(Icons.Default.RestaurantMenu, contentDescription = null, modifier = Modifier.size(15.dp))
+                                    Spacer(modifier = Modifier.width(3.dp))
+                                    Text("Menu", fontWeight = FontWeight.Bold, fontSize = 11.5.sp)
+                                }
                             }
                         }
                     }
@@ -320,6 +482,7 @@ fun RestaurantTablesQrTab(
             shopName = shopName,
             city = city,
             phone = phone,
+            logoUri = logoUri,
             table = table,
             onDismiss = { posterPreviewTable = null }
         )
@@ -331,15 +494,29 @@ private fun TablePosterPreviewDialog(
     shopName: String,
     city: String,
     phone: String,
+    logoUri: String?,
     table: RestaurantTableRecord,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     @Suppress("DEPRECATION")
     val clipboard = LocalClipboardManager.current
     val qrUri = remember(shopName, table) { table.buildQrUri(shopName) }
-    val posterBitmap = remember(shopName, city, phone, table) {
-        RestaurantQrCardHelper.buildTableQrCardBitmap(shopName, table, city, phone)
+    val posterBitmap by produceState<Bitmap?>(
+        initialValue = null,
+        shopName, city, phone, logoUri, table
+    ) {
+        value = withContext(Dispatchers.IO) {
+            RestaurantQrCardHelper.buildTableQrCardBitmap(
+                shopName = shopName,
+                table = table,
+                city = city,
+                phone = phone,
+                context = context,
+                logoUri = logoUri
+            )
+        }
     }
 
     Dialog(
@@ -373,7 +550,10 @@ private fun TablePosterPreviewDialog(
                         fontWeight = FontWeight.ExtraBold,
                         fontSize = 17.sp
                     )
-                    IconButton(onClick = onDismiss) {
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.minimumInteractiveComponentSize()
+                    ) {
                         Icon(Icons.Default.Close, contentDescription = "Fermer")
                     }
                 }
@@ -381,19 +561,25 @@ private fun TablePosterPreviewDialog(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .aspectRatio(900f / 1240f)
                         .clip(RoundedCornerShape(16.dp))
                         .background(Color(0xFFF1F5F9))
                         .padding(8.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Image(
-                        bitmap = posterBitmap.asImageBitmap(),
-                        contentDescription = "Affiche QR ${table.tableNumber}",
-                        contentScale = ContentScale.FillWidth,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                    )
+                    val bmp = posterBitmap
+                    if (bmp != null) {
+                        Image(
+                            bitmap = bmp.asImageBitmap(),
+                            contentDescription = "Affiche QR ${table.tableNumber}",
+                            contentScale = ContentScale.FillWidth,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                        )
+                    } else {
+                        CircularProgressIndicator(color = KonabBlue)
+                    }
                 }
 
                 Row(
@@ -402,13 +588,21 @@ private fun TablePosterPreviewDialog(
                 ) {
                     Button(
                         onClick = {
-                            val res = RestaurantQrCardHelper.saveTableQrPngToDevice(context, posterBitmap, shopName, table.tableNumber)
-                            Toast.makeText(
-                                context,
-                                res.getOrElse { it.localizedMessage ?: "Erreur" },
-                                Toast.LENGTH_LONG
-                            ).show()
+                            val bmp = posterBitmap ?: return@Button
+                            scope.launch {
+                                val res = withContext(Dispatchers.IO) {
+                                    RestaurantQrCardHelper.saveTableQrPngToDevice(
+                                        context, bmp, shopName, table.tableNumber
+                                    )
+                                }
+                                Toast.makeText(
+                                    context,
+                                    res.getOrElse { it.localizedMessage ?: "Erreur" },
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
                         },
+                        enabled = posterBitmap != null,
                         colors = ButtonDefaults.buttonColors(containerColor = KonabBlue),
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier
@@ -421,8 +615,10 @@ private fun TablePosterPreviewDialog(
                     }
                     Button(
                         onClick = {
-                            RestaurantQrCardHelper.printTableQrCard(context, posterBitmap, shopName, table.tableNumber)
+                            val bmp = posterBitmap ?: return@Button
+                            RestaurantQrCardHelper.printTableQrCard(context, bmp, shopName, table.tableNumber)
                         },
+                        enabled = posterBitmap != null,
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEA580C)),
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier

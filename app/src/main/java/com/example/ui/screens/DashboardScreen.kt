@@ -711,141 +711,269 @@ fun DashboardScreen(
                     maxWidth = 1120.dp,
                     modifier = Modifier.padding(horizontal = 16.dp)
                 ) {
-                    Card(
-                        shape = RoundedCornerShape(18.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        border = BorderStroke(1.dp, Color(0xFFEA580C).copy(alpha = 0.45f)),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onNavigate(KonabScreen.RESTAURANT) }
-                            .testTag("card_dashboard_restaurant")
-                    ) {
-                        Column(
+                    KonabStaggeredReveal(index = 2) {
+                        Card(
+                            shape = RoundedCornerShape(22.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                            border = BorderStroke(1.2.dp, Color(0xFFEA580C).copy(alpha = 0.45f)),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(14.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                                .konabPressScale(pressedScale = 0.99f)
+                                .clickable { onNavigate(KonabScreen.RESTAURANT) }
+                                .testTag("card_dashboard_restaurant")
                         ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                // Gradient Header Banner
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(
+                                            Brush.horizontalGradient(
+                                                listOf(Color(0xFF7C2D12), Color(0xFFEA580C), Color(0xFFD97706))
+                                            )
+                                        )
+                                        .konabHeroShimmer(maxAlpha = 0.08f)
+                                        .padding(horizontal = 14.dp, vertical = 12.dp)
                                 ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(36.dp)
-                                            .clip(CircleShape)
-                                            .background(Color(0xFFEA580C).copy(alpha = 0.14f)),
-                                        contentAlignment = Alignment.Center
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Icon(
-                                            imageVector = Icons.Default.RestaurantMenu,
-                                            contentDescription = "Restaurant & Cuisine",
-                                            tint = Color(0xFFEA580C),
-                                            modifier = Modifier.size(20.dp)
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(40.dp)
+                                                    .clip(CircleShape)
+                                                    .background(Color.White.copy(alpha = 0.2f)),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.RestaurantMenu,
+                                                    contentDescription = "Restaurant & Cuisine",
+                                                    tint = Color.White,
+                                                    modifier = Modifier.size(21.dp)
+                                                )
+                                            }
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                ) {
+                                                    Text(
+                                                        text = "Accueil Restaurant",
+                                                        fontFamily = OutfitFontFamily,
+                                                        fontWeight = FontWeight.ExtraBold,
+                                                        fontSize = 15.5.sp,
+                                                        color = Color.White,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                    KonabLivePulseDot(color = Color(0xFF6EE7B7), size = 6.dp)
+                                                }
+                                                Text(
+                                                    text = "Opérateur : ${activeStaff?.name ?: "Gérant"} (${activeStaff?.role?.badgeLabel ?: "GÉRANT"})",
+                                                    fontSize = 11.sp,
+                                                    color = Color(0xFFFFEDD5),
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                        }
+
+                                        Surface(
+                                            color = Color.White,
+                                            shape = RoundedCornerShape(10.dp)
+                                        ) {
+                                            Text(
+                                                text = "${pendingCount + kitchenCount + readyCount} actives",
+                                                color = Color(0xFF9A3412),
+                                                fontWeight = FontWeight.ExtraBold,
+                                                fontSize = 11.sp,
+                                                modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp)
+                                            )
+                                        }
+                                    }
+                                }
+
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(14.dp),
+                                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    // 3 Rich Status Tiles
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Surface(
+                                            shape = RoundedCornerShape(14.dp),
+                                            color = Color(0xFFFEF3C7).copy(alpha = 0.72f),
+                                            border = BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.45f)),
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Column(
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 9.dp),
+                                                horizontalAlignment = Alignment.CenterHorizontally,
+                                                verticalArrangement = Arrangement.spacedBy(2.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.HourglassTop,
+                                                    contentDescription = null,
+                                                    tint = Color(0xFFB45309),
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                                Text(
+                                                    text = "$pendingCount",
+                                                    fontFamily = OutfitFontFamily,
+                                                    fontWeight = FontWeight.Black,
+                                                    fontSize = 18.sp,
+                                                    color = Color(0xFF92400E)
+                                                )
+                                                Text(
+                                                    text = "À valider",
+                                                    fontSize = 10.5.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = Color(0xFF92400E),
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                        }
+
+                                        Surface(
+                                            shape = RoundedCornerShape(14.dp),
+                                            color = Color(0xFFFFEDD5).copy(alpha = 0.78f),
+                                            border = BorderStroke(1.dp, Color(0xFFEA580C).copy(alpha = 0.45f)),
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Column(
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 9.dp),
+                                                horizontalAlignment = Alignment.CenterHorizontally,
+                                                verticalArrangement = Arrangement.spacedBy(2.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.SoupKitchen,
+                                                    contentDescription = null,
+                                                    tint = Color(0xFFEA580C),
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                                Text(
+                                                    text = "$kitchenCount",
+                                                    fontFamily = OutfitFontFamily,
+                                                    fontWeight = FontWeight.Black,
+                                                    fontSize = 18.sp,
+                                                    color = Color(0xFF9A3412)
+                                                )
+                                                Text(
+                                                    text = "Cuisine",
+                                                    fontSize = 10.5.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = Color(0xFF9A3412),
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                        }
+
+                                        Surface(
+                                            shape = RoundedCornerShape(14.dp),
+                                            color = KonabGreenLight.copy(alpha = 0.85f),
+                                            border = BorderStroke(1.dp, KonabGreen.copy(alpha = 0.45f)),
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Column(
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 9.dp),
+                                                horizontalAlignment = Alignment.CenterHorizontally,
+                                                verticalArrangement = Arrangement.spacedBy(2.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.RoomService,
+                                                    contentDescription = null,
+                                                    tint = KonabGreenDark,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                                Text(
+                                                    text = "$readyCount",
+                                                    fontFamily = OutfitFontFamily,
+                                                    fontWeight = FontWeight.Black,
+                                                    fontSize = 18.sp,
+                                                    color = KonabGreenDark
+                                                )
+                                                Text(
+                                                    text = "Prêt / Servi",
+                                                    fontSize = 10.5.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = KonabGreenDark,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    // Compact Tab Roles Pill Summary
+                                    Surface(
+                                        shape = RoundedCornerShape(10.dp),
+                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text(
+                                            text = "Onglets : Cmdes (salle) • Cuisine (plats) • Menu • Tables QR • Équipe",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
                                         )
                                     }
-                                    Column {
-                                        Text(
-                                            text = "Restaurant & Cuisine Synchronisés",
-                                            fontFamily = OutfitFontFamily,
-                                            fontWeight = FontWeight.ExtraBold,
-                                            fontSize = 14.5.sp
-                                        )
-                                        Text(
-                                            text = "Opérateur : ${activeStaff?.name ?: "Gérant"} (${activeStaff?.role?.badgeLabel ?: "GÉRANT"})",
-                                            fontSize = 11.5.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Button(
+                                            onClick = { onNavigate(KonabScreen.RESTAURANT) },
+                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEA580C)),
+                                            shape = RoundedCornerShape(12.dp),
+                                            modifier = Modifier
+                                                .weight(1.4f)
+                                                .heightIn(min = 48.dp)
+                                                .testTag("btn_dashboard_restaurant")
+                                        ) {
+                                            Icon(Icons.Default.SoupKitchen, contentDescription = null, modifier = Modifier.size(17.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text(
+                                                text = "Commandes & Tables QR",
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 12.sp,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                        OutlinedButton(
+                                            onClick = { onNavigate(KonabScreen.POS) },
+                                            shape = RoundedCornerShape(12.dp),
+                                            border = BorderStroke(1.2.dp, Color(0xFFEA580C).copy(alpha = 0.6f)),
+                                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF9A3412)),
+                                            modifier = Modifier
+                                                .weight(0.9f)
+                                                .heightIn(min = 48.dp)
+                                                .testTag("btn_dashboard_restaurant_pos")
+                                        ) {
+                                            Icon(Icons.Default.PointOfSale, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text("Caisse", fontWeight = FontWeight.ExtraBold, fontSize = 12.sp, maxLines = 1)
+                                        }
                                     }
                                 }
-                                Surface(
-                                    color = Color(0xFFEA580C),
-                                    shape = RoundedCornerShape(8.dp)
-                                ) {
-                                    Text(
-                                        text = "${pendingCount + kitchenCount + readyCount} actives",
-                                        color = Color.White,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        fontSize = 10.5.sp,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                    )
-                                }
-                            }
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Surface(
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = Color(0xFFFEF3C7),
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Text(
-                                        text = "À valider : $pendingCount",
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF92400E),
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
-                                    )
-                                }
-                                Surface(
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = Color(0xFFFFEDD5),
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Text(
-                                        text = "Cuisine : $kitchenCount",
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF9A3412),
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
-                                    )
-                                }
-                                Surface(
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = KonabGreenLight,
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Text(
-                                        text = "Prêt : $readyCount",
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = KonabGreenDark,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
-                                    )
-                                }
-                            }
-
-                            Button(
-                                onClick = { onNavigate(KonabScreen.RESTAURANT) },
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEA580C)),
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .heightIn(min = 48.dp)
-                                    .testTag("btn_dashboard_restaurant")
-                            ) {
-                                Icon(Icons.Default.SoupKitchen, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = "Gérer Commandes & Tables QR",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 12.5.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
                             }
                         }
                     }
@@ -1932,22 +2060,22 @@ private fun DashboardShortcutPill(
         onClick = onClick,
         shape = RoundedCornerShape(16.dp),
         color = MaterialTheme.colorScheme.surface,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.7f)),
-        shadowElevation = 1.dp,
+        border = BorderStroke(1.dp, badgeColor.copy(alpha = 0.28f)),
+        shadowElevation = 2.dp,
         modifier = modifier
-            .heightIn(min = 68.dp)
+            .heightIn(min = 70.dp)
             .konabPressScale(pressedScale = 0.95f)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 8.dp, horizontal = 4.dp),
+                .padding(vertical = 9.dp, horizontal = 4.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
             Box(
                 modifier = Modifier
-                    .size(32.dp)
+                    .size(34.dp)
                     .background(containerColor, CircleShape),
                 contentAlignment = Alignment.Center
             ) {
@@ -1958,11 +2086,11 @@ private fun DashboardShortcutPill(
                     modifier = Modifier.size(18.dp)
                 )
             }
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(5.dp))
             Text(
                 text = label,
                 fontSize = 11.5.sp,
-                fontWeight = FontWeight.SemiBold,
+                fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis

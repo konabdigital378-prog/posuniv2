@@ -100,6 +100,18 @@ class CoutureManagementTest {
             }
         }
         assertTrue("Generated QR poster must contain dark QR modules", darkPixels > 50)
+
+        val brandedPoster = CoutureQrCardHelper.buildCatalogQrCardBitmap(
+            shopName = "Atelier Elégance Bobo",
+            shopId = 9001L,
+            city = "Bobo-Dioulasso",
+            phone = "70223344",
+            modelsCount = 6,
+            context = context,
+            logoUri = "drawable:img_prod_mode"
+        )
+        assertEquals(900, brandedPoster.width)
+        assertEquals(1240, brandedPoster.height)
     }
 
     @Test

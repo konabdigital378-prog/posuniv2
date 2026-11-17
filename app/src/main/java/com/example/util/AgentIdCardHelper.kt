@@ -126,7 +126,8 @@ object AgentIdCardHelper {
 
     /**
      * Copies a profile photo chosen via the zero-permission Android Photo Picker
-     * into internal app storage (`filesDir/agent_photos/`) and scales it safely.
+     * into internal app storage (`filesDir/agent_photos/`) and scales/compresses it safely
+     * regardless of original image resolution or file size.
      */
     fun saveAgentPhotoToInternalStorage(
         context: Context,
@@ -136,19 +137,26 @@ object AgentIdCardHelper {
         return try {
             val dir = File(context.filesDir, "agent_photos")
             val safeKey = agentKey.replace(Regex("[^A-Za-z0-9_-]"), "_").ifBlank { "agent" }
-            val webpFile = KonabImageOptimizer.compressUriToWebpFile(
+            val optimizedFile = KonabImageOptimizer.compressUriToWebpFile(
                 context = context,
                 sourceUri = sourceUri,
                 destDir = dir,
                 fileNamePrefix = safeKey,
-                maxDimPx = 480,
-                quality = 80
+                maxDimPx = 640,
+                quality = 82
+            ) ?: KonabImageOptimizer.compressUriToWebpFile(
+                context = context,
+                sourceUri = sourceUri,
+                destDir = dir,
+                fileNamePrefix = safeKey,
+                maxDimPx = 360,
+                quality = 72
             )
-            if (webpFile != null) {
-                return Uri.fromFile(webpFile).toString()
+            if (optimizedFile != null) {
+                return Uri.fromFile(optimizedFile).toString()
             }
             null
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             android.util.Log.e("AgentIdCardHelper", "Erreur sauvegarde photo agent: ${e.message}", e)
             null
         }
@@ -156,19 +164,66 @@ object AgentIdCardHelper {
 
     fun loadAgentPhotoBitmap(context: Context, photoUri: String?): Bitmap? {
         if (photoUri.isNullOrBlank()) return null
+        val clean = photoUri.trim()
         return try {
+            if (clean.startsWith("data:image/", ignoreCase = true)) {
+                val base64Part = clean.substringAfter("base64,", "")
+                if (base64Part.isNotBlank()) {
+                    val bytes = android.util.Base64.decode(base64Part, android.util.Base64.DEFAULT)
+                    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+                    val opts = BitmapFactory.Options().apply {
+                        inSampleSize = computeSampleSize(bounds.outWidth, bounds.outHeight, 512)
+                    }
+                    return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
+                }
+                return null
+            }
+
             when {
-                photoUri.startsWith("file://") -> BitmapFactory.decodeFile(photoUri.removePrefix("file://"))
-                photoUri.startsWith("content://") -> {
-                    context.contentResolver.openInputStream(Uri.parse(photoUri))?.use {
-                        BitmapFactory.decodeStream(it)
+                clean.startsWith("file://") -> {
+                    val path = Uri.parse(clean).path ?: clean.removePrefix("file://")
+                    decodeSampledFile(path, 512)
+                }
+                clean.startsWith("content://") -> {
+                    val uri = Uri.parse(clean)
+                    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                    context.contentResolver.openInputStream(uri)?.use {
+                        BitmapFactory.decodeStream(it, null, bounds)
+                    }
+                    val opts = BitmapFactory.Options().apply {
+                        inSampleSize = computeSampleSize(bounds.outWidth, bounds.outHeight, 512)
+                    }
+                    context.contentResolver.openInputStream(uri)?.use {
+                        BitmapFactory.decodeStream(it, null, opts)
                     }
                 }
-                else -> BitmapFactory.decodeFile(photoUri)
+                else -> decodeSampledFile(clean, 512)
             }
-        } catch (_: Exception) {
+        } catch (_: Throwable) {
             null
         }
+    }
+
+    private fun decodeSampledFile(path: String, maxDimPx: Int): Bitmap? {
+        val file = File(path)
+        if (!file.exists() || file.length() <= 0L) return null
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.absolutePath, bounds)
+        val opts = BitmapFactory.Options().apply {
+            inSampleSize = computeSampleSize(bounds.outWidth, bounds.outHeight, maxDimPx)
+        }
+        return BitmapFactory.decodeFile(file.absolutePath, opts)
+    }
+
+    private fun computeSampleSize(width: Int, height: Int, maxDimPx: Int): Int {
+        if (width <= 0 || height <= 0 || maxDimPx <= 0) return 1
+        var sample = 1
+        val maxSide = maxOf(width, height)
+        while ((maxSide / sample) > maxDimPx * 2) {
+            sample *= 2
+        }
+        return sample.coerceAtLeast(1)
     }
 
     private fun loadKonabLogoBitmap(context: Context, sizePx: Int): Bitmap? {

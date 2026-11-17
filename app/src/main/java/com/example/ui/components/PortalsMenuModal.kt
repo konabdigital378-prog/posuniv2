@@ -37,11 +37,13 @@ fun PortalsMenuModal(
     connectedShopsCount: Int,
     wasteClientsCount: Int,
     tontineCardsCount: Int,
+    activeDeliveriesCount: Int = 0,
     onOpenUserPortal: () -> Unit = {},
     onOpenRestaurants: () -> Unit,
     onOpenCouture: () -> Unit,
     onOpenWastePortal: () -> Unit,
     onOpenTontinePortal: () -> Unit,
+    onOpenDeliveryPortal: () -> Unit = {},
     onOpenMultiShop: () -> Unit,
     onOpenScanner: () -> Unit,
     onRegisterAgent: () -> Unit,
@@ -259,25 +261,50 @@ fun PortalsMenuModal(
                             )
                         }
 
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(IntrinsicSize.Min),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            PortalGridTile(
+                                title = "Livraisons & Livreurs",
+                                subtitle = "Carte, QR & plan 1000F",
+                                icon = Icons.Default.DeliveryDining,
+                                accentColor = Color(0xFF0284C7),
+                                badge = if (activeDeliveriesCount > 0) "$activeDeliveriesCount" else "1000F • QR",
+                                testTag = "btn_menu_delivery_portal",
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight(),
+                                onClick = {
+                                    onDismiss()
+                                    onOpenDeliveryPortal()
+                                }
+                            )
+                            PortalGridTile(
+                                title = "Scanner QR Universel",
+                                subtitle = "Resto, couture, livraison",
+                                icon = Icons.Default.QrCodeScanner,
+                                accentColor = KonabBlue,
+                                badge = "Scanner",
+                                testTag = "btn_menu_universal_qr",
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight(),
+                                onClick = {
+                                    onDismiss()
+                                    onOpenScanner()
+                                }
+                            )
+                        }
+
                         Text(
                             text = "ACCÈS RAPIDES",
                             fontSize = 10.5.sp,
                             fontWeight = FontWeight.ExtraBold,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             letterSpacing = 0.8.sp
-                        )
-
-                        PortalMenuCard(
-                            title = "Scanner QR Universel",
-                            subtitle = "Table resto, couture, carte poubelles ou tontine",
-                            icon = Icons.Default.QrCodeScanner,
-                            accentColor = KonabBlue,
-                            badge = "Scanner",
-                            testTag = "btn_menu_universal_qr",
-                            onClick = {
-                                onDismiss()
-                                onOpenScanner()
-                            }
                         )
 
                         PortalMenuCard(
@@ -437,15 +464,25 @@ private fun PortalGridTile(
     onClick: () -> Unit
 ) {
     Surface(
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(18.dp),
         color = MaterialTheme.colorScheme.surface,
-        border = BorderStroke(1.dp, accentColor.copy(alpha = 0.35f)),
-        tonalElevation = 1.dp,
+        border = BorderStroke(1.2.dp, accentColor.copy(alpha = 0.42f)),
+        tonalElevation = 2.dp,
+        shadowElevation = 2.dp,
         modifier = modifier
             .konabPressScale(pressedScale = 0.975f)
             .clickable(onClick = onClick)
             .testTag(testTag)
     ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        listOf(accentColor.copy(alpha = 0.08f), Color.Transparent)
+                    )
+                )
+        ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -459,16 +496,20 @@ private fun PortalGridTile(
             ) {
                 Box(
                     modifier = Modifier
-                        .size(38.dp)
-                        .clip(RoundedCornerShape(11.dp))
-                        .background(accentColor.copy(alpha = 0.14f)),
+                        .size(40.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(
+                            Brush.linearGradient(
+                                listOf(accentColor, accentColor.copy(alpha = 0.78f))
+                            )
+                        ),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = icon,
                         contentDescription = title,
-                        tint = accentColor,
-                        modifier = Modifier.size(20.dp)
+                        tint = Color.White,
+                        modifier = Modifier.size(21.dp)
                     )
                 }
 
@@ -508,6 +549,7 @@ private fun PortalGridTile(
                     overflow = TextOverflow.Ellipsis
                 )
             }
+        }
         }
     }
 }

@@ -166,6 +166,7 @@ fun TontinePortalModal(
                                 listOf(Color(0xFF92400E), Color(0xFFD97706), KonabOrange)
                             )
                         )
+                        .konabHeroShimmer(maxAlpha = 0.08f)
                         .padding(horizontal = 16.dp, vertical = 14.dp)
                 ) {
                     Row(
@@ -193,15 +194,23 @@ fun TontinePortalModal(
                                 )
                             }
                             Column {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text(
+                                        text = "Tontine Numérique • 30 Jours",
+                                        fontFamily = OutfitFontFamily,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        fontSize = 17.sp,
+                                        color = Color.White,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    KonabLivePulseDot(color = Color(0xFFFDE68A), size = 5.5.dp)
+                                }
                                 Text(
-                                    text = "Tontine Numérique • Carte 30 Jours",
-                                    fontFamily = OutfitFontFamily,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    fontSize = 17.sp,
-                                    color = Color.White
-                                )
-                                Text(
-                                    text = "Remplace le carnet papier • Pointage en temps réel & solde",
+                                    text = "${cards.size} carte(s) • Pointage en temps réel & solde",
                                     fontSize = 11.sp,
                                     color = Color(0xFFFEF3C7),
                                     maxLines = 1,

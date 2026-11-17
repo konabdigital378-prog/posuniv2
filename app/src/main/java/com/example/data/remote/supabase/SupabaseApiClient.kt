@@ -3360,4 +3360,83 @@ class SupabaseApiClient(
             Result.failure(e)
         }
     }
+
+    // --- PORTAIL LIVRAISONS & LIVREURS PRO ---
+
+    suspend fun pushDeliveryDrivers(list: List<DeliveryDriverProfile>): Result<Int> = withContext(Dispatchers.IO) {
+        if (!SupabaseConfig.isConfigured || list.isEmpty()) return@withContext Result.success(0)
+        try {
+            val arr = JSONArray().apply { list.forEach { put(it.toJson()) } }
+            executeRequest(
+                endpoint = "delivery_drivers?on_conflict=id",
+                method = "POST",
+                bodyString = arr.toString(),
+                extraHeaders = mapOf("Prefer" to "resolution=merge-duplicates")
+            ) { resp ->
+                if (resp.isSuccessful) Result.success(list.size)
+                else Result.failure(IOException("Échec sync livreurs (${resp.code})"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun fetchDeliveryDrivers(): Result<List<DeliveryDriverProfile>> = withContext(Dispatchers.IO) {
+        if (!SupabaseConfig.isConfigured) return@withContext Result.success(emptyList())
+        try {
+            executeRequest("delivery_drivers?select=*&order=updated_at.desc&limit=500") { resp ->
+                if (!resp.isSuccessful) return@withContext Result.failure(IOException("Erreur lecture livreurs (${resp.code})"))
+                val arr = JSONArray(resp.body?.string() ?: "[]")
+                val out = (0 until arr.length()).map { DeliveryDriverProfile.fromJson(arr.getJSONObject(it)) }
+                Result.success(out)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun pushDeliveries(list: List<DeliveryOrderRecord>): Result<Int> = withContext(Dispatchers.IO) {
+        if (!SupabaseConfig.isConfigured || list.isEmpty()) return@withContext Result.success(0)
+        try {
+            val arr = JSONArray().apply { list.forEach { put(it.toJson()) } }
+            executeRequest(
+                endpoint = "deliveries?on_conflict=id",
+                method = "POST",
+                bodyString = arr.toString(),
+                extraHeaders = mapOf("Prefer" to "resolution=merge-duplicates")
+            ) { resp ->
+                if (resp.isSuccessful) Result.success(list.size)
+                else Result.failure(IOException("Échec sync livraisons (${resp.code})"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun fetchDeliveries(): Result<List<DeliveryOrderRecord>> = withContext(Dispatchers.IO) {
+        if (!SupabaseConfig.isConfigured) return@withContext Result.success(emptyList())
+        try {
+            executeRequest("deliveries?select=*&order=updated_at.desc&limit=1000") { resp ->
+                if (!resp.isSuccessful) return@withContext Result.failure(IOException("Erreur lecture livraisons (${resp.code})"))
+                val arr = JSONArray(resp.body?.string() ?: "[]")
+                val out = (0 until arr.length()).map { DeliveryOrderRecord.fromJson(arr.getJSONObject(it)) }
+                Result.success(out)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun deleteDelivery(deliveryId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        if (!SupabaseConfig.isConfigured || deliveryId.isBlank()) return@withContext Result.success(Unit)
+        try {
+            val enc = java.net.URLEncoder.encode(deliveryId, "UTF-8")
+            executeRequest(endpoint = "deliveries?id=eq.$enc", method = "DELETE") { resp ->
+                if (resp.isSuccessful) Result.success(Unit)
+                else Result.failure(IOException("Erreur suppression livraison (${resp.code})"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
 }

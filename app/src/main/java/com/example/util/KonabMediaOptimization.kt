@@ -3,6 +3,9 @@ package com.example.util
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.ImageDecoder
+import android.graphics.Matrix
+import android.media.ExifInterface
 import android.net.Uri
 import android.os.Build
 import android.util.Base64
@@ -189,8 +192,9 @@ object KonabImageOptimizer {
     }
 
     /**
-     * Décode une image sans surconsommer la RAM (via inSampleSize), redimensionne à [maxDimPx]
-     * puis compresse au format WebP léger dans [destDir].
+     * Décode une image sans surconsommer la RAM (ImageDecoder sur API 28+ ou fichier temporaire
+     * seekable + inSampleSize + correction EXIF), redimensionne à [maxDimPx] puis compresse au
+     * format WebP léger (avec repli JPEG si nécessaire) dans [destDir].
      */
     fun compressUriToWebpFile(
         context: Context,
@@ -200,39 +204,173 @@ object KonabImageOptimizer {
         maxDimPx: Int = 720,
         quality: Int = 80
     ): File? {
+        var tempCopy: File? = null
         return try {
             if (!destDir.exists()) destDir.mkdirs()
 
-            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            context.contentResolver.openInputStream(sourceUri)?.use { input ->
-                BitmapFactory.decodeStream(input, null, bounds)
-            } ?: return null
-
-            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
-                return null
+            val localSourceFile: File = when {
+                sourceUri.scheme.equals("file", ignoreCase = true) -> {
+                    val path = sourceUri.path
+                    val existing = if (!path.isNullOrBlank()) File(path) else null
+                    if (existing != null && existing.exists() && existing.length() > 0L) {
+                        existing
+                    } else {
+                        return null
+                    }
+                }
+                else -> {
+                    val tmpDir = File(context.cacheDir, "konab_img_tmp").apply { if (!exists()) mkdirs() }
+                    val tmp = File(tmpDir, "pick_${System.currentTimeMillis()}_${System.nanoTime()}.bin")
+                    val copied = copyUriToTempFile(context, sourceUri, tmp)
+                    if (!copied || !tmp.exists() || tmp.length() <= 0L) {
+                        tmp.delete()
+                        return null
+                    }
+                    tempCopy = tmp
+                    tmp
+                }
             }
 
-            val sampleSize = calculateInSampleSize(bounds.outWidth, bounds.outHeight, maxDimPx)
-            val decodeOpts = BitmapFactory.Options().apply {
-                inSampleSize = sampleSize
-                inPreferredConfig = Bitmap.Config.ARGB_8888
-            }
-            val decoded = context.contentResolver.openInputStream(sourceUri)?.use { input ->
-                BitmapFactory.decodeStream(input, null, decodeOpts)
-            } ?: return null
-
+            val decoded = decodeSampledBitmapFromFile(localSourceFile, maxDimPx) ?: return null
             val scaled = scaleBitmapKeepRatio(decoded, maxDimPx)
-            val destFile = File(destDir, "${fileNamePrefix}_${System.currentTimeMillis()}.webp")
-            FileOutputStream(destFile).use { output ->
-                scaled.compress(webpCompressFormat(), quality.coerceIn(45, 95), output)
+            if (scaled !== decoded) {
+                decoded.recycle()
             }
-            if (scaled !== decoded) decoded.recycle()
+
+            val timestamp = System.currentTimeMillis()
+            val safeQuality = quality.coerceIn(45, 95)
+            val webpFile = File(destDir, "${fileNamePrefix}_${timestamp}.webp")
+            val webpOk = try {
+                FileOutputStream(webpFile).use { output ->
+                    scaled.compress(webpCompressFormat(), safeQuality, output)
+                } && webpFile.exists() && webpFile.length() > 0L
+            } catch (_: Throwable) {
+                false
+            }
+
+            if (webpOk) {
+                scaled.recycle()
+                return webpFile
+            }
+            if (webpFile.exists()) webpFile.delete()
+
+            val jpgFile = File(destDir, "${fileNamePrefix}_${timestamp}.jpg")
+            val jpgOk = try {
+                FileOutputStream(jpgFile).use { output ->
+                    scaled.compress(Bitmap.CompressFormat.JPEG, safeQuality, output)
+                } && jpgFile.exists() && jpgFile.length() > 0L
+            } catch (_: Throwable) {
+                false
+            }
             scaled.recycle()
 
-            if (destFile.exists() && destFile.length() > 0L) destFile else null
-        } catch (e: Exception) {
-            android.util.Log.e("KonabImageOptimizer", "Erreur compression WebP: ${e.message}", e)
+            if (jpgOk) jpgFile else {
+                if (jpgFile.exists()) jpgFile.delete()
+                null
+            }
+        } catch (e: Throwable) {
+            android.util.Log.e("KonabImageOptimizer", "Erreur compression image: ${e.message}", e)
             null
+        } finally {
+            try {
+                tempCopy?.delete()
+            } catch (_: Throwable) {}
+        }
+    }
+
+    private fun copyUriToTempFile(context: Context, sourceUri: Uri, destFile: File): Boolean {
+        val stream = try {
+            context.contentResolver.openInputStream(sourceUri)
+        } catch (_: Throwable) {
+            null
+        } ?: try {
+            context.contentResolver.openAssetFileDescriptor(sourceUri, "r")?.createInputStream()
+        } catch (_: Throwable) {
+            null
+        } ?: return false
+
+        return stream.use { input ->
+            FileOutputStream(destFile).use { output ->
+                val bytesCopied = input.copyTo(output, bufferSize = 16 * 1024)
+                output.flush()
+                bytesCopied > 0L
+            }
+        }
+    }
+
+    private fun decodeSampledBitmapFromFile(file: File, maxDimPx: Int): Bitmap? {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            try {
+                val source = ImageDecoder.createSource(file)
+                val decoded = ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
+                    decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+                    val w = info.size.width
+                    val h = info.size.height
+                    val maxSide = maxOf(w, h)
+                    if (w > 0 && h > 0 && maxSide > maxDimPx && maxDimPx > 0) {
+                        val ratio = maxDimPx.toFloat() / maxSide.toFloat()
+                        val targetW = (w * ratio).toInt().coerceAtLeast(1)
+                        val targetH = (h * ratio).toInt().coerceAtLeast(1)
+                        decoder.setTargetSize(targetW, targetH)
+                    }
+                }
+                if (decoded.width > 0 && decoded.height > 0) {
+                    return decoded
+                }
+            } catch (t: Throwable) {
+                android.util.Log.w("KonabImageOptimizer", "ImageDecoder fallback BitmapFactory: ${t.message}")
+            }
+        }
+
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.absolutePath, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
+            return null
+        }
+
+        var sampleSize = calculateInSampleSize(bounds.outWidth, bounds.outHeight, maxDimPx)
+        var useRgb565 = false
+        for (attempt in 0..3) {
+            try {
+                val opts = BitmapFactory.Options().apply {
+                    inSampleSize = sampleSize
+                    inPreferredConfig = if (useRgb565) Bitmap.Config.RGB_565 else Bitmap.Config.ARGB_8888
+                }
+                val bmp = BitmapFactory.decodeFile(file.absolutePath, opts)
+                if (bmp != null) {
+                    return applyExifOrientationIfNeeded(file, bmp)
+                }
+            } catch (_: OutOfMemoryError) {
+                sampleSize *= 2
+                useRgb565 = true
+            } catch (_: Throwable) {
+                break
+            }
+        }
+        return null
+    }
+
+    private fun applyExifOrientationIfNeeded(file: File, bitmap: Bitmap): Bitmap {
+        return try {
+            val exif = ExifInterface(file.absolutePath)
+            val orientation = exif.getAttributeInt(
+                ExifInterface.TAG_ORIENTATION,
+                ExifInterface.ORIENTATION_NORMAL
+            )
+            val matrix = Matrix()
+            when (orientation) {
+                ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
+                ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
+                ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
+                ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.postScale(-1f, 1f)
+                ExifInterface.ORIENTATION_FLIP_VERTICAL -> matrix.postScale(1f, -1f)
+                else -> return bitmap
+            }
+            val rotated = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+            if (rotated !== bitmap) bitmap.recycle()
+            rotated
+        } catch (_: Throwable) {
+            bitmap
         }
     }
 

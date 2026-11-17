@@ -1,10 +1,13 @@
 package com.example.ui.screens
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
@@ -13,15 +16,19 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.remote.supabase.RestaurantOrderRecord
 import com.example.data.remote.supabase.RestaurantOrderStatus
 import com.example.data.remote.supabase.RestaurantStaffRole
 import com.example.ui.components.KonabEmptyState
+import com.example.ui.components.konabPressScale
 import com.example.ui.theme.*
 import com.example.util.CurrencyFormatter
 
@@ -29,8 +36,8 @@ private enum class OrderFilter(val label: String) {
     ALL_OPEN("En cours"),
     PENDING_MANAGER("À valider"),
     KITCHEN("Cuisine"),
-    READY_SERVED("Prêt / Servi"),
-    PAID("Encaissées")
+    READY_SERVED("Prêts"),
+    PAID("Payées")
 }
 
 @Composable
@@ -79,40 +86,105 @@ fun RestaurantOrdersTab(
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 96.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // KPI Strip
+        // Interactive Restaurant KPI Strip
         item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                OrderKpiMiniCard("À valider", "$pendingManagerCount", Color(0xFFD97706), Modifier.weight(1f))
-                OrderKpiMiniCard("Cuisine", "$kitchenCount", Color(0xFFEA580C), Modifier.weight(1f))
-                OrderKpiMiniCard("Prêt/Servi", "$readyServedCount", KonabBlue, Modifier.weight(1f))
-                OrderKpiMiniCard("Encaissées", "$paidCount", KonabGreen, Modifier.weight(1f))
+                OrderKpiMiniCard(
+                    title = "À valider",
+                    value = "$pendingManagerCount",
+                    icon = Icons.Default.HourglassTop,
+                    accent = Color(0xFFD97706),
+                    isSelected = filter == OrderFilter.PENDING_MANAGER,
+                    onClick = { filter = OrderFilter.PENDING_MANAGER },
+                    modifier = Modifier.weight(1f)
+                )
+                OrderKpiMiniCard(
+                    title = "Cuisine",
+                    value = "$kitchenCount",
+                    icon = Icons.Default.SoupKitchen,
+                    accent = Color(0xFFEA580C),
+                    isSelected = filter == OrderFilter.KITCHEN,
+                    onClick = { filter = OrderFilter.KITCHEN },
+                    modifier = Modifier.weight(1f)
+                )
+                OrderKpiMiniCard(
+                    title = "Prêt/Servi",
+                    value = "$readyServedCount",
+                    icon = Icons.Default.RoomService,
+                    accent = KonabBlue,
+                    isSelected = filter == OrderFilter.READY_SERVED,
+                    onClick = { filter = OrderFilter.READY_SERVED },
+                    modifier = Modifier.weight(1f)
+                )
+                OrderKpiMiniCard(
+                    title = "Payées",
+                    value = "$paidCount",
+                    icon = Icons.Default.CheckCircle,
+                    accent = KonabGreen,
+                    isSelected = filter == OrderFilter.PAID,
+                    onClick = { filter = OrderFilter.PAID },
+                    modifier = Modifier.weight(1f)
+                )
             }
         }
 
-        // Filter Chips
+        // Compact Filter Pills
         item {
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 items(OrderFilter.entries) { f ->
                     val isSel = filter == f
-                    FilterChip(
-                        selected = isSel,
+                    val count = when (f) {
+                        OrderFilter.ALL_OPEN -> orders.count { it.status.isOpenOrder }
+                        OrderFilter.PENDING_MANAGER -> pendingManagerCount
+                        OrderFilter.KITCHEN -> kitchenCount
+                        OrderFilter.READY_SERVED -> readyServedCount
+                        OrderFilter.PAID -> paidCount
+                    }
+                    Surface(
                         onClick = { filter = f },
-                        label = {
+                        shape = RoundedCornerShape(10.dp),
+                        color = if (isSel) Color(0xFFEA580C) else MaterialTheme.colorScheme.surface,
+                        border = BorderStroke(
+                            1.dp,
+                            if (isSel) Color(0xFFEA580C) else MaterialTheme.colorScheme.outline.copy(alpha = 0.45f)
+                        ),
+                        modifier = Modifier
+                            .heightIn(min = 34.dp)
+                            .konabPressScale(pressedScale = 0.96f)
+                            .testTag("chip_filter_${f.name.lowercase()}")
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp)
+                        ) {
                             Text(
                                 text = f.label,
-                                fontSize = 12.sp,
-                                fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium
+                                fontSize = 11.5.sp,
+                                fontWeight = if (isSel) FontWeight.ExtraBold else FontWeight.SemiBold,
+                                color = if (isSel) Color.White else MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                softWrap = false
                             )
-                        },
-                        modifier = Modifier.testTag("chip_filter_${f.name.lowercase()}"),
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = Color(0xFFEA580C),
-                            selectedLabelColor = Color.White
-                        )
-                    )
+                            if (count > 0) {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = if (isSel) Color.White.copy(alpha = 0.25f) else Color(0xFFEA580C).copy(alpha = 0.14f)
+                                ) {
+                                    Text(
+                                        text = "$count",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = if (isSel) Color.White else Color(0xFFEA580C),
+                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -187,32 +259,54 @@ fun RestaurantOrdersTab(
 private fun OrderKpiMiniCard(
     title: String,
     value: String,
+    icon: ImageVector,
     accent: Color,
+    isSelected: Boolean,
+    onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Surface(
-        shape = RoundedCornerShape(12.dp),
-        color = accent.copy(alpha = 0.1f),
-        border = BorderStroke(1.dp, accent.copy(alpha = 0.25f)),
-        modifier = modifier
+        onClick = onClick,
+        shape = RoundedCornerShape(14.dp),
+        color = if (isSelected) accent.copy(alpha = 0.16f) else MaterialTheme.colorScheme.surface,
+        border = BorderStroke(if (isSelected) 1.5.dp else 1.dp, accent.copy(alpha = if (isSelected) 0.7f else 0.28f)),
+        shadowElevation = if (isSelected) 3.dp else 1.dp,
+        modifier = modifier.konabPressScale(pressedScale = 0.96f)
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 9.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(3.dp)
         ) {
+            Box(
+                modifier = Modifier
+                    .size(24.dp)
+                    .clip(CircleShape)
+                    .background(accent.copy(alpha = 0.14f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = title,
+                    tint = accent,
+                    modifier = Modifier.size(13.dp)
+                )
+            }
             Text(
                 text = value,
                 fontFamily = OutfitFontFamily,
                 fontWeight = FontWeight.Black,
                 fontSize = 18.sp,
-                color = accent
+                color = accent,
+                maxLines = 1
             )
             Text(
                 text = title,
-                fontSize = 10.5.sp,
+                fontSize = 10.sp,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }
@@ -238,18 +332,25 @@ private fun RestaurantOrderCard(
     Card(
         shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = BorderStroke(1.dp, statusColor.copy(alpha = 0.4f)),
+        border = BorderStroke(1.2.dp, statusColor.copy(alpha = 0.45f)),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         modifier = Modifier
             .fillMaxWidth()
             .testTag("card_restaurant_order_${order.orderNumber}")
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(4.dp)
+                    .background(statusColor)
+            )
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -480,7 +581,7 @@ private fun RestaurantOrderCard(
                         ) {
                             Icon(Icons.Default.Payments, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Encaisser directement sur la plateforme", fontWeight = FontWeight.ExtraBold, fontSize = 12.5.sp)
+                            Text("Encaisser la table", fontWeight = FontWeight.ExtraBold, fontSize = 13.sp)
                         }
                     }
 
@@ -502,6 +603,7 @@ private fun RestaurantOrderCard(
 
                     RestaurantOrderStatus.CANCELLED -> Unit
                 }
+            }
             }
         }
     }

@@ -138,6 +138,25 @@ class RestaurantManagementTest {
         )
         assertEquals(900, poster.width)
         assertEquals(1240, poster.height)
+
+        val brandedPoster = RestaurantQrCardHelper.buildTableQrCardBitmap(
+            shopName = "Maquis Chez Fati",
+            table = table,
+            city = "Bobo-Dioulasso",
+            phone = "70998877",
+            context = context,
+            logoUri = "drawable:img_prod_resto"
+        )
+        assertEquals(900, brandedPoster.width)
+        assertEquals(1240, brandedPoster.height)
+
+        var posterDarkQrPixels = 0
+        for (x in 220 until 680 step 6) {
+            for (y in 550 until 1010 step 6) {
+                if (brandedPoster.getPixel(x, y) == Color.BLACK) posterDarkQrPixels++
+            }
+        }
+        assertTrue("Branded restaurant QR poster must contain dark QR modules", posterDarkQrPixels > 50)
     }
 
     @Test

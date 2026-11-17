@@ -52,6 +52,9 @@ fun SasPayPaymentDialog(
     fixedPosAmountFcfa: Long = 0L,
     customerNameOverride: String = "",
     customerPhoneOverride: String = "",
+    dialogTitleOverride: String? = null,
+    dialogSubtitleOverride: String? = null,
+    posLabelOverride: String? = null,
     onDismiss: () -> Unit,
     onPaymentVerified: (
         tier: String,
@@ -186,12 +189,12 @@ fun SasPayPaymentDialog(
                 }
                 Column {
                     Text(
-                        text = if (isPosCollectionMode) "Encaissement SasPay" else "Réabonnement SasPay",
+                        text = dialogTitleOverride ?: if (isPosCollectionMode) "Encaissement SasPay" else "Réabonnement SasPay",
                         fontWeight = FontWeight.ExtraBold,
                         fontSize = 17.sp
                     )
                     Text(
-                        text = "Mobile Money & Carte bancaire en ligne",
+                        text = dialogSubtitleOverride ?: "Mobile Money & Carte bancaire en ligne",
                         fontSize = 11.5.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -263,7 +266,7 @@ fun SasPayPaymentDialog(
                             }
                         } else {
                             Text(
-                                text = "Encaissement vente client",
+                                text = posLabelOverride ?: "Encaissement vente client",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = KonabGreenDark

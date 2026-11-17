@@ -22,10 +22,13 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import com.example.ui.components.KonabLivePulseDot
+import com.example.ui.components.konabHeroShimmer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -52,7 +55,10 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import com.example.util.CurrencyFormatter
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.isActive
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -228,50 +234,73 @@ fun CoutureScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            // Live Sync Header & KPI Strip
+            // Live Sync Sector Hero & KPI Strip (Royal Velvet Violet & Gold)
             Surface(
-                color = AtelierVioletLight,
-                border = BorderStroke(1.dp, AtelierViolet.copy(alpha = 0.2f)),
+                color = Color.Transparent,
+                shape = RoundedCornerShape(18.dp),
+                shadowElevation = 4.dp,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                shape = RoundedCornerShape(14.dp)
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {
-                Row(
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                        .background(
+                            Brush.horizontalGradient(
+                                listOf(Color(0xFF3B0764), AtelierViolet, Color(0xFF7C3AED))
+                            )
+                        )
+                        .konabHeroShimmer(maxAlpha = 0.08f)
+                        .padding(horizontal = 14.dp, vertical = 12.dp)
                 ) {
-                    Column {
-                        Text(
-                            text = "Demandes QR: $clientRequestsCount • Prêtes: $readyOrdersCount",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 12.sp,
-                            color = AtelierViolet
-                        )
-                        val syncTime = remember(lastCoutureSyncAt) {
-                            SimpleDateFormat("HH:mm:ss", Locale.FRENCH).format(Date(lastCoutureSyncAt))
-                        }
-                        Text(
-                            text = "Dernière synchro : $syncTime",
-                            fontSize = 10.5.sp,
-                            color = Color(0xFF4C1D95)
-                        )
-                    }
-                    FilledTonalButton(
-                        onClick = onOpenLocalCatalogPreview,
-                        shape = RoundedCornerShape(10.dp),
-                        colors = ButtonDefaults.filledTonalButtonColors(
-                            containerColor = AtelierViolet,
-                            contentColor = Color.White
-                        ),
-                        modifier = Modifier.heightIn(min = 40.dp).testTag("btn_couture_preview_catalog")
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(Icons.Default.Visibility, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Vue Client", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                KonabLivePulseDot(color = Color(0xFFFCD34D), size = 5.5.dp)
+                                Text(
+                                    text = "Demandes QR : $clientRequestsCount • Prêtes : $readyOrdersCount",
+                                    fontFamily = OutfitFontFamily,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 13.sp,
+                                    color = Color.White,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            val syncTime = remember(lastCoutureSyncAt) {
+                                SimpleDateFormat("HH:mm:ss", Locale.FRENCH).format(Date(lastCoutureSyncAt))
+                            }
+                            Text(
+                                text = "${models.size} modèles catalogue • Synchro $syncTime",
+                                fontSize = 11.sp,
+                                color = Color(0xFFEDE9FE),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        FilledTonalButton(
+                            onClick = onOpenLocalCatalogPreview,
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.filledTonalButtonColors(
+                                containerColor = Color(0xFFF59E0B),
+                                contentColor = Color(0xFF3B0764)
+                            ),
+                            modifier = Modifier
+                                .heightIn(min = 48.dp)
+                                .testTag("btn_couture_preview_catalog")
+                        ) {
+                            Icon(Icons.Default.Visibility, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(5.dp))
+                            Text("Vue Client", fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
+                        }
                     }
                 }
             }
@@ -843,15 +872,23 @@ private fun CoutureQrCatalogTab(
     onOpenLocalPreview: () -> Unit
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val shopName = shopProfile?.name?.ifBlank { "Atelier Couture" } ?: "Atelier Couture"
-    val posterBitmap: Bitmap = remember(shopName, cloudShopId, modelsCount, shopProfile?.city, shopProfile?.phone) {
-        CoutureQrCardHelper.buildCatalogQrCardBitmap(
-            shopName = shopName,
-            shopId = cloudShopId,
-            city = shopProfile?.city.orEmpty(),
-            phone = shopProfile?.phone.orEmpty(),
-            modelsCount = modelsCount
-        )
+    val posterBitmap by produceState<Bitmap?>(
+        initialValue = null,
+        shopName, cloudShopId, modelsCount, shopProfile?.city, shopProfile?.phone, shopProfile?.logoUri
+    ) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            CoutureQrCardHelper.buildCatalogQrCardBitmap(
+                shopName = shopName,
+                shopId = cloudShopId,
+                city = shopProfile?.city.orEmpty(),
+                phone = shopProfile?.phone.orEmpty(),
+                modelsCount = modelsCount,
+                context = context,
+                logoUri = shopProfile?.logoUri
+            )
+        }
     }
 
     Column(
@@ -880,13 +917,25 @@ private fun CoutureQrCatalogTab(
             border = BorderStroke(1.dp, AtelierViolet.copy(alpha = 0.35f)),
             modifier = Modifier.fillMaxWidth(0.88f)
         ) {
-            Image(
-                bitmap = posterBitmap.asImageBitmap(),
-                contentDescription = "QR Code Catalogue $shopName",
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(900f / 1240f)
-            )
+            val bmp = posterBitmap
+            if (bmp != null) {
+                Image(
+                    bitmap = bmp.asImageBitmap(),
+                    contentDescription = "QR Code Catalogue $shopName",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(900f / 1240f)
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(900f / 1240f),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(color = AtelierViolet)
+                }
+            }
         }
 
         Row(
@@ -895,13 +944,19 @@ private fun CoutureQrCatalogTab(
         ) {
             Button(
                 onClick = {
-                    val res = CoutureQrCardHelper.saveCatalogQrPngToDevice(context, posterBitmap, shopName)
-                    Toast.makeText(
-                        context,
-                        res.getOrNull() ?: res.exceptionOrNull()?.message ?: "Erreur sauvegarde PNG",
-                        Toast.LENGTH_LONG
-                    ).show()
+                    val bmp = posterBitmap ?: return@Button
+                    scope.launch {
+                        val res = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                            CoutureQrCardHelper.saveCatalogQrPngToDevice(context, bmp, shopName)
+                        }
+                        Toast.makeText(
+                            context,
+                            res.getOrNull() ?: res.exceptionOrNull()?.message ?: "Erreur sauvegarde PNG",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
                 },
+                enabled = posterBitmap != null,
                 colors = ButtonDefaults.buttonColors(containerColor = AtelierViolet),
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier
@@ -916,8 +971,10 @@ private fun CoutureQrCatalogTab(
 
             OutlinedButton(
                 onClick = {
-                    CoutureQrCardHelper.printCatalogQrCard(context, posterBitmap, shopName)
+                    val bmp = posterBitmap ?: return@OutlinedButton
+                    CoutureQrCardHelper.printCatalogQrCard(context, bmp, shopName)
                 },
+                enabled = posterBitmap != null,
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.weight(1f).height(48.dp)
             ) {
@@ -933,8 +990,10 @@ private fun CoutureQrCatalogTab(
         ) {
             OutlinedButton(
                 onClick = {
-                    CoutureQrCardHelper.shareCatalogQrPng(context, posterBitmap, shopName)
+                    val bmp = posterBitmap ?: return@OutlinedButton
+                    CoutureQrCardHelper.shareCatalogQrPng(context, bmp, shopName)
                 },
+                enabled = posterBitmap != null,
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.weight(1f).height(48.dp)
             ) {

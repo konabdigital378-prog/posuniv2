@@ -9,8 +9,11 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.LinearGradient
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.RectF
+import android.graphics.Shader
 import android.graphics.Typeface
 import android.net.Uri
 import android.os.Build
@@ -59,6 +62,7 @@ import com.example.R
 import com.example.data.remote.supabase.CoutureQrParser
 import java.io.File
 import java.io.FileOutputStream
+import java.util.Locale
 
 object CouturePhotoHelper {
 
@@ -352,58 +356,156 @@ object CoutureQrCardHelper {
         phone: String = "",
         modelsCount: Int = 0,
         specificModelId: String? = null,
-        specificModelTitle: String? = null
+        specificModelTitle: String? = null,
+        context: Context? = null,
+        logoUri: String? = null
     ): Bitmap {
         val width = 900
         val height = 1240
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
 
+        // Clean light canvas backdrop
         canvas.drawColor(Color.parseColor("#FAF5FF"))
 
+        val cardLeft = 36f
+        val cardTop = 36f
+        val cardRight = width - 36f
+        val cardBottom = height - 36f
+        val cardRadius = 42f
+        val cardRect = RectF(cardLeft, cardTop, cardRight, cardBottom)
+
+        // Subtle ambient elevation shadow
+        val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.argb(26, 76, 29, 149)
+            style = Paint.Style.FILL
+        }
+        canvas.drawRoundRect(
+            RectF(cardLeft + 4f, cardTop + 8f, cardRight + 4f, cardBottom + 10f),
+            cardRadius, cardRadius, shadowPaint
+        )
+
+        // Main white card surface
         val cardPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.WHITE
             style = Paint.Style.FILL
         }
-        val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#DDD6FE")
-            style = Paint.Style.STROKE
-            strokeWidth = 4f
-        }
-        val cardRect = RectF(36f, 36f, width - 36f, height - 36f)
-        canvas.drawRoundRect(cardRect, 42f, 42f, cardPaint)
-        canvas.drawRoundRect(cardRect, 42f, 42f, borderPaint)
+        canvas.drawRoundRect(cardRect, cardRadius, cardRadius, cardPaint)
 
-        // Header banner (Royal Couture Violet)
+        // Clip inside card bounds for crisp header/footer corners
+        val cardClipPath = Path().apply {
+            addRoundRect(cardRect, cardRadius, cardRadius, Path.Direction.CW)
+        }
+        val cardSave = canvas.save()
+        canvas.clipPath(cardClipPath)
+
+        // 1. Rich Couture Royal Violet Gradient Header
+        val headerBottom = 326f
+        val headerRect = RectF(cardLeft, cardTop, cardRight, headerBottom)
         val headerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#5B21B6")
+            shader = LinearGradient(
+                cardLeft, cardTop, cardRight, headerBottom,
+                intArrayOf(
+                    Color.parseColor("#3B0764"),
+                    Color.parseColor("#5B21B6"),
+                    Color.parseColor("#7C3AED")
+                ),
+                floatArrayOf(0f, 0.55f, 1f),
+                Shader.TileMode.CLAMP
+            )
+        }
+        canvas.drawRect(headerRect, headerPaint)
+
+        val decorLight = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            alpha = 18
+        }
+        canvas.drawCircle(cardRight - 40f, cardTop + 40f, 175f, decorLight)
+        val decorGold = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#FBBF24")
+            alpha = 26
+        }
+        canvas.drawCircle(cardLeft + 55f, headerBottom - 10f, 130f, decorGold)
+
+        // Gold separator bar under header
+        val goldStripePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            shader = LinearGradient(
+                cardLeft, 0f, cardRight, 0f,
+                Color.parseColor("#F59E0B"),
+                Color.parseColor("#FBBF24"),
+                Shader.TileMode.CLAMP
+            )
+        }
+        canvas.drawRect(cardLeft, headerBottom - 9f, cardRight, headerBottom, goldStripePaint)
+
+        // 2. Atelier Logo Badge (centered at top of header)
+        val logoCx = width / 2f
+        val logoCy = 114f
+        val logoRadius = 56f
+        val logoRingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#FBBF24")
             style = Paint.Style.FILL
         }
-        val headerRect = RectF(36f, 36f, width - 36f, 290f)
-        canvas.drawRoundRect(headerRect, 42f, 42f, headerPaint)
-        canvas.drawRect(36f, 240f, width - 36f, 292f, headerPaint)
+        canvas.drawCircle(logoCx, logoCy, logoRadius + 5f, logoRingPaint)
 
-        val goldPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#F59E0B")
+        val logoBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            style = Paint.Style.FILL
         }
-        canvas.drawRect(36f, 286f, width - 36f, 298f, goldPaint)
+        canvas.drawCircle(logoCx, logoCy, logoRadius, logoBgPaint)
+
+        val shopLogoBitmap = context?.let { ctx ->
+            val raw = logoUri?.trim().orEmpty()
+            if (raw.isNotBlank()) ShopLogoHelper.loadLogoBitmap(ctx, raw) else null
+        }
+        if (shopLogoBitmap != null) {
+            RestaurantQrCardHelper.drawCenterCroppedCircleBitmap(
+                canvas, shopLogoBitmap, logoCx, logoCy, logoRadius - 4f
+            )
+        } else {
+            val monoRect = RectF(
+                logoCx - logoRadius + 4f,
+                logoCy - logoRadius + 4f,
+                logoCx + logoRadius - 4f,
+                logoCy + logoRadius - 4f
+            )
+            val monoBg = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                shader = LinearGradient(
+                    monoRect.left, monoRect.top, monoRect.right, monoRect.bottom,
+                    Color.parseColor("#7C3AED"),
+                    Color.parseColor("#5B21B6"),
+                    Shader.TileMode.CLAMP
+                )
+            }
+            canvas.drawOval(monoRect, monoBg)
+            val initial = shopName.trim().take(1).uppercase(Locale.ROOT).ifBlank { "A" }
+            val monoText = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.WHITE
+                textSize = 54f
+                textAlign = Paint.Align.CENTER
+                typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
+            }
+            canvas.drawText(initial, logoCx, logoCy + 19f, monoText)
+        }
+
+        // 3. Atelier Name
+        val displayShopName = shopName.ifBlank { "Atelier Couture" }.take(30)
+        val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            textAlign = Paint.Align.CENTER
+            typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
+            textSize = RestaurantQrCardHelper.fitTextSize(displayShopName, 50f, 30f, 740f, this)
+        }
+        canvas.drawText(displayShopName, width / 2f, 224f, titlePaint)
 
         val badgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#FDE68A")
-            textSize = 25f
+            textSize = 21f
             textAlign = Paint.Align.CENTER
             typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
             letterSpacing = 0.14f
         }
-        canvas.drawText("ATELIER COUTURE • CATALOGUE MODÈLES", width / 2f, 108f, badgePaint)
-
-        val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.WHITE
-            textSize = if (shopName.length > 20) 44f else 54f
-            textAlign = Paint.Align.CENTER
-            typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
-        }
-        canvas.drawText(shopName.ifBlank { "Atelier Couture" }.take(28), width / 2f, 186f, titlePaint)
+        canvas.drawText("ATELIER COUTURE • CATALOGUE MODÈLES", width / 2f, 262f, badgePaint)
 
         val subText = listOfNotNull(
             city.takeIf { it.isNotBlank() },
@@ -411,38 +513,47 @@ object CoutureQrCardHelper {
         ).joinToString(" • ").ifBlank { "Sur-Mesure • Prise de Mesures & Tissus" }
         val subPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#EDE9FE")
-            textSize = 25f
+            textSize = 22f
             textAlign = Paint.Align.CENTER
+            typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.NORMAL)
         }
-        canvas.drawText(subText.take(46), width / 2f, 244f, subPaint)
+        canvas.drawText(subText.take(46), width / 2f, 296f, subPaint)
 
-        // Pill badge
+        // 4. Prominent Catalog / Model Pill Badge
+        val pillText = if (!specificModelTitle.isNullOrBlank()) {
+            specificModelTitle.trim().take(28).uppercase(Locale.ROOT)
+        } else {
+            "CATALOGUE DES MODÈLES"
+        }
+        val pillRect = RectF(108f, 354f, width - 108f, 452f)
+        val pillShadow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.argb(24, 91, 33, 182)
+        }
+        canvas.drawRoundRect(
+            RectF(pillRect.left, pillRect.top + 5f, pillRect.right, pillRect.bottom + 5f),
+            28f, 28f, pillShadow
+        )
         val pillBg = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#F5F3FF") }
         val pillBorder = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#7C3AED")
             style = Paint.Style.STROKE
-            strokeWidth = 3f
+            strokeWidth = 4f
         }
-        val pillRect = RectF(130f, 336f, width - 130f, 434f)
-        canvas.drawRoundRect(pillRect, 49f, 49f, pillBg)
-        canvas.drawRoundRect(pillRect, 49f, 49f, pillBorder)
+        canvas.drawRoundRect(pillRect, 28f, 28f, pillBg)
+        canvas.drawRoundRect(pillRect, 28f, 28f, pillBorder)
 
-        val pillText = if (!specificModelTitle.isNullOrBlank()) {
-            specificModelTitle.take(28)
-        } else {
-            "CATALOGUE DES MODÈLES"
-        }
         val pillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#4C1D95")
-            textSize = if (pillText.length > 22) 34f else 40f
             textAlign = Paint.Align.CENTER
             typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
+            textSize = RestaurantQrCardHelper.fitTextSize(pillText, 42f, 26f, pillRect.width() - 64f, this)
         }
-        canvas.drawText(pillText, width / 2f, 398f, pillPaint)
+        val pillCenterY = pillRect.centerY() - ((pillPaint.descent() + pillPaint.ascent()) / 2f)
+        canvas.drawText(pillText, width / 2f, pillCenterY, pillPaint)
 
         val metaPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#475569")
-            textSize = 25f
+            textSize = 24f
             textAlign = Paint.Align.CENTER
             typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
         }
@@ -451,39 +562,81 @@ object CoutureQrCardHelper {
         } else {
             "Scannez & choisissez votre modèle sur Konab POS"
         }
-        canvas.drawText(metaLabel, width / 2f, 482f, metaPaint)
+        canvas.drawText(metaLabel, width / 2f, 490f, metaPaint)
 
-        val qrBox = RectF(170f, 514f, width - 170f, 1074f)
-        canvas.drawRoundRect(qrBox, 32f, 32f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE })
-        canvas.drawRoundRect(qrBox, 32f, 32f, Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#5B21B6")
+        // 5. QR Code Showcase Frame with Corner Accents
+        val qrBox = RectF(185f, 514f, width - 185f, 1044f)
+        val qrBoxShadow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.argb(20, 15, 23, 42)
+        }
+        canvas.drawRoundRect(
+            RectF(qrBox.left + 3f, qrBox.top + 6f, qrBox.right + 3f, qrBox.bottom + 6f),
+            34f, 34f, qrBoxShadow
+        )
+        canvas.drawRoundRect(qrBox, 34f, 34f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE })
+        canvas.drawRoundRect(qrBox, 34f, 34f, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#DDD6FE")
             style = Paint.Style.STROKE
-            strokeWidth = 5f
+            strokeWidth = 3f
         })
+
+        RestaurantQrCardHelper.drawQrCornerBrackets(
+            canvas = canvas,
+            rect = qrBox,
+            cornerRadius = 34f,
+            armLen = 46f,
+            color = Color.parseColor("#F59E0B"),
+            strokeWidth = 7f
+        )
 
         val qrUri = CoutureQrParser.buildCatalogQrUri(
             shopId = shopId,
             shopName = shopName,
             modelId = specificModelId
         )
-        val qrBitmap = QrCodeHelper.generateQrBitmap(qrUri, sizePx = 500, margin = 2)
-        canvas.drawBitmap(qrBitmap, 200f, 544f, null)
+        val qrBitmap = QrCodeHelper.generateQrBitmap(qrUri, sizePx = 472, margin = 3)
+        canvas.drawBitmap(qrBitmap, 214f, 543f, null)
 
+        // 6. Scan CTA above bottom Konab POS footer
         val ctaPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#0F172A")
-            textSize = 31f
+            textSize = 27f
             textAlign = Paint.Align.CENTER
             typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
         }
-        canvas.drawText("Scannez pour voir nos modèles & tarifs", width / 2f, 1134f, ctaPaint)
+        canvas.drawText("Scannez pour voir nos modèles & tarifs", width / 2f, 1084f, ctaPaint)
 
-        val ctaSubPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#6D28D9")
-            textSize = 24f
-            textAlign = Paint.Align.CENTER
-            typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
+        // 7. Bottom Footer Bar with Konab POS Logo at the Bottom
+        val footerTop = 1114f
+        val footerRect = RectF(cardLeft, footerTop, cardRight, cardBottom)
+        val footerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            shader = LinearGradient(
+                cardLeft, footerTop, cardRight, cardBottom,
+                Color.parseColor("#3B0764"),
+                Color.parseColor("#5B21B6"),
+                Shader.TileMode.CLAMP
+            )
         }
-        canvas.drawText("Suivez ensuite l'avancement de votre couture sur l'app", width / 2f, 1176f, ctaSubPaint)
+        canvas.drawRect(footerRect, footerPaint)
+        canvas.drawRect(cardLeft, footerTop, cardRight, footerTop + 5f, goldStripePaint)
+
+        RestaurantQrCardHelper.drawKonabFooterBranding(
+            canvas = canvas,
+            context = context,
+            centerX = width / 2f,
+            centerY = (footerTop + cardBottom) / 2f + 2f,
+            tagline = "Catalogue & Suivi Couture"
+        )
+
+        canvas.restoreToCount(cardSave)
+
+        // Crisp outer card stroke
+        val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#DDD6FE")
+            style = Paint.Style.STROKE
+            strokeWidth = 3.5f
+        }
+        canvas.drawRoundRect(cardRect, cardRadius, cardRadius, borderPaint)
 
         return bitmap
     }

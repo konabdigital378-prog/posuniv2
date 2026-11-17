@@ -5,6 +5,8 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -17,9 +19,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import com.example.ui.components.KonabLivePulseDot
+import com.example.ui.components.konabHeroShimmer
+import com.example.ui.components.konabPressScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -45,12 +52,42 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.example.util.CurrencyFormatter
 import kotlinx.coroutines.delay
 
-private enum class RestaurantTab(val label: String) {
-    ORDERS("Commandes"),
-    KITCHEN("Cuisine"),
-    MENU_OF_DAY("Menu du Jour"),
-    TABLES_QR("Tables & QR"),
-    TEAM("Équipe")
+private enum class RestaurantTab(
+    val label: String,
+    val icon: ImageVector,
+    val roleTitle: String,
+    val roleDescription: String
+) {
+    ORDERS(
+        label = "Cmdes",
+        icon = Icons.Default.Receipt,
+        roleTitle = "Commandes & Encaissement",
+        roleDescription = "Validez les commandes QR des tables, suivez le service et encaissez."
+    ),
+    KITCHEN(
+        label = "Cuisine",
+        icon = Icons.Default.SoupKitchen,
+        roleTitle = "Préparation Cuisine",
+        roleDescription = "Lancez les plats en préparation et alertez automatiquement les serveurs."
+    ),
+    MENU_OF_DAY(
+        label = "Menu",
+        icon = Icons.Default.RestaurantMenu,
+        roleTitle = "Menu du Jour",
+        roleDescription = "Activez les plats disponibles lorsque vos clients scannent une table."
+    ),
+    TABLES_QR(
+        label = "Tables",
+        icon = Icons.Default.QrCode2,
+        roleTitle = "Tables & Affiches QR",
+        roleDescription = "Créez vos tables et générez leurs QR codes personnalisés avec logo."
+    ),
+    TEAM(
+        label = "Équipe",
+        icon = Icons.Default.Groups,
+        roleTitle = "Équipe & Profils PIN",
+        roleDescription = "Gérez serveurs, caissiers, cuisiniers et basculez de profil."
+    )
 }
 
 @Composable
@@ -180,140 +217,225 @@ fun RestaurantScreen(
                 .padding(paddingValues)
                 .background(MaterialTheme.colorScheme.background)
         ) {
-            // Active Operator & Multi-User Sync Strip
+            // Sector Hero & Active Operator Strip (Ember Orange & Deep Navy)
             Surface(
-                color = MaterialTheme.colorScheme.surface,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
+                color = Color.Transparent,
+                shape = RoundedCornerShape(18.dp),
+                shadowElevation = 4.dp,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 6.dp),
-                shape = RoundedCornerShape(14.dp)
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {
-                Row(
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                        .background(
+                            Brush.horizontalGradient(
+                                listOf(Color(0xFF7C2D12), Color(0xFFEA580C), Color(0xFFD97706))
+                            )
+                        )
+                        .konabHeroShimmer(maxAlpha = 0.08f)
+                        .padding(horizontal = 14.dp, vertical = 12.dp)
                 ) {
                     Row(
+                        modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        modifier = Modifier.weight(1f)
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        val roleColor = when (activeStaff?.role) {
-                            RestaurantStaffRole.KITCHEN -> Color(0xFFEA580C)
-                            RestaurantStaffRole.WAITER -> KonabGreen
-                            RestaurantStaffRole.CASHIER -> KonabPurple
-                            else -> KonabBlue
-                        }
-                        Box(
-                            modifier = Modifier
-                                .size(36.dp)
-                                .clip(CircleShape)
-                                .background(roleColor.copy(alpha = 0.14f)),
-                            contentAlignment = Alignment.Center
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.weight(1f)
                         ) {
-                            Icon(
-                                imageVector = when (activeStaff?.role) {
-                                    RestaurantStaffRole.KITCHEN -> Icons.Default.SoupKitchen
-                                    RestaurantStaffRole.WAITER -> Icons.Default.RoomService
-                                    RestaurantStaffRole.CASHIER -> Icons.Default.PointOfSale
-                                    else -> Icons.Default.ManageAccounts
-                                },
-                                contentDescription = null,
-                                tint = roleColor,
-                                modifier = Modifier.size(19.dp)
-                            )
-                        }
-                        Column {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            val roleColor = when (activeStaff?.role) {
+                                RestaurantStaffRole.KITCHEN -> Color(0xFFFDE047)
+                                RestaurantStaffRole.WAITER -> Color(0xFF6EE7B7)
+                                RestaurantStaffRole.CASHIER -> Color(0xFFE9D5FF)
+                                else -> Color.White
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.White.copy(alpha = 0.18f)),
+                                contentAlignment = Alignment.Center
                             ) {
+                                Icon(
+                                    imageVector = when (activeStaff?.role) {
+                                        RestaurantStaffRole.KITCHEN -> Icons.Default.SoupKitchen
+                                        RestaurantStaffRole.WAITER -> Icons.Default.RoomService
+                                        RestaurantStaffRole.CASHIER -> Icons.Default.PointOfSale
+                                        else -> Icons.Default.ManageAccounts
+                                    },
+                                    contentDescription = null,
+                                    tint = roleColor,
+                                    modifier = Modifier.size(21.dp)
+                                )
+                            }
+                            Column {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text(
+                                        text = activeStaff?.name?.ifBlank { "Gérant" } ?: "Gérant",
+                                        fontFamily = OutfitFontFamily,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        fontSize = 14.sp,
+                                        color = Color.White,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Surface(
+                                        color = Color.White.copy(alpha = 0.22f),
+                                        shape = RoundedCornerShape(6.dp)
+                                    ) {
+                                        Text(
+                                            text = activeStaff?.role?.badgeLabel ?: "GÉRANT",
+                                            color = Color.White,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            fontSize = 9.5.sp,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                    KonabLivePulseDot(color = Color(0xFF6EE7B7), size = 5.5.dp)
+                                }
                                 Text(
-                                    text = activeStaff?.name?.ifBlank { "Gérant" } ?: "Gérant",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 13.5.sp,
+                                    text = "$openOrdersCount en cours • $activeQrKitchenCount en cuisine QR",
+                                    fontSize = 11.sp,
+                                    color = Color(0xFFFFEDD5),
+                                    fontWeight = FontWeight.SemiBold,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
-                                Surface(
-                                    color = roleColor,
-                                    shape = RoundedCornerShape(6.dp)
-                                ) {
-                                    Text(
-                                        text = activeStaff?.role?.badgeLabel ?: "GÉRANT",
-                                        color = Color.White,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        fontSize = 9.5.sp,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                    )
-                                }
                             }
-                            Text(
-                                text = "Synchronisation multi-postes active",
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
                         }
-                    }
 
-                    FilledTonalButton(
-                        onClick = { showOperatorSwitcher = true },
-                        shape = RoundedCornerShape(10.dp),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                        modifier = Modifier
-                            .heightIn(min = 40.dp)
-                            .testTag("btn_switch_restaurant_operator")
-                    ) {
-                        Icon(Icons.Default.SwapHoriz, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Changer profil", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                        FilledTonalButton(
+                            onClick = { showOperatorSwitcher = true },
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.filledTonalButtonColors(
+                                containerColor = Color.White,
+                                contentColor = Color(0xFF9A3412)
+                            ),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                            modifier = Modifier
+                                .heightIn(min = 48.dp)
+                                .testTag("btn_switch_restaurant_operator")
+                        ) {
+                            Icon(Icons.Default.SwapHoriz, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Profil", fontSize = 11.5.sp, fontWeight = FontWeight.ExtraBold)
+                        }
                     }
                 }
             }
 
-            // 4-Tab Bar
-            ScrollableTabRow(
-                selectedTabIndex = selectedTab.ordinal,
-                containerColor = MaterialTheme.colorScheme.surface,
-                contentColor = Color(0xFFEA580C),
-                edgePadding = 12.dp
+            // Compact Pill Tab Bar (narrow, scannable tabs)
+            Surface(
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 1.dp,
+                modifier = Modifier.fillMaxWidth()
             ) {
-                RestaurantTab.entries.forEach { tab ->
-                    Tab(
-                        selected = selectedTab == tab,
-                        onClick = { selectedTab = tab },
-                        modifier = Modifier.testTag("tab_restaurant_${tab.name.lowercase()}"),
-                        text = {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    LazyRow(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        items(RestaurantTab.entries) { tab ->
+                            val isSelected = selectedTab == tab
+                            val badgeCount = when (tab) {
+                                RestaurantTab.ORDERS -> openOrdersCount
+                                RestaurantTab.KITCHEN -> activeQrKitchenCount
+                                RestaurantTab.TABLES_QR -> tables.size
+                                else -> 0
+                            }
+                            Surface(
+                                onClick = { selectedTab = tab },
+                                shape = RoundedCornerShape(12.dp),
+                                color = if (isSelected) Color(0xFFEA580C) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                                border = if (isSelected) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)),
+                                shadowElevation = if (isSelected) 3.dp else 0.dp,
+                                modifier = Modifier
+                                    .heightIn(min = 38.dp)
+                                    .konabPressScale(pressedScale = 0.96f)
+                                    .testTag("tab_restaurant_${tab.name.lowercase()}")
                             ) {
-                                Text(
-                                    text = tab.label,
-                                    fontWeight = if (selectedTab == tab) FontWeight.ExtraBold else FontWeight.Medium,
-                                    fontSize = 13.sp
-                                )
-                                if (tab == RestaurantTab.ORDERS && openOrdersCount > 0) {
-                                    Badge(
-                                        containerColor = Color(0xFFEA580C),
-                                        contentColor = Color.White
-                                    ) {
-                                        Text("$openOrdersCount", fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                                    }
-                                } else if (tab == RestaurantTab.KITCHEN && activeQrKitchenCount > 0) {
-                                    Badge(
-                                        containerColor = KonabGreen,
-                                        contentColor = Color.White
-                                    ) {
-                                        Text("$activeQrKitchenCount", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = tab.icon,
+                                        contentDescription = tab.label,
+                                        tint = if (isSelected) Color.White else Color(0xFFEA580C),
+                                        modifier = Modifier.size(15.dp)
+                                    )
+                                    Text(
+                                        text = tab.label,
+                                        fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.SemiBold,
+                                        fontSize = 12.sp,
+                                        color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface,
+                                        maxLines = 1,
+                                        softWrap = false
+                                    )
+                                    if (badgeCount > 0) {
+                                        Surface(
+                                            shape = CircleShape,
+                                            color = if (isSelected) Color.White else if (tab == RestaurantTab.KITCHEN) KonabGreen else Color(0xFFEA580C)
+                                        ) {
+                                            Text(
+                                                text = "$badgeCount",
+                                                fontSize = 9.5.sp,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                color = if (isSelected) Color(0xFFEA580C) else Color.White,
+                                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                            )
+                                        }
                                     }
                                 }
                             }
                         }
-                    )
+                    }
+
+                    // Active Tab Responsibility Strip
+                    Surface(
+                        color = Color(0xFFFFF7ED),
+                        border = BorderStroke(1.dp, Color(0xFFFED7AA)),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 16.dp, end = 16.dp, bottom = 6.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = selectedTab.icon,
+                                contentDescription = null,
+                                tint = Color(0xFFEA580C),
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Text(
+                                text = "${selectedTab.roleTitle} : ${selectedTab.roleDescription}",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = Color(0xFF9A3412),
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
                 }
             }
 
@@ -378,6 +500,7 @@ fun RestaurantScreen(
                             shopName = shopProfile?.name ?: "Mon Restaurant",
                             city = shopProfile?.city.orEmpty(),
                             phone = shopProfile?.phone.orEmpty(),
+                            logoUri = shopProfile?.logoUri,
                             cloudShopId = cloudShopId,
                             tables = tables,
                             onSaveTable = onSaveTable,

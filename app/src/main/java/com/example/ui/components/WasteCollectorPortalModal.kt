@@ -159,6 +159,7 @@ fun WasteCollectorPortalModal(
                                 listOf(Color(0xFF065F46), Color(0xFF047857), Color(0xFF10B981))
                             )
                         )
+                        .konabHeroShimmer(maxAlpha = 0.08f)
                         .padding(horizontal = 16.dp, vertical = 14.dp)
                 ) {
                     Row(
@@ -186,15 +187,23 @@ fun WasteCollectorPortalModal(
                                 )
                             }
                             Column {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text(
+                                        text = "Gestion Poubelles & Salubrité",
+                                        fontFamily = OutfitFontFamily,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        fontSize = 17.sp,
+                                        color = Color.White,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    KonabLivePulseDot(color = Color(0xFFA7F3D0), size = 5.5.dp)
+                                }
                                 Text(
-                                    text = "Gestion Poubelles & Salubrité",
-                                    fontFamily = OutfitFontFamily,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    fontSize = 17.sp,
-                                    color = Color.White
-                                )
-                                Text(
-                                    text = "Suivi exact des passages, cartes famille & relance WhatsApp",
+                                    text = "${clients.size} foyer(s) • Passages, cartes famille & relance",
                                     fontSize = 11.sp,
                                     color = Color(0xFFD1FAE5),
                                     maxLines = 1,

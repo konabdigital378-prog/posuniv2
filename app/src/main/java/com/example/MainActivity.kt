@@ -31,12 +31,14 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.data.remote.supabase.AgentDeploymentStorage
 import com.example.data.remote.supabase.CoutureDirectoryHelper
 import com.example.data.remote.supabase.CoutureQrParser
+import com.example.data.remote.supabase.DeliveryStorage
 import com.example.data.remote.supabase.RestaurantOrderItem
 import com.example.data.remote.supabase.RestaurantOrderStatus
 import com.example.data.remote.supabase.TontineStorage
 import com.example.data.remote.supabase.WasteCollectorStorage
 import com.example.ui.components.CustomerCoutureCatalogModal
 import com.example.ui.components.CustomerQrMenuModal
+import com.example.ui.components.DeliveryPortalModal
 import com.example.ui.components.KonabBottomBar
 import com.example.ui.components.KonabNavigationRail
 import com.example.ui.components.KonabWidthClass
@@ -154,12 +156,21 @@ class MainActivity : FragmentActivity() {
 
                 // Public User Identification State
                 val currentPublicUser by viewModel.currentPublicUser.collectAsStateWithLifecycle()
+                val registeredPublicUsers by viewModel.registeredPublicUsers.collectAsStateWithLifecycle()
                 val isSyncingPublicUser by viewModel.isSyncingPublicUser.collectAsStateWithLifecycle()
+
+                // Synchronized Delivery & Drivers Portal State
+                val deliveryDrivers by viewModel.deliveryDrivers.collectAsStateWithLifecycle()
+                val deliveries by viewModel.deliveries.collectAsStateWithLifecycle()
+                val activeDeliveryDriverId by viewModel.activeDeliveryDriverId.collectAsStateWithLifecycle()
+                val isSyncingDelivery by viewModel.isSyncingDelivery.collectAsStateWithLifecycle()
+                val pendingDeliveryQrTarget by viewModel.pendingDeliveryQrTarget.collectAsStateWithLifecycle()
 
                 var showPublicRestaurantDirectory by remember { mutableStateOf(false) }
                 var showPublicCouturePortal by remember { mutableStateOf(false) }
                 var showWastePortal by remember { mutableStateOf(false) }
                 var showTontinePortal by remember { mutableStateOf(false) }
+                var showDeliveryPortal by remember { mutableStateOf(false) }
                 var showUserPortal by remember { mutableStateOf(false) }
                 var showGlobalQrScanner by remember { mutableStateOf(false) }
                 var agentLoginTrigger by remember { mutableIntStateOf(0) }
@@ -176,6 +187,11 @@ class MainActivity : FragmentActivity() {
                 LaunchedEffect(pendingTontineQrTarget) {
                     if (pendingTontineQrTarget != null) {
                         showTontinePortal = true
+                    }
+                }
+                LaunchedEffect(pendingDeliveryQrTarget) {
+                    if (pendingDeliveryQrTarget != null) {
+                        showDeliveryPortal = true
                     }
                 }
 
@@ -336,8 +352,13 @@ class MainActivity : FragmentActivity() {
                                             viewModel.refreshTontinePortalFromCloud()
                                             showTontinePortal = true
                                         },
+                                        onOpenDeliveryPortal = {
+                                            viewModel.refreshDeliveryPortalFromCloud(force = true)
+                                            showDeliveryPortal = true
+                                        },
                                         wasteClientsCount = wasteClients.size,
                                         tontineCardsCount = tontineCards.size,
+                                        activeDeliveriesCount = deliveries.count { it.status == com.example.data.remote.supabase.DeliveryStatus.EN_COURS },
                                         onEnterShop = {
                                             viewModel.reloadRestaurantLocalState()
                                             viewModel.reloadCoutureLocalState()
@@ -1038,6 +1059,9 @@ class MainActivity : FragmentActivity() {
                     val q = currentPublicUser?.phone.orEmpty()
                     if (q.isBlank()) 0 else TontineStorage.findCardsForMember(tontineCards, q).size
                 }
+                val userDeliveriesCount = remember(deliveries, currentPublicUser) {
+                    DeliveryStorage.findDeliveriesForClient(deliveries, currentPublicUser).size
+                }
                 val knownShopNames = remember(shopProfile?.name, connectedShops) {
                     buildList {
                         shopProfile?.name?.trim()?.takeIf { it.isNotBlank() }?.let { add(it) }
@@ -1054,6 +1078,7 @@ class MainActivity : FragmentActivity() {
                     isSyncing = isSyncingPublicUser,
                     wasteCardsCount = userWasteMatches,
                     tontineCardsCount = userTontineMatches,
+                    deliveriesCount = userDeliveriesCount,
                     availableShopNames = knownShopNames,
                     onRegisterUser = { fullName, phone, city, hood, pin, photoUri, activity, isSeekingAcc, accDetails, isShopMember, memberShopName, memberShopRole, onResult ->
                         viewModel.registerPublicUser(
@@ -1122,6 +1147,11 @@ class MainActivity : FragmentActivity() {
                         viewModel.refreshTontinePortalFromCloud()
                         showTontinePortal = true
                     },
+                    onOpenDeliveryPortal = {
+                        showUserPortal = false
+                        viewModel.refreshDeliveryPortalFromCloud(force = true)
+                        showDeliveryPortal = true
+                    },
                     onOpenScanner = {
                         showUserPortal = false
                         showGlobalQrScanner = true
@@ -1130,10 +1160,83 @@ class MainActivity : FragmentActivity() {
                 )
             }
 
+            // Portail Livraisons & Carte des Livreurs (Plan 1000 FCFA, Validation QR & Reçus)
+            if (showDeliveryPortal) {
+                DeliveryPortalModal(
+                    shopProfile = shopProfile,
+                    drivers = deliveryDrivers,
+                    deliveries = deliveries,
+                    activeDriverId = activeDeliveryDriverId,
+                    currentPublicUser = currentPublicUser,
+                    registeredUsers = registeredPublicUsers,
+                    isSyncing = isSyncingDelivery,
+                    pendingQrTarget = pendingDeliveryQrTarget,
+                    onRefreshCloud = { force -> viewModel.refreshDeliveryPortalFromCloud(force = force) },
+                    onSelectActiveDriver = { viewModel.selectActiveDeliveryDriver(it) },
+                    onSaveDriverProfile = { name, phone, city, hood, vehicle, zone, photoUri, existing, onDone ->
+                        viewModel.saveDeliveryDriverProfile(
+                            fullName = name,
+                            phone = phone,
+                            city = city,
+                            neighborhood = hood,
+                            vehicleType = vehicle,
+                            zone = zone,
+                            photoUri = photoUri,
+                            existingDriver = existing,
+                            onResult = onDone
+                        )
+                    },
+                    onUpdateDriverPhoto = { drv, photo ->
+                        viewModel.updateDeliveryDriverPhoto(drv, photo)
+                    },
+                    onActivateDriverPlan = { drv, ref, amt, onDone ->
+                        viewModel.activateDeliveryDriverPlan(drv, ref, amt, onDone)
+                    },
+                    onCreateOrUpdateDelivery = { drv, clientUser, cName, cPhone, cCity, cHood, title, pickup, dropoff, price, notes, existing, onDone ->
+                        viewModel.createOrUpdateDelivery(
+                            driver = drv,
+                            clientUser = clientUser,
+                            clientName = cName,
+                            clientPhone = cPhone,
+                            clientCity = cCity,
+                            clientNeighborhood = cHood,
+                            title = title,
+                            pickupAddress = pickup,
+                            dropoffAddress = dropoff,
+                            priceFcfa = price,
+                            notes = notes,
+                            existingDelivery = existing,
+                            onResult = onDone
+                        )
+                    },
+                    onUpdateDeliveryPrice = { order, price, onDone ->
+                        viewModel.updateDeliveryPrice(order, price, onDone)
+                    },
+                    onValidateDeliveryByQr = { order, rawQr, onRes ->
+                        viewModel.validateDeliveryByQrScan(order, rawQr, onRes)
+                    },
+                    onMarkReceiptSent = { order ->
+                        viewModel.markDeliveryReceiptSent(order)
+                    },
+                    onDeleteDelivery = { id ->
+                        viewModel.deleteDeliveryOrder(id)
+                    },
+                    onOpenUserAuthPortal = {
+                        showDeliveryPortal = false
+                        showUserPortal = true
+                    },
+                    onDismissQrTarget = { viewModel.dismissDeliveryQrTarget() },
+                    onDismiss = {
+                        viewModel.dismissDeliveryQrTarget()
+                        showDeliveryPortal = false
+                    }
+                )
+            }
+
             if (showGlobalQrScanner) {
                 RealBarcodeScannerModal(
                     title = "Scanner QR Universel Konab",
-                    subtitle = "Cantine, Restaurant, Couture, Carte Poubelle ou Tontine 30j",
+                    subtitle = "Cantine, Restaurant, Couture, Livraison, Poubelle ou Tontine 30j",
                     onDismiss = { showGlobalQrScanner = false },
                     onBarcodeScanned = { scanned ->
                         showGlobalQrScanner = false

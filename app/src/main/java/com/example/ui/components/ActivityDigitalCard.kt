@@ -37,8 +37,15 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
@@ -149,6 +156,18 @@ enum class CardActivityTheme(
         midHex = "#0F4C81",
         endHex = "#0284C7",
         accentHex = "#38BDF8"
+    ),
+    LIVREUR(
+        title = "Livreur Certifié",
+        shortBadge = "LIVREUR PRO",
+        startColor = Color(0xFF0C4A6E),
+        midColor = Color(0xFF0284C7),
+        endColor = Color(0xFF0EA5E9),
+        accentColor = Color(0xFF38BDF8),
+        startHex = "#0C4A6E",
+        midHex = "#0284C7",
+        endHex = "#0EA5E9",
+        accentHex = "#38BDF8"
     );
 
     companion object {
@@ -180,6 +199,8 @@ fun ActivityDigitalCard(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var isProcessingPhoto by remember { mutableStateOf(false) }
     val qrBitmap = remember(qrPayload) {
         QrCodeHelper.generateQrBitmap(qrPayload.ifBlank { "konabpos://card/$codeId" }, sizePx = 320)
     }
@@ -188,16 +209,22 @@ fun ActivityDigitalCard(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri: Uri? ->
         if (uri != null && onPhotoSelected != null) {
-            val saved = AgentIdCardHelper.saveAgentPhotoToInternalStorage(
-                context = context,
-                sourceUri = uri,
-                agentKey = "card_${codeId.ifBlank { "usr" }}"
-            )
-            if (saved != null) {
-                onPhotoSelected(saved)
-                Toast.makeText(context, "Photo ajoutée sur la carte !", Toast.LENGTH_SHORT).show()
-            } else {
-                Toast.makeText(context, "Impossible de charger l'image.", Toast.LENGTH_SHORT).show()
+            isProcessingPhoto = true
+            scope.launch {
+                val saved = withContext(Dispatchers.IO) {
+                    AgentIdCardHelper.saveAgentPhotoToInternalStorage(
+                        context = context,
+                        sourceUri = uri,
+                        agentKey = "card_${codeId.ifBlank { "usr" }}"
+                    )
+                }
+                isProcessingPhoto = false
+                if (saved != null) {
+                    onPhotoSelected(saved)
+                    Toast.makeText(context, "Photo ajoutée sur la carte !", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(context, "Impossible de charger l'image. Essayez une image JPG ou PNG.", Toast.LENGTH_SHORT).show()
+                }
             }
         }
     }
@@ -272,6 +299,24 @@ fun ActivityDigitalCard(
                             color = theme.accentColor.copy(alpha = 0.14f),
                             radius = size.height * 0.25f,
                             center = Offset(size.width * 0.85f, size.height * 0.85f)
+                        )
+                    }
+                    CardActivityTheme.LIVREUR -> {
+                        // Lignes dynamiques de course & balise GPS cyan
+                        var yLine = size.height * 0.18f
+                        while (yLine < size.height * 0.85f) {
+                            drawLine(
+                                color = theme.accentColor.copy(alpha = 0.12f),
+                                start = Offset(size.width * 0.55f, yLine),
+                                end = Offset(size.width, yLine - 28f),
+                                strokeWidth = 3f
+                            )
+                            yLine += 26f
+                        }
+                        drawCircle(
+                            color = Color.White.copy(alpha = 0.08f),
+                            radius = size.height * 0.58f,
+                            center = Offset(size.width * 0.90f, size.height * 0.22f)
                         )
                     }
                     CardActivityTheme.UTILISATEUR, CardActivityTheme.BOUTIQUE -> {
@@ -385,7 +430,7 @@ fun ActivityDigitalCard(
                                 modifier = Modifier
                                     .size(avatarSize + 2.dp)
                                     .then(
-                                        if (onPhotoSelected != null) {
+                                        if (onPhotoSelected != null && !isProcessingPhoto) {
                                             Modifier.clickable {
                                                 photoPickerLauncher.launch(
                                                     PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
@@ -403,6 +448,21 @@ fun ActivityDigitalCard(
                                     borderColor = theme.accentColor,
                                     showEditBadge = onPhotoSelected != null
                                 )
+                                if (isProcessingPhoto) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(avatarSize)
+                                            .clip(RoundedCornerShape(16.dp))
+                                            .background(Color.Black.copy(alpha = 0.45f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        CircularProgressIndicator(
+                                            color = theme.accentColor,
+                                            strokeWidth = 2.5.dp,
+                                            modifier = Modifier.size(22.dp)
+                                        )
+                                    }
+                                }
                             }
                             Surface(
                                 shape = RoundedCornerShape(6.dp),
@@ -732,21 +792,31 @@ fun ActivityPhotoPickerRow(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var isProcessingPhoto by remember { mutableStateOf(false) }
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri: Uri? ->
         if (uri != null) {
-            val saved = AgentIdCardHelper.saveAgentPhotoToInternalStorage(context, uri, keyHint)
-            if (saved != null) {
-                onPhotoSelected(saved)
-                Toast.makeText(context, "Photo sélectionnée !", Toast.LENGTH_SHORT).show()
-            } else {
-                Toast.makeText(context, "Impossible de charger l'image.", Toast.LENGTH_SHORT).show()
+            isProcessingPhoto = true
+            scope.launch {
+                val saved = withContext(Dispatchers.IO) {
+                    AgentIdCardHelper.saveAgentPhotoToInternalStorage(context, uri, keyHint)
+                }
+                isProcessingPhoto = false
+                if (saved != null) {
+                    onPhotoSelected(saved)
+                    Toast.makeText(context, "Photo sélectionnée !", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(context, "Impossible de charger l'image. Essayez une image JPG ou PNG.", Toast.LENGTH_SHORT).show()
+                }
             }
         }
     }
     val launchPicker = {
-        launcher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+        if (!isProcessingPhoto) {
+            launcher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+        }
     }
 
     Surface(
@@ -775,7 +845,7 @@ fun ActivityPhotoPickerRow(
             )
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = if (photoUri.isBlank()) title else "$title ✓",
+                    text = if (isProcessingPhoto) "Optimisation de l'image..." else if (photoUri.isBlank()) title else "$title ✓",
                     fontWeight = FontWeight.Bold,
                     fontSize = 12.5.sp,
                     color = if (photoUri.isNotBlank()) accentColor else MaterialTheme.colorScheme.onSurface,
@@ -792,13 +862,18 @@ fun ActivityPhotoPickerRow(
             }
             OutlinedButton(
                 onClick = launchPicker,
+                enabled = !isProcessingPhoto,
                 shape = RoundedCornerShape(10.dp),
                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                 modifier = Modifier.heightIn(min = 42.dp)
             ) {
-                Icon(Icons.Default.AddAPhoto, contentDescription = null, modifier = Modifier.size(15.dp))
-                Spacer(modifier = Modifier.width(4.dp))
-                Text(if (photoUri.isBlank()) "Photo" else "Changer", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                if (isProcessingPhoto) {
+                    CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(15.dp))
+                } else {
+                    Icon(Icons.Default.AddAPhoto, contentDescription = null, modifier = Modifier.size(15.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(if (photoUri.isBlank()) "Photo" else "Changer", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                }
             }
         }
     }

@@ -346,11 +346,40 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
     private val _currentPublicUser = MutableStateFlow(PublicUserStorage.getActiveUser(application))
     val currentPublicUser: StateFlow<PublicUserAccount?> = _currentPublicUser.asStateFlow()
 
+    private val _registeredPublicUsers = MutableStateFlow(PublicUserStorage.getAllUsers(application))
+    val registeredPublicUsers: StateFlow<List<PublicUserAccount>> = _registeredPublicUsers.asStateFlow()
+
     private val _isSyncingPublicUser = MutableStateFlow(false)
     val isSyncingPublicUser: StateFlow<Boolean> = _isSyncingPublicUser.asStateFlow()
 
     fun reloadPublicUserState() {
-        _currentPublicUser.value = PublicUserStorage.getActiveUser(getApplication())
+        val app = getApplication<Application>()
+        _currentPublicUser.value = PublicUserStorage.getActiveUser(app)
+        _registeredPublicUsers.value = PublicUserStorage.getAllUsers(app)
+    }
+
+    // --- ÉTAT PORTAIL LIVRAISONS & LIVREURS PRO (PLAN 1000F, CARTE, QR VALIDATION & REÇUS) ---
+    private val _deliveryDrivers = MutableStateFlow(DeliveryStorage.getDrivers(application))
+    val deliveryDrivers: StateFlow<List<DeliveryDriverProfile>> = _deliveryDrivers.asStateFlow()
+
+    private val _deliveries = MutableStateFlow(DeliveryStorage.getDeliveries(application))
+    val deliveries: StateFlow<List<DeliveryOrderRecord>> = _deliveries.asStateFlow()
+
+    private val _activeDeliveryDriverId = MutableStateFlow(DeliveryStorage.getActiveDriverId(application))
+    val activeDeliveryDriverId: StateFlow<String?> = _activeDeliveryDriverId.asStateFlow()
+
+    private val _isSyncingDelivery = MutableStateFlow(false)
+    val isSyncingDelivery: StateFlow<Boolean> = _isSyncingDelivery.asStateFlow()
+
+    private val _pendingDeliveryQrTarget = MutableStateFlow<ParsedDeliveryQr?>(null)
+    val pendingDeliveryQrTarget: StateFlow<ParsedDeliveryQr?> = _pendingDeliveryQrTarget.asStateFlow()
+
+    fun reloadDeliveryLocalState() {
+        val app = getApplication<Application>()
+        _deliveryDrivers.value = DeliveryStorage.getDrivers(app)
+        _deliveries.value = DeliveryStorage.getDeliveries(app)
+        _activeDeliveryDriverId.value = DeliveryStorage.getActiveDriverId(app)
+        _registeredPublicUsers.value = PublicUserStorage.getAllUsers(app)
     }
 
     init {
@@ -2590,6 +2619,9 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
     // --- ROUTAGE QR UNIFIÉ (RESTAURANT, COUTURE, POUBELLES, TONTINE) & PORTAILS ---
 
     fun openAnyQrScan(rawQr: String): Boolean {
+        if (DeliveryQrParser.parseDeliveryQrUri(rawQr) != null) {
+            return openDeliveryQrFromScan(rawQr)
+        }
         if (WasteQrParser.parseWasteQrUri(rawQr) != null) {
             return openWasteQrFromScan(rawQr)
         }
@@ -3652,5 +3684,279 @@ class KonabViewModel(application: Application) : AndroidViewModel(application) {
     fun logoutPublicUser() {
         PublicUserStorage.clearSession(getApplication())
         _currentPublicUser.value = null
+    }
+
+    // =========================================================================
+    // PORTAIL LIVRAISONS & LIVREURS PRO (PLAN 1000 FCFA, QR VALIDATION & REÇUS)
+    // =========================================================================
+
+    fun refreshDeliveryPortalFromCloud(force: Boolean = true) {
+        if (_isSyncingDelivery.value) return
+        _isSyncingDelivery.value = true
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val res = supabaseSyncManager.fetchAllDeliveryPortalState(forceRefresh = force)
+            withContext(kotlinx.coroutines.Dispatchers.Main) {
+                _isSyncingDelivery.value = false
+                res.onSuccess { (drivers, orders, users) ->
+                    _deliveryDrivers.value = drivers
+                    _deliveries.value = orders
+                    _registeredPublicUsers.value = users
+                }
+                reloadDeliveryLocalState()
+            }
+        }
+    }
+
+    fun selectActiveDeliveryDriver(driverId: String?) {
+        DeliveryStorage.setActiveDriverId(getApplication(), driverId)
+        _activeDeliveryDriverId.value = driverId
+    }
+
+    fun saveDeliveryDriverProfile(
+        fullName: String,
+        phone: String,
+        city: String,
+        neighborhood: String,
+        vehicleType: String,
+        zone: String,
+        photoUri: String = "",
+        existingDriver: DeliveryDriverProfile? = null,
+        onResult: (DeliveryDriverProfile) -> Unit = {}
+    ) {
+        val cleanName = fullName.trim()
+        val cleanPhone = phone.trim()
+        if (cleanName.isBlank() || cleanPhone.isBlank()) return
+        val now = System.currentTimeMillis()
+        val linkedUserId = existingDriver?.userId?.ifBlank { _currentPublicUser.value?.id.orEmpty() }
+            ?: _currentPublicUser.value?.id.orEmpty()
+        val driver = (existingDriver ?: DeliveryDriverProfile(
+            id = "LIV-${(now % 1_000_000L).toString().padStart(6, '0')}-${(10..99).random()}",
+            userId = linkedUserId,
+            fullName = cleanName,
+            phone = cleanPhone,
+            createdAt = now
+        )).copy(
+            userId = linkedUserId,
+            fullName = cleanName,
+            phone = cleanPhone,
+            city = city.trim().ifBlank { "Ouagadougou" },
+            neighborhood = neighborhood.trim(),
+            vehicleType = vehicleType.trim().ifBlank { "Moto" },
+            zone = zone.trim(),
+            photoUri = photoUri.trim().ifBlank { existingDriver?.photoUri.orEmpty() },
+            updatedAt = now
+        )
+        val app = getApplication<Application>()
+        DeliveryStorage.upsertDriver(app, driver)
+        DeliveryStorage.setActiveDriverId(app, driver.id)
+        reloadDeliveryLocalState()
+        onResult(driver)
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            supabaseSyncManager.syncDeliveryDriverNow(driver)
+            withContext(kotlinx.coroutines.Dispatchers.Main) {
+                reloadDeliveryLocalState()
+            }
+        }
+    }
+
+    fun updateDeliveryDriverPhoto(driver: DeliveryDriverProfile, photoUri: String) {
+        val updated = driver.copy(photoUri = photoUri.trim(), updatedAt = System.currentTimeMillis())
+        DeliveryStorage.upsertDriver(getApplication(), updated)
+        reloadDeliveryLocalState()
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            supabaseSyncManager.syncDeliveryDriverNow(updated)
+            withContext(kotlinx.coroutines.Dispatchers.Main) {
+                reloadDeliveryLocalState()
+            }
+        }
+    }
+
+    fun activateDeliveryDriverPlan(
+        driver: DeliveryDriverProfile,
+        paymentReference: String,
+        amountFcfa: Long = 1000L,
+        onResult: (DeliveryDriverProfile) -> Unit = {}
+    ) {
+        val now = System.currentTimeMillis()
+        val expires = now + 30L * 24L * 60L * 60L * 1000L
+        val updated = driver.copy(
+            planPaid = true,
+            planAmountFcfa = if (amountFcfa > 0L) amountFcfa else 1000L,
+            planPaymentRef = paymentReference.trim(),
+            planPaidAt = now,
+            planExpiresAt = expires,
+            isAvailable = true,
+            updatedAt = now
+        )
+        DeliveryStorage.upsertDriver(getApplication(), updated)
+        DeliveryStorage.setActiveDriverId(getApplication(), updated.id)
+        reloadDeliveryLocalState()
+        onResult(updated)
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            supabaseSyncManager.syncDeliveryDriverNow(updated)
+            withContext(kotlinx.coroutines.Dispatchers.Main) {
+                reloadDeliveryLocalState()
+            }
+        }
+    }
+
+    fun createOrUpdateDelivery(
+        driver: DeliveryDriverProfile,
+        clientUser: PublicUserAccount?,
+        clientName: String,
+        clientPhone: String,
+        clientCity: String,
+        clientNeighborhood: String,
+        title: String,
+        pickupAddress: String,
+        dropoffAddress: String,
+        priceFcfa: Long,
+        notes: String = "",
+        existingDelivery: DeliveryOrderRecord? = null,
+        onResult: (DeliveryOrderRecord) -> Unit = {}
+    ) {
+        val resolvedClientName = clientUser?.fullName?.ifBlank { clientName.trim() } ?: clientName.trim()
+        val resolvedClientPhone = clientUser?.phone?.ifBlank { clientPhone.trim() } ?: clientPhone.trim()
+        val resolvedClientCity = clientCity.trim().ifBlank { clientUser?.city.orEmpty() }
+        val resolvedClientNeighborhood = clientNeighborhood.trim().ifBlank { clientUser?.neighborhood.orEmpty() }
+        if (resolvedClientName.isBlank()) return
+
+        val now = System.currentTimeMillis()
+        val id = existingDelivery?.id ?: "DLV-${(now % 1_000_000L).toString().padStart(6, '0')}-${(10..99).random()}"
+        val receiptNum = existingDelivery?.receiptNumber?.ifBlank { "REC-${id.removePrefix("DLV-")}" }
+            ?: "REC-${id.removePrefix("DLV-")}"
+        val record = (existingDelivery ?: DeliveryOrderRecord(
+            id = id,
+            driverId = driver.id,
+            driverName = driver.fullName,
+            driverPhone = driver.phone,
+            clientUserId = clientUser?.id.orEmpty(),
+            clientName = resolvedClientName,
+            receiptNumber = receiptNum,
+            createdAt = now
+        )).copy(
+            driverId = driver.id,
+            driverName = driver.fullName,
+            driverPhone = driver.phone,
+            clientUserId = clientUser?.id?.ifBlank { existingDelivery?.clientUserId.orEmpty() } ?: existingDelivery?.clientUserId.orEmpty(),
+            clientName = resolvedClientName,
+            clientPhone = resolvedClientPhone,
+            clientCity = resolvedClientCity,
+            clientNeighborhood = resolvedClientNeighborhood,
+            title = title.trim().ifBlank { "Livraison colis" },
+            pickupAddress = pickupAddress.trim(),
+            dropoffAddress = dropoffAddress.trim().ifBlank {
+                listOf(resolvedClientNeighborhood, resolvedClientCity).filter { it.isNotBlank() }.joinToString(", ")
+            },
+            priceFcfa = priceFcfa.coerceAtLeast(0L),
+            notes = notes.trim(),
+            updatedAt = now
+        )
+        DeliveryStorage.upsertDelivery(getApplication(), record)
+        reloadDeliveryLocalState()
+        onResult(record)
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            supabaseSyncManager.syncDeliveryOrderNow(record)
+            withContext(kotlinx.coroutines.Dispatchers.Main) {
+                reloadDeliveryLocalState()
+            }
+        }
+    }
+
+    fun updateDeliveryPrice(
+        delivery: DeliveryOrderRecord,
+        priceFcfa: Long,
+        onResult: (DeliveryOrderRecord) -> Unit = {}
+    ) {
+        val now = System.currentTimeMillis()
+        val updated = delivery.copy(
+            priceFcfa = priceFcfa.coerceAtLeast(0L),
+            receiptNumber = delivery.effectiveReceiptNumber,
+            updatedAt = now
+        )
+        DeliveryStorage.upsertDelivery(getApplication(), updated)
+        reloadDeliveryLocalState()
+        onResult(updated)
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            supabaseSyncManager.syncDeliveryOrderNow(updated)
+            withContext(kotlinx.coroutines.Dispatchers.Main) {
+                reloadDeliveryLocalState()
+            }
+        }
+    }
+
+    fun validateDeliveryByQrScan(
+        delivery: DeliveryOrderRecord,
+        scannedRawQr: String,
+        onResult: (Boolean, String, DeliveryOrderRecord?) -> Unit = { _, _, _ -> }
+    ) {
+        val parsed = DeliveryQrParser.parseDeliveryQrUri(scannedRawQr)
+        if (parsed == null) {
+            onResult(false, "Ce QR code n'est pas une carte Livreur Konab POS valide.", null)
+            return
+        }
+        val scannedDriverId = parsed.driverId.trim()
+        if (delivery.driverId.isNotBlank() && scannedDriverId.isNotBlank() &&
+            !delivery.driverId.equals(scannedDriverId, ignoreCase = true)
+        ) {
+            onResult(
+                false,
+                "Ce QR code appartient à un autre livreur ($scannedDriverId). Demandez le QR code de ${delivery.driverName}.",
+                null
+            )
+            return
+        }
+
+        val now = System.currentTimeMillis()
+        val updated = delivery.copy(
+            status = DeliveryStatus.VALIDEE,
+            validatedAt = now,
+            validatedQrRaw = scannedRawQr.trim(),
+            receiptNumber = delivery.effectiveReceiptNumber,
+            updatedAt = now
+        )
+        DeliveryStorage.upsertDelivery(getApplication(), updated)
+        reloadDeliveryLocalState()
+        onResult(true, "Livraison validée avec succès par QR code !", updated)
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            supabaseSyncManager.syncDeliveryOrderNow(updated)
+            withContext(kotlinx.coroutines.Dispatchers.Main) {
+                reloadDeliveryLocalState()
+            }
+        }
+    }
+
+    fun markDeliveryReceiptSent(delivery: DeliveryOrderRecord) {
+        val now = System.currentTimeMillis()
+        val updated = delivery.copy(
+            receiptNumber = delivery.effectiveReceiptNumber,
+            receiptSentAt = now,
+            updatedAt = now
+        )
+        DeliveryStorage.upsertDelivery(getApplication(), updated)
+        reloadDeliveryLocalState()
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            supabaseSyncManager.syncDeliveryOrderNow(updated)
+        }
+    }
+
+    fun deleteDeliveryOrder(deliveryId: String) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            supabaseSyncManager.deleteDeliveryCloud(deliveryId)
+            withContext(kotlinx.coroutines.Dispatchers.Main) {
+                reloadDeliveryLocalState()
+            }
+        }
+    }
+
+    fun openDeliveryQrFromScan(rawQr: String): Boolean {
+        val parsed = DeliveryQrParser.parseDeliveryQrUri(rawQr) ?: return false
+        _pendingDeliveryQrTarget.value = parsed
+        refreshDeliveryPortalFromCloud(force = true)
+        return true
+    }
+
+    fun dismissDeliveryQrTarget() {
+        _pendingDeliveryQrTarget.value = null
     }
 }

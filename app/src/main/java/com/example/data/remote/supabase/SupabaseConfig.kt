@@ -713,6 +713,56 @@ CREATE TABLE IF NOT EXISTS public.app_users (
 );
 CREATE INDEX IF NOT EXISTS idx_app_users_phone ON public.app_users(phone);
 
+-- 28. Table des Livreurs Certifiés (Carte Livreur, QR & Plan 1000F)
+CREATE TABLE IF NOT EXISTS public.delivery_drivers (
+    id TEXT PRIMARY KEY,
+    user_id TEXT DEFAULT '',
+    full_name TEXT NOT NULL,
+    phone TEXT NOT NULL,
+    city TEXT DEFAULT 'Ouagadougou',
+    neighborhood TEXT DEFAULT '',
+    vehicle_type TEXT DEFAULT 'Moto',
+    zone TEXT DEFAULT '',
+    photo_uri TEXT DEFAULT '',
+    plan_paid BOOLEAN DEFAULT false,
+    plan_amount_fcfa BIGINT DEFAULT 1000,
+    plan_payment_ref TEXT DEFAULT '',
+    plan_paid_at BIGINT DEFAULT 0,
+    plan_expires_at BIGINT DEFAULT 0,
+    is_available BOOLEAN DEFAULT true,
+    created_at BIGINT DEFAULT 0,
+    updated_at BIGINT DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_delivery_drivers_phone ON public.delivery_drivers(phone);
+
+-- 29. Table des Livraisons Clients & Validation QR
+CREATE TABLE IF NOT EXISTS public.deliveries (
+    id TEXT PRIMARY KEY,
+    driver_id TEXT NOT NULL,
+    driver_name TEXT NOT NULL,
+    driver_phone TEXT DEFAULT '',
+    client_user_id TEXT DEFAULT '',
+    client_name TEXT NOT NULL,
+    client_phone TEXT DEFAULT '',
+    client_city TEXT DEFAULT '',
+    client_neighborhood TEXT DEFAULT '',
+    title TEXT DEFAULT 'Colis / Commande',
+    pickup_address TEXT DEFAULT '',
+    dropoff_address TEXT DEFAULT '',
+    price_fcfa BIGINT DEFAULT 0,
+    status TEXT DEFAULT 'EN_COURS',
+    receipt_number TEXT DEFAULT '',
+    receipt_sent_at BIGINT DEFAULT 0,
+    validated_at BIGINT DEFAULT 0,
+    validated_qr_raw TEXT DEFAULT '',
+    notes TEXT DEFAULT '',
+    created_at BIGINT DEFAULT 0,
+    updated_at BIGINT DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_deliveries_driver_id ON public.deliveries(driver_id);
+CREATE INDEX IF NOT EXISTS idx_deliveries_client_phone ON public.deliveries(client_phone);
+CREATE INDEX IF NOT EXISTS idx_deliveries_status ON public.deliveries(status);
+
 -- Migrations additives sans perte de données pour les tables existantes (Deployer ID, Photo & Profil Utilisateur)
 ALTER TABLE IF EXISTS public.waste_businesses ADD COLUMN IF NOT EXISTS deployer_id TEXT DEFAULT '';
 ALTER TABLE IF EXISTS public.waste_businesses ADD COLUMN IF NOT EXISTS photo_uri TEXT DEFAULT '';
@@ -755,6 +805,8 @@ ALTER TABLE public.tontine_businesses ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.tontine_groups ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.tontine_cards ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.app_users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.delivery_drivers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.deliveries ENABLE ROW LEVEL SECURITY;
 
 -- Drop existing policies if they already exist to prevent "policy already exists" errors
 DROP POLICY IF EXISTS "Allow anon read/write for shop_profile" ON public.shop_profile;
@@ -785,6 +837,8 @@ DROP POLICY IF EXISTS "Allow anon read/write for tontine_businesses" ON public.t
 DROP POLICY IF EXISTS "Allow anon read/write for tontine_groups" ON public.tontine_groups;
 DROP POLICY IF EXISTS "Allow anon read/write for tontine_cards" ON public.tontine_cards;
 DROP POLICY IF EXISTS "Allow anon read/write for app_users" ON public.app_users;
+DROP POLICY IF EXISTS "Allow anon read/write for delivery_drivers" ON public.delivery_drivers;
+DROP POLICY IF EXISTS "Allow anon read/write for deliveries" ON public.deliveries;
 
 CREATE POLICY "Allow anon read/write for shop_profile" ON public.shop_profile FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow anon read/write for products" ON public.products FOR ALL USING (true) WITH CHECK (true);
@@ -814,6 +868,8 @@ CREATE POLICY "Allow anon read/write for tontine_businesses" ON public.tontine_b
 CREATE POLICY "Allow anon read/write for tontine_groups" ON public.tontine_groups FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow anon read/write for tontine_cards" ON public.tontine_cards FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow anon read/write for app_users" ON public.app_users FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow anon read/write for delivery_drivers" ON public.delivery_drivers FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow anon read/write for deliveries" ON public.deliveries FOR ALL USING (true) WITH CHECK (true);
 
 -- Buckets Storage publics pour héberger les logos des boutiques (shop-logos) et les médias vitrines (shop-ads)
 INSERT INTO storage.buckets (id, name, public)
