@@ -1,15 +1,35 @@
 [build]
   publish = "dist"
-  command = "npm run build"
+  command = "node build.js"
 
 [[redirects]]
-  from = "/admin"
-  to = "/index.html"
+  from = "/menu"
+  to = "/portal.html"
   status = 200
 
 [[redirects]]
-  from = "/admin.html"
-  to = "/index.html"
+  from = "/menu/*"
+  to = "/portal.html"
+  status = 200
+
+[[redirects]]
+  from = "/orders"
+  to = "/portal.html"
+  status = 200
+
+[[redirects]]
+  from = "/suivi"
+  to = "/portal.html"
+  status = 200
+
+[[redirects]]
+  from = "/iphone"
+  to = "/portal.html"
+  status = 200
+
+[[redirects]]
+  from = "/portal"
+  to = "/portal.html"
   status = 200
 
 [[redirects]]

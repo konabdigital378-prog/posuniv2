@@ -1,0 +1,15 @@
+{
+  "name": "Konab Menu — Carte & Suivi",
+  "short_name": "Konab Menu",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0B132B",
+  "theme_color": "#0B132B",
+  "icons": [
+    {
+      "src": "/logo.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

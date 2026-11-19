@@ -3,7 +3,9 @@ package com.example.util
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.ImageDecoder
 import android.net.Uri
+import android.os.Build
 import android.os.Looper
 import android.util.Base64
 import androidx.annotation.DrawableRes
@@ -41,6 +43,7 @@ import coil.compose.AsyncImage
 import coil.request.CachePolicy
 import coil.request.ImageRequest
 import com.example.R
+import com.example.data.remote.pocketbase.PocketBaseConfig
 import com.example.data.remote.supabase.SupabaseConfig
 import com.example.ui.theme.KonabOrange
 import kotlinx.coroutines.Dispatchers
@@ -147,6 +150,15 @@ object ShopLogoHelper {
             clean.equals("undefined", ignoreCase = true)
         ) {
             return null
+        }
+        val pbBase = PocketBaseConfig.rawUrl.trim().trimEnd('/')
+        if (pbBase.isNotBlank()) {
+            if (clean.startsWith("/api/files/")) {
+                return "$pbBase$clean"
+            }
+            if (clean.startsWith("api/files/")) {
+                return "$pbBase/$clean"
+            }
         }
         val base = supabaseBaseUrl.trim().trimEnd('/')
         if (base.isNotBlank()) {
@@ -379,32 +391,107 @@ object ShopLogoHelper {
         }
     }
 
+    fun ensureSoftwareBitmap(bmp: Bitmap?): Bitmap? {
+        if (bmp == null) return null
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && bmp.config == Bitmap.Config.HARDWARE) {
+            return runCatching { bmp.copy(Bitmap.Config.ARGB_8888, false) }.getOrNull()
+        }
+        return bmp
+    }
+
+    fun decodeFileSoftwareBitmap(file: File): Bitmap? {
+        if (!file.exists() || !file.isFile || file.length() <= 0L) return null
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            val decoded = runCatching {
+                val source = ImageDecoder.createSource(file)
+                ImageDecoder.decodeBitmap(source) { decoder, _, _ ->
+                    decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+                    decoder.isMutableRequired = false
+                }
+            }.getOrNull()
+            if (decoded != null && decoded.width > 0 && decoded.height > 0) {
+                return ensureSoftwareBitmap(decoded)
+            }
+        }
+        return ensureSoftwareBitmap(
+            runCatching {
+                BitmapFactory.decodeFile(
+                    file.absolutePath,
+                    BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.ARGB_8888 }
+                ) ?: BitmapFactory.decodeFile(file.absolutePath)
+            }.getOrNull()
+        )
+    }
+
+    fun decodeUriSoftwareBitmap(context: Context, uri: Uri): Bitmap? {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            val decoded = runCatching {
+                val source = ImageDecoder.createSource(context.contentResolver, uri)
+                ImageDecoder.decodeBitmap(source) { decoder, _, _ ->
+                    decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+                    decoder.isMutableRequired = false
+                }
+            }.getOrNull()
+            if (decoded != null && decoded.width > 0 && decoded.height > 0) {
+                return ensureSoftwareBitmap(decoded)
+            }
+        }
+        return ensureSoftwareBitmap(
+            runCatching {
+                context.contentResolver.openInputStream(uri)?.use {
+                    BitmapFactory.decodeStream(
+                        it,
+                        null,
+                        BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.ARGB_8888 }
+                    )
+                }
+            }.getOrNull()
+        )
+    }
+
+    @OptIn(coil.annotation.ExperimentalCoilApi::class)
+    private fun readFromCoilDiskCache(context: Context, url: String): Bitmap? {
+        return runCatching {
+            val loader = coil.Coil.imageLoader(context)
+            loader.diskCache?.openSnapshot(url)?.use { snapshot ->
+                decodeFileSoftwareBitmap(snapshot.data.toFile())
+            }
+        }.getOrNull()
+    }
+
     /**
-     * Loads a Bitmap from preset, base64 data URI, local file, or remote HTTPS URL (using
-     * persistent disk cache with network download when off main thread) for thermal/PDF receipts.
+     * Loads a Bitmap from preset, base64 data URI, local file, content URI, or remote HTTPS URL
+     * (using persistent disk cache, Coil disk cache, and network download when off main thread).
+     * Always guarantees a software ARGB_8888 Bitmap safe for Canvas export rendering.
      */
     fun loadLogoBitmap(context: Context, logoUri: String?): Bitmap? {
         val clean = normalizeLogoUri(logoUri) ?: return null
         return try {
-            val presetRes = resolvePresetDrawable(clean)
+            val presetRes = resolvePresetDrawable(clean) ?: ProductImageHelper.resolveDrawableRes(clean)
             if (presetRes != null) {
-                return BitmapFactory.decodeResource(context.resources, presetRes)
+                return ensureSoftwareBitmap(BitmapFactory.decodeResource(context.resources, presetRes))
             }
             if (clean.startsWith("data:image/", ignoreCase = true)) {
-                return decodeDataUriBitmap(clean)
+                return ensureSoftwareBitmap(decodeDataUriBitmap(clean))
             }
             if (isRemoteHttpUrl(clean)) {
                 val existingCache = getCachedLogoFile(context, clean).takeIf { it.exists() && it.length() > 0L }
-                val targetFile = existingCache ?: if (Looper.myLooper() != Looper.getMainLooper()) {
-                    cacheRemoteLogoBlocking(context, clean)
-                } else null
-                return targetFile?.let { BitmapFactory.decodeFile(it.absolutePath) }
+                if (existingCache != null) {
+                    decodeFileSoftwareBitmap(existingCache)?.let { return it }
+                }
+                readFromCoilDiskCache(context, clean)?.let { return it }
+                if (Looper.myLooper() != Looper.getMainLooper()) {
+                    val fetched = cacheRemoteLogoBlocking(context, clean)
+                    if (fetched != null) {
+                        decodeFileSoftwareBitmap(fetched)?.let { return it }
+                    }
+                }
+                return null
             }
-            if (clean.startsWith("content://")) {
-                val uri = Uri.parse(clean)
-                context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) }
+            if (clean.startsWith("content://", ignoreCase = true)) {
+                decodeUriSoftwareBitmap(context, Uri.parse(clean))
             } else {
-                getLocalFileIfExists(clean)?.let { BitmapFactory.decodeFile(it.absolutePath) }
+                getLocalFileIfExists(clean)?.let { decodeFileSoftwareBitmap(it) }
             }
         } catch (_: Exception) {
             null
@@ -418,7 +505,7 @@ object ShopLogoHelper {
     ): Bitmap? {
         return loadLogoBitmap(context, logoUri)
             ?: try {
-                BitmapFactory.decodeResource(context.resources, fallbackRes)
+                ensureSoftwareBitmap(BitmapFactory.decodeResource(context.resources, fallbackRes))
             } catch (_: Exception) {
                 null
             }

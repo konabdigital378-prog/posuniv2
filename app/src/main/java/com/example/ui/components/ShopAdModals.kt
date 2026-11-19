@@ -66,8 +66,10 @@ import com.example.data.remote.supabase.SupabaseSyncManager
 import com.example.ui.theme.*
 import com.example.util.ShopLogoAvatar
 import com.example.util.ShopLogoHelper
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 
 object ShopAdContactHelper {
@@ -762,11 +764,14 @@ fun ShopAdConfigModal(
         }
     }
 
-    val logoPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia()
-    ) { uri ->
-        if (uri != null) {
-            val res = ShopAdStorage.copyAdLogoToInternalStorage(context, uri)
+    val editorScope = rememberCoroutineScope()
+
+    fun handlePickedAdLogo(uri: Uri?) {
+        if (uri == null) return
+        editorScope.launch {
+            val res = withContext(Dispatchers.IO) {
+                ShopAdStorage.copyAdLogoToInternalStorage(context, uri)
+            }
             if (res != null) {
                 state.logoUri = res.first
                 state.localLogoFile = res.second
@@ -777,11 +782,12 @@ fun ShopAdConfigModal(
         }
     }
 
-    val videoPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia()
-    ) { uri ->
-        if (uri != null) {
-            val picked = ShopAdStorage.copyVideoToInternalStorage(context, uri)
+    fun handlePickedAdVideo(uri: Uri?) {
+        if (uri == null) return
+        editorScope.launch {
+            val picked = withContext(Dispatchers.IO) {
+                ShopAdStorage.copyVideoToInternalStorage(context, uri)
+            }
             if (picked != null) {
                 state.attachPromoVideo = true
                 state.videoUri = picked.localUri
@@ -797,6 +803,28 @@ fun ShopAdConfigModal(
                 Toast.makeText(context, "Vidéo invalide ou trop volumineuse (20 Mo max).", Toast.LENGTH_LONG).show()
             }
         }
+    }
+
+    val logoPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        handlePickedAdLogo(uri)
+    }
+    val logoFallbackLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        handlePickedAdLogo(uri)
+    }
+
+    val videoPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        handlePickedAdVideo(uri)
+    }
+    val videoFallbackLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        handlePickedAdVideo(uri)
     }
 
     Dialog(
@@ -856,14 +884,22 @@ fun ShopAdConfigModal(
                         connectedShopIds = connectedShopIds,
                         syncManager = syncManager,
                         onPickLogo = {
-                            logoPickerLauncher.launch(
-                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                            )
+                            try {
+                                logoPickerLauncher.launch(
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                )
+                            } catch (_: Exception) {
+                                runCatching { logoFallbackLauncher.launch("image/*") }
+                            }
                         },
                         onPickVideo = {
-                            videoPickerLauncher.launch(
-                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)
-                            )
+                            try {
+                                videoPickerLauncher.launch(
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)
+                                )
+                            } catch (_: Exception) {
+                                runCatching { videoFallbackLauncher.launch("video/*") }
+                            }
                         },
                         onDismiss = onDismiss,
                         onPublished = onPublished

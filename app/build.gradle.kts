@@ -23,8 +23,10 @@ android {
 
     val envUrl = System.getenv("SUPABASE_URL") ?: ""
     val envKey = System.getenv("SUPABASE_ANON_KEY") ?: ""
+    val envPbUrl = System.getenv("POCKETBASE_URL") ?: ""
     buildConfigField("String", "SUPABASE_URL", "\"$envUrl\"")
     buildConfigField("String", "SUPABASE_ANON_KEY", "\"$envKey\"")
+    buildConfigField("String", "POCKETBASE_URL", "\"$envPbUrl\"")
   }
 
   // Do not remove or modify these signingConfigs. They are necessary for building, installing,
@@ -83,6 +85,7 @@ secrets {
   ignoreList.add("FIREBASE_APPCHECK_DEBUG_TOKEN")
   ignoreList.add("SUPABASE_URL")
   ignoreList.add("SUPABASE_ANON_KEY")
+  ignoreList.add("POCKETBASE_URL")
 }
 
 googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.WARN }

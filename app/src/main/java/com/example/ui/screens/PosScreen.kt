@@ -16,6 +16,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -92,13 +93,18 @@ fun PosScreen(
     }
     val sectorFeatures = sectorPreset.sectorFeatures
     val isCoiffure = businessType.equals("Coiffure", ignoreCase = true)
-    val isCourtier = businessType.equals("Courtier", ignoreCase = true)
 
-    var selectedTable by remember { mutableStateOf("Table 1") }
-    var selectedStylist by remember { mutableStateOf("Fatou") }
-    var selectedNomadSpot by remember { mutableStateOf("Carrefour") }
-    var selectedCraftMode by remember { mutableStateOf("Fourniture + Pose") }
-    var selectedBrokerAct by remember { mutableStateOf("Visite") }
+    var selectedTable by remember(businessType) { mutableStateOf("Table 1") }
+    var selectedStylist by remember(businessType) { mutableStateOf("") }
+    var selectedContextMode by remember(businessType) { mutableStateOf("") }
+    val activeContextNote = remember(selectedContextMode, selectedStylist, sectorFeatures.hasOperatorStylist, sectorPreset.operatorRoleLabel) {
+        buildList {
+            if (selectedContextMode.isNotBlank()) add(selectedContextMode)
+            if (sectorFeatures.hasOperatorStylist && selectedStylist.isNotBlank()) {
+                add("${sectorPreset.operatorRoleLabel}: $selectedStylist")
+            }
+        }.joinToString(" • ")
+    }
     var showKitchenModal by remember { mutableStateOf(false) }
     var showCoiffureDialog by remember { mutableStateOf(false) }
     var showQuickAddProductDialog by remember { mutableStateOf(false) }
@@ -356,208 +362,221 @@ fun PosScreen(
                     .padding(horizontal = 16.dp, vertical = 4.dp),
                 shape = RoundedCornerShape(12.dp)
             ) {
-                Row(
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 10.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Row(
+                        modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        modifier = Modifier
-                            .weight(1f)
-                            .padding(end = 6.dp)
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(end = 6.dp)
+                        ) {
+                            if (sectorFeatures.hasTables) {
+                                val posTables = remember(restaurantTables) {
+                                    restaurantTables.filter { it.isActive }.map { it.tableNumber }.ifEmpty {
+                                        listOf("Table 1", "Table 2", "Table 3", "Table 4", "Terrasse", "Emporter")
+                                    }
+                                }
+                                LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    items(posTables) { tbl ->
+                                        val isSel = selectedTable == tbl
+                                        FilterChip(
+                                            selected = isSel,
+                                            onClick = { selectedTable = tbl },
+                                            label = { Text(tbl, fontSize = 11.sp) },
+                                            modifier = Modifier.height(30.dp),
+                                            colors = FilterChipDefaults.filterChipColors(
+                                                selectedContainerColor = Color(0xFFEA580C),
+                                                selectedLabelColor = Color.White
+                                            )
+                                        )
+                                    }
+                                }
+                            } else if (sectorPreset.quickContextModes.isNotEmpty()) {
+                                LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    items(sectorPreset.quickContextModes) { mode ->
+                                        val isSel = selectedContextMode == mode
+                                        FilterChip(
+                                            selected = isSel,
+                                            onClick = { selectedContextMode = if (isSel) "" else mode },
+                                            label = { Text(mode, fontSize = 11.sp, fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal) },
+                                            modifier = Modifier.height(30.dp),
+                                            colors = FilterChipDefaults.filterChipColors(
+                                                selectedContainerColor = Color(sectorPreset.accentColorHex),
+                                                selectedLabelColor = Color.White
+                                            )
+                                        )
+                                    }
+                                }
+                            } else if (sectorFeatures.hasPrescriptionExpiry) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text(
+                                        text = "💊 Ordonnance & DCI",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = Color(0xFF0284C7)
+                                    )
+                                    Surface(shape = RoundedCornerShape(6.dp), color = Color(0xFFE0F2FE)) {
+                                        Text(sectorPreset.quickUnits.take(3).joinToString("/"), fontSize = 10.sp, color = Color(0xFF0369A1), modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                                    }
+                                }
+                            } else if (sectorFeatures.hasVariations) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text(
+                                        text = "${sectorPreset.emoji} Tailles & Couleurs",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = KonabBlue
+                                    )
+                                    Surface(shape = RoundedCornerShape(6.dp), color = Color(0xFFEDE9FE)) {
+                                        Text(sectorPreset.quickUnits.take(3).joinToString(" • "), fontSize = 10.sp, color = Color(0xFF6D28D9), modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                                    }
+                                }
+                            } else if (sectorFeatures.hasFractionalUnits) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text(
+                                        text = "${sectorPreset.emoji} Unités :",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = Color(0xFFB45309)
+                                    )
+                                    Surface(shape = RoundedCornerShape(6.dp), color = Color(0xFFFEF3C7)) {
+                                        Text(sectorPreset.quickUnits.take(4).joinToString(" • "), fontSize = 10.sp, color = Color(0xFF92400E), modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                                    }
+                                }
+                            } else {
+                                Text(
+                                    text = sectorPreset.quickUnits.take(3).joinToString(" • "),
+                                    fontSize = 10.5.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
 
-                        if (isCourtier) {
-                            LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                items(listOf("Visite", "Commission", "Dossier", "Bail / Contrat")) { act ->
-                                    val isSel = selectedBrokerAct == act
-                                    FilterChip(
-                                        selected = isSel,
-                                        onClick = { selectedBrokerAct = act },
-                                        label = { Text(act, fontSize = 11.sp) },
-                                        modifier = Modifier.height(28.dp),
-                                        colors = FilterChipDefaults.filterChipColors(
-                                            selectedContainerColor = Color(0xFF0F766E),
-                                            selectedLabelColor = Color.White
-                                        )
-                                    )
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                            FilledTonalButton(
+                                onClick = { showCustomUnitDialog = true },
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                modifier = Modifier
+                                    .height(32.dp)
+                                    .testTag("btn_custom_unit_sale")
+                            ) {
+                                Icon(Icons.Default.Straighten, contentDescription = null, modifier = Modifier.size(13.dp))
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text("+ Unité", fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
+                            }
+
+                            if (sectorFeatures.hasNomadMode && cart.isNotEmpty()) {
+                                Button(
+                                    onClick = onProceedToPayment,
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE11D48)),
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                    modifier = Modifier
+                                        .height(32.dp)
+                                        .testTag("btn_nomad_cash_flash")
+                                ) {
+                                    Icon(Icons.Default.Bolt, contentDescription = null, modifier = Modifier.size(13.dp))
+                                    Spacer(modifier = Modifier.width(3.dp))
+                                    Text("Encaisser", fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
-                        } else if (sectorFeatures.hasNomadMode) {
-                            LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                items(listOf("🚶 Carrefour", "🏪 Marché", "🚌 Arrêt", "🏠 Tournée", "🎪 Événement")) { spot ->
-                                    val isSel = selectedNomadSpot == spot
-                                    FilterChip(
-                                        selected = isSel,
-                                        onClick = { selectedNomadSpot = spot },
-                                        label = { Text(spot, fontSize = 11.sp) },
-                                        modifier = Modifier.height(28.dp),
-                                        colors = FilterChipDefaults.filterChipColors(
-                                            selectedContainerColor = Color(0xFFE11D48),
-                                            selectedLabelColor = Color.White
-                                        )
-                                    )
+                            if (sectorFeatures.hasTables && cart.isNotEmpty()) {
+                                Button(
+                                    onClick = { showKitchenModal = true },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEA580C)),
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                    modifier = Modifier
+                                        .height(32.dp)
+                                        .testTag("btn_kitchen_order")
+                                ) {
+                                    Icon(Icons.Default.RestaurantMenu, contentDescription = null, modifier = Modifier.size(13.dp))
+                                    Spacer(modifier = Modifier.width(3.dp))
+                                    Text("Cuisine", fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
-                        } else if (sectorFeatures.hasTables) {
-                            val posTables = remember(restaurantTables) {
-                                restaurantTables.filter { it.isActive }.map { it.tableNumber }.ifEmpty {
-                                    listOf("Table 1", "Table 2", "Table 3", "Table 4", "Terrasse", "Emporter")
+                            if (sectorFeatures.hasJobSiteQuotes && cart.isNotEmpty()) {
+                                Button(
+                                    onClick = { showProformaModal = true },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0369A1)),
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                    modifier = Modifier
+                                        .height(32.dp)
+                                        .testTag("btn_jobsite_quote")
+                                ) {
+                                    Icon(Icons.AutoMirrored.Filled.ReceiptLong, contentDescription = null, modifier = Modifier.size(13.dp))
+                                    Spacer(modifier = Modifier.width(3.dp))
+                                    Text("Devis", fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
-                            LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                items(posTables) { tbl ->
-                                    val isSel = selectedTable == tbl
-                                    FilterChip(
-                                        selected = isSel,
-                                        onClick = { selectedTable = tbl },
-                                        label = { Text(tbl, fontSize = 11.sp) },
-                                        modifier = Modifier.height(28.dp),
-                                        colors = FilterChipDefaults.filterChipColors(
-                                            selectedContainerColor = Color(0xFFEA580C),
-                                            selectedLabelColor = Color.White
-                                        )
-                                    )
-                                }
-                            }
-                        } else if (sectorFeatures.hasJobSiteQuotes) {
-                            LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                items(listOf("Fourniture + Pose", "Main d'œuvre", "Dépannage", "Atelier")) { mode ->
-                                    val isSel = selectedCraftMode == mode
-                                    FilterChip(
-                                        selected = isSel,
-                                        onClick = { selectedCraftMode = mode },
-                                        label = { Text(mode, fontSize = 11.sp) },
-                                        modifier = Modifier.height(28.dp),
-                                        colors = FilterChipDefaults.filterChipColors(
-                                            selectedContainerColor = Color(0xFF0369A1),
-                                            selectedLabelColor = Color.White
-                                        )
-                                    )
-                                }
-                            }
-                        } else if (sectorFeatures.hasOperatorStylist) {
-                            LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                items(listOf("Fatou", "Moussa", "Sarah", "Ibrahim")) { stylist ->
-                                    val isSel = selectedStylist == stylist
-                                    FilterChip(
-                                        selected = isSel,
-                                        onClick = { selectedStylist = stylist },
-                                        label = { Text(stylist, fontSize = 11.sp) },
-                                        modifier = Modifier.height(28.dp),
-                                        colors = FilterChipDefaults.filterChipColors(
-                                            selectedContainerColor = Color(0xFF9333EA),
-                                            selectedLabelColor = Color.White
-                                        )
-                                    )
-                                }
-                            }
-                        } else if (sectorFeatures.hasPrescriptionExpiry) {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Text(
-                                    text = "💊 Ordonnance & DCI",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = Color(0xFF0284C7)
-                                )
-                                Surface(shape = RoundedCornerShape(6.dp), color = Color(0xFFE0F2FE)) {
-                                    Text(sectorPreset.quickUnits.take(3).joinToString("/"), fontSize = 10.sp, color = Color(0xFF0369A1), modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
-                                }
-                            }
-                        } else if (sectorFeatures.hasVariations) {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Text(
-                                    text = "${sectorPreset.emoji} Tailles & Couleurs",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = KonabBlue
-                                )
-                                Surface(shape = RoundedCornerShape(6.dp), color = Color(0xFFEDE9FE)) {
-                                    Text(sectorPreset.quickUnits.take(3).joinToString(" • "), fontSize = 10.sp, color = Color(0xFF6D28D9), modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
-                                }
-                            }
-                        } else if (sectorFeatures.hasFractionalUnits) {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Text(
-                                    text = "${sectorPreset.emoji} Unités :",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = Color(0xFFB45309)
-                                )
-                                Surface(shape = RoundedCornerShape(6.dp), color = Color(0xFFFEF3C7)) {
-                                    Text(sectorPreset.quickUnits.take(4).joinToString(" • "), fontSize = 10.sp, color = Color(0xFF92400E), modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
-                                }
-                            }
-                        } else {
-                            Text(
-                                text = sectorPreset.quickUnits.take(3).joinToString(" • "),
-                                fontSize = 10.5.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
                         }
                     }
 
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                        FilledTonalButton(
-                            onClick = { showCustomUnitDialog = true },
-                            shape = RoundedCornerShape(8.dp),
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                            modifier = Modifier
-                                .height(30.dp)
-                                .testTag("btn_custom_unit_sale")
+                    // Secondary row for Restaurant/Kiosque service modes OR Operator/Practitioner selection (Coiffure, Couture, Mécanique, Informatique, Lavage)
+                    if ((sectorFeatures.hasTables && sectorPreset.quickContextModes.isNotEmpty()) || sectorFeatures.hasOperatorStylist) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Icon(Icons.Default.Straighten, contentDescription = null, modifier = Modifier.size(13.dp))
-                            Spacer(modifier = Modifier.width(3.dp))
-                            Text("+ Unité", fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
-                        }
-
-                        if (sectorFeatures.hasNomadMode && cart.isNotEmpty()) {
-                            Button(
-                                onClick = onProceedToPayment,
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE11D48)),
-                                shape = RoundedCornerShape(8.dp),
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                modifier = Modifier
-                                    .height(30.dp)
-                                    .testTag("btn_nomad_cash_flash")
-                            ) {
-                                Icon(Icons.Default.Bolt, contentDescription = null, modifier = Modifier.size(13.dp))
-                                Spacer(modifier = Modifier.width(3.dp))
-                                Text("Encaisser", fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
-                            }
-                        } else if (sectorFeatures.hasTables && cart.isNotEmpty()) {
-                            Button(
-                                onClick = { showKitchenModal = true },
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEA580C)),
-                                shape = RoundedCornerShape(8.dp),
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                modifier = Modifier
-                                    .height(30.dp)
-                                    .testTag("btn_kitchen_order")
-                            ) {
-                                Icon(Icons.Default.RestaurantMenu, contentDescription = null, modifier = Modifier.size(13.dp))
-                                Spacer(modifier = Modifier.width(3.dp))
-                                Text("Cuisine", fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
-                            }
-                        } else if (sectorFeatures.hasJobSiteQuotes && cart.isNotEmpty()) {
-                            Button(
-                                onClick = { showProformaModal = true },
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0369A1)),
-                                shape = RoundedCornerShape(8.dp),
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                modifier = Modifier
-                                    .height(30.dp)
-                                    .testTag("btn_jobsite_quote")
-                            ) {
-                                Icon(Icons.Default.ReceiptLong, contentDescription = null, modifier = Modifier.size(13.dp))
-                                Spacer(modifier = Modifier.width(3.dp))
-                                Text("Devis", fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
+                            if (sectorFeatures.hasTables && sectorPreset.quickContextModes.isNotEmpty()) {
+                                Text(
+                                    text = "Service :",
+                                    fontSize = 10.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    items(sectorPreset.quickContextModes) { mode ->
+                                        val isSel = selectedContextMode == mode
+                                        FilterChip(
+                                            selected = isSel,
+                                            onClick = { selectedContextMode = if (isSel) "" else mode },
+                                            label = { Text(mode, fontSize = 10.5.sp, fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal) },
+                                            modifier = Modifier.height(28.dp),
+                                            colors = FilterChipDefaults.filterChipColors(
+                                                selectedContainerColor = Color(sectorPreset.accentColorHex),
+                                                selectedLabelColor = Color.White
+                                            )
+                                        )
+                                    }
+                                }
+                            } else if (sectorFeatures.hasOperatorStylist) {
+                                Text(
+                                    text = "${sectorPreset.operatorRoleLabel} :",
+                                    fontSize = 10.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    items(listOf("Fatou", "Moussa", "Sarah", "Ibrahim")) { operator ->
+                                        val isSel = selectedStylist == operator
+                                        FilterChip(
+                                            selected = isSel,
+                                            onClick = { selectedStylist = if (isSel) "" else operator },
+                                            label = { Text(operator, fontSize = 10.5.sp, fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal) },
+                                            modifier = Modifier.height(28.dp),
+                                            colors = FilterChipDefaults.filterChipColors(
+                                                selectedContainerColor = Color(sectorPreset.accentColorHex),
+                                                selectedLabelColor = Color.White
+                                            )
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -688,11 +707,17 @@ fun PosScreen(
                 ) {
                     items(filteredProducts) { product ->
                         val countInCart = cart.find { it.product.id == product.id }?.quantity ?: 0
-                        val needsCustomization = sectorFeatures.hasVariations || sectorFeatures.hasPrescriptionExpiry || sectorFeatures.hasTables || sectorFeatures.hasJobSiteQuotes || sectorFeatures.hasNomadMode || sectorFeatures.hasFractionalUnits || sectorFeatures.hasOperatorStylist || sectorFeatures.hasSpeedCashShortcuts
+                        val needsCustomization = sectorFeatures.hasVariations || sectorFeatures.hasPrescriptionExpiry || sectorFeatures.hasTables || sectorFeatures.hasJobSiteQuotes || sectorFeatures.hasNomadMode || sectorFeatures.hasFractionalUnits || sectorFeatures.hasOperatorStylist || sectorFeatures.hasSpeedCashShortcuts || sectorPreset.quickContextModes.isNotEmpty()
                         ProductGridItem(
                             product = product,
                             countInCart = countInCart,
-                            onAdd = { onAddToCart(product) },
+                            onAdd = {
+                                if (activeContextNote.isNotBlank()) {
+                                    onAddToCartWithVariant(product, activeContextNote)
+                                } else {
+                                    onAddToCart(product)
+                                }
+                            },
                             onCustomize = if (needsCustomization) { { productForCustomization = product } } else null
                         )
                     }
@@ -1056,6 +1081,8 @@ fun PosScreen(
         ItemVariantCustomizerDialog(
             product = prod,
             businessType = shopProfile?.businessType ?: "Boutique",
+            initialOperator = selectedStylist,
+            initialContextMode = selectedContextMode,
             onDismiss = { productForCustomization = null },
             onConfirm = { customNote ->
                 onAddToCartWithVariant(prod, customNote)
@@ -1069,6 +1096,8 @@ fun PosScreen(
             product = cartItem.product,
             initialNote = cartItem.variantNote,
             businessType = businessType,
+            initialOperator = selectedStylist,
+            initialContextMode = selectedContextMode,
             onDismiss = { itemForCartNoteEdit = null },
             onConfirm = { customNote ->
                 onUpdateItemNote(cartItem.product.id, customNote)
@@ -1079,7 +1108,7 @@ fun PosScreen(
 
     if (showCoiffureDialog) {
         CoiffureServiceDialog(
-            initialStylist = selectedStylist,
+            initialStylist = selectedStylist.ifBlank { "Fatou" },
             onDismiss = { showCoiffureDialog = false },
             onConfirmCoiffure = { title, amount, note, saveToCatalogAs ->
                 if (saveToCatalogAs != null) {
@@ -1095,9 +1124,9 @@ fun PosScreen(
             sectorPreset = sectorPreset,
             onDismiss = { showCustomUnitDialog = false },
             onConfirm = { title, unitPrice, quantity, unit, note ->
-                val enrichedNote = if (isCourtier && selectedBrokerAct.isNotBlank()) {
-                    "Acte: $selectedBrokerAct • $note"
-                } else note
+                val enrichedNote = listOf(activeContextNote, note)
+                    .filter { it.isNotBlank() }
+                    .joinToString(" • ")
                 onAddCustomAmount(title, unitPrice, quantity, unit, enrichedNote)
             }
         )

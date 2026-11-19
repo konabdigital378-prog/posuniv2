@@ -505,9 +505,9 @@ private fun RestaurantOrderCard(
                                 .height(48.dp)
                                 .testTag("btn_transmit_kitchen_${order.orderNumber}")
                         ) {
-                            Icon(Icons.Default.SoupKitchen, contentDescription = null, modifier = Modifier.size(17.dp))
+                            Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(17.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Transmettre Cuisine", fontWeight = FontWeight.Bold, fontSize = 12.5.sp)
+                            Text("Valider & Envoyer Reçu", fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1)
                         }
                     }
 

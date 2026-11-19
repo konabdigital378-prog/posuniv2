@@ -17,9 +17,9 @@ class SupabaseSyncUnitTest {
     @Test
     fun testSupabaseConfigurationIsValid() {
         assertTrue("Supabase doit être configuré", SupabaseConfig.isConfigured)
-        assertEquals("https://ttvjrkqkbnktyvpbmwdg.supabase.co", SupabaseConfig.rawUrl)
+        assertEquals("https://hckbvflqimqanmmohxyc.supabase.co", SupabaseConfig.rawUrl)
         assertTrue("La clé anon doit être présente", SupabaseConfig.rawAnonKey.isNotBlank())
-        assertEquals("https://ttvjrkqkbnktyvpbmwdg.supabase.co/rest/v1", SupabaseConfig.restBaseUrl)
+        assertEquals("https://hckbvflqimqanmmohxyc.supabase.co/rest/v1", SupabaseConfig.restBaseUrl)
     }
 
     @Test

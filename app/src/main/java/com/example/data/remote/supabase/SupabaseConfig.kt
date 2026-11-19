@@ -2,6 +2,7 @@ package com.example.data.remote.supabase
 
 import android.content.Context
 import com.example.BuildConfig
+import com.example.data.remote.pocketbase.PocketBaseConfig
 
 object SupabaseConfig {
 
@@ -11,25 +12,66 @@ object SupabaseConfig {
     @Volatile
     private var customKeyOverride: String? = null
 
-    const val DEFAULT_SUPABASE_URL = "https://ttvjrkqkbnktyvpbmwdg.supabase.co"
-    const val DEFAULT_SUPABASE_ANON_KEY = "sb_publishable_siNdueRXP4ge6gvopEB3AA_yw0gGReo"
+    const val DEFAULT_SUPABASE_URL = "https://hckbvflqimqanmmohxyc.supabase.co"
+    const val DEFAULT_SUPABASE_ANON_KEY = "sb_publishable_2LVEwSPh-tzxDyBy1KPXJQ_b_2qUIs3"
+
+    private const val ACTIVE_PROJECT_REF = "hckbvflqimqanmmohxyc"
+
+    private fun isDeprecatedUrl(url: String?): Boolean {
+        if (url.isNullOrBlank()) return false
+        return url.contains("your-project") ||
+            url.contains("your_project") ||
+            url.contains("alcqwqtmdvxbjjwvnpkv") ||
+            url.contains("ttvjrkqkbnktyvpbmwdg") ||
+            url.contains("xwhjsyzbddwgbvmlusou")
+    }
+
+    private fun isDeprecatedKey(key: String?): Boolean {
+        if (key.isNullOrBlank()) return false
+        return key.contains("your-supabase") ||
+            key.contains("your_supabase") ||
+            key.contains("placeholder") ||
+            key.contains("siNdueRXP4ge6gvopEB3AA") ||
+            key.contains("JpItRrCXsNGI_gqCB2A7ug")
+    }
 
     fun init(context: Context) {
+        PocketBaseConfig.init(context)
+        RestaurantQrParser.ensureInitialized(context)
         try {
             val prefs = context.getSharedPreferences("konab_supabase_prefs", Context.MODE_PRIVATE)
             val u = prefs.getString("custom_supabase_url", null)
             val k = prefs.getString("custom_supabase_anon_key", null)
-            if (!u.isNullOrBlank() && u.startsWith("http") && !u.contains("your-project") && !u.contains("alcqwqtmdvxbjjwvnpkv")) {
+            val wasDeprecated = isDeprecatedUrl(u) || isDeprecatedKey(k)
+            val lastMigratedRef = prefs.getString("migrated_project_ref", null)
+
+            if (!u.isNullOrBlank() && u.startsWith("http") && !isDeprecatedUrl(u)) {
                 customUrlOverride = u.trim()
             } else {
                 customUrlOverride = null
                 prefs.edit().remove("custom_supabase_url").apply()
             }
-            if (!k.isNullOrBlank() && !k.contains("your-supabase") && k.length > 20) {
+            if (!k.isNullOrBlank() && !isDeprecatedKey(k) && k.length > 20 && !wasDeprecated) {
                 customKeyOverride = k.trim()
             } else {
                 customKeyOverride = null
                 prefs.edit().remove("custom_supabase_anon_key").apply()
+            }
+
+            // Si l'appareil utilisait l'ancien projet (override ou valeur par défaut précédente),
+            // on invalide les empreintes de sync, la dernière date de sync et l'ancien JWT auth.
+            val usingDefaultOrOldProject = u.isNullOrBlank() || wasDeprecated
+            if (usingDefaultOrOldProject && lastMigratedRef != ACTIVE_PROJECT_REF) {
+                prefs.edit()
+                    .remove("last_sync_timestamp")
+                    .putString("migrated_project_ref", ACTIVE_PROJECT_REF)
+                    .apply()
+                context.getSharedPreferences("konab_sync_digests", Context.MODE_PRIVATE)
+                    .edit().clear().apply()
+                context.getSharedPreferences("konab_supabase_auth_prefs", Context.MODE_PRIVATE)
+                    .edit().clear().apply()
+            } else if (lastMigratedRef == null) {
+                prefs.edit().putString("migrated_project_ref", ACTIVE_PROJECT_REF).apply()
             }
         } catch (_: Exception) {}
     }
@@ -68,7 +110,7 @@ object SupabaseConfig {
 
     val rawUrl: String get() {
         val override = customUrlOverride
-        if (!override.isNullOrBlank() && override.startsWith("http") && !override.contains("your-project") && !override.contains("your_project") && !override.contains("alcqwqtmdvxbjjwvnpkv")) {
+        if (!override.isNullOrBlank() && override.startsWith("http") && !isDeprecatedUrl(override)) {
             return override
         }
         val buildVal = try {
@@ -76,7 +118,7 @@ object SupabaseConfig {
         } catch (e: Exception) {
             ""
         }
-        if (buildVal.isNotBlank() && buildVal.startsWith("http") && !buildVal.contains("your-project") && !buildVal.contains("your_project") && !buildVal.contains("alcqwqtmdvxbjjwvnpkv")) {
+        if (buildVal.isNotBlank() && buildVal.startsWith("http") && !isDeprecatedUrl(buildVal)) {
             return buildVal
         }
         return DEFAULT_SUPABASE_URL
@@ -84,7 +126,7 @@ object SupabaseConfig {
 
     val rawAnonKey: String get() {
         val override = customKeyOverride
-        if (!override.isNullOrBlank() && !override.contains("your-supabase") && !override.contains("your_supabase") && !override.contains("placeholder") && override.length > 20) {
+        if (!override.isNullOrBlank() && !isDeprecatedKey(override) && override.length > 20) {
             return override
         }
         val buildVal = try {
@@ -92,17 +134,21 @@ object SupabaseConfig {
         } catch (e: Exception) {
             ""
         }
-        if (buildVal.isNotBlank() && !buildVal.contains("your-supabase") && !buildVal.contains("your_supabase") && !buildVal.contains("placeholder") && buildVal.length > 20) {
+        if (buildVal.isNotBlank() && !isDeprecatedKey(buildVal) && buildVal.length > 20) {
             return buildVal
         }
         return DEFAULT_SUPABASE_ANON_KEY
     }
 
     val isConfigured: Boolean
-        get() = rawUrl.isNotBlank() && 
-                rawAnonKey.isNotBlank() && 
-                rawUrl.startsWith("http") && 
+        get() = if (PocketBaseConfig.isPocketBaseActive) {
+            PocketBaseConfig.isConfigured
+        } else {
+            rawUrl.isNotBlank() &&
+                rawAnonKey.isNotBlank() &&
+                rawUrl.startsWith("http") &&
                 !rawUrl.contains("your-project")
+        }
 
     val restBaseUrl: String
         get() {

@@ -4,6 +4,17 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Konab POS — Panel Admin Indépendant</title>
+    <script>
+      (function () {
+        try {
+          var q = new URLSearchParams(window.location.search);
+          var m = (q.get('mode') || '').toLowerCase();
+          if (q.has('s') || q.has('shopId') || q.has('t') || q.has('table') || m === 'menu' || m === 'team' || m === 'directory') {
+            window.location.replace('./portal.html' + window.location.search);
+          }
+        } catch (e) {}
+      })();
+    </script>
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Chart.js CDN -->
@@ -203,6 +214,11 @@
                         <i class="fa-solid fa-gear w-5 text-center text-slate-400"></i>
                         <span>Cloud & Paramètres</span>
                     </button>
+
+                    <a href="./portal.html" class="nav-item w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl text-orange-300 hover:bg-orange-500/15 hover:text-orange-200 transition-all border border-orange-500/20 mt-2">
+                        <i class="fa-solid fa-mobile-screen-button w-5 text-center text-orange-400"></i>
+                        <span>Portail iPhone / Menu QR</span>
+                    </a>
                 </nav>
             </div>
 
@@ -1468,13 +1484,13 @@
 
         // Sample & Clean Data Management
         function loadInitialData() {
-            const defaultUrl = 'https://ttvjrkqkbnktyvpbmwdg.supabase.co';
-            const defaultKey = 'sb_publishable_siNdueRXP4ge6gvopEB3AA_yw0gGReo';
+            const defaultUrl = 'https://hckbvflqimqanmmohxyc.supabase.co';
+            const defaultKey = 'sb_publishable_2LVEwSPh-tzxDyBy1KPXJQ_b_2qUIs3';
             let savedUrl = localStorage.getItem('konab_supabase_url');
             let savedKey = localStorage.getItem('konab_supabase_key');
 
             // Migrer automatiquement si l'ancien projet est encore en cache local
-            if (!savedUrl || savedUrl.includes('alcqwqtmdvxbjjwvnpkv') || savedUrl.includes('your-project')) {
+            if (!savedUrl || savedUrl.includes('alcqwqtmdvxbjjwvnpkv') || savedUrl.includes('ttvjrkqkbnktyvpbmwdg') || savedUrl.includes('xwhjsyzbddwgbvmlusou') || savedUrl.includes('your-project')) {
                 savedUrl = defaultUrl;
                 savedKey = defaultKey;
                 try {

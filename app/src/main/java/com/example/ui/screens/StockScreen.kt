@@ -34,7 +34,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import com.example.data.local.entity.ProductEntity
 import com.example.ui.components.KonabCardShape
 import com.example.ui.components.KonabScreenTopBar
@@ -643,15 +645,21 @@ fun ProductFormDialog(
     var showUrlInput by remember { mutableStateOf(false) }
     var showBarcodeScannerInForm by remember { mutableStateOf(false) }
     var zoomImageIndex by remember { mutableStateOf<Int?>(null) }
+    val dialogContext = LocalContext.current
+    val dialogScope = rememberCoroutineScope()
 
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri ->
         if (uri != null) {
-            val uriStr = uri.toString()
-            imageUri = uriStr
-            if (!galleryImages.contains(uriStr)) {
-                galleryImages = listOf(uriStr) + galleryImages
+            dialogScope.launch {
+                val savedUri = withContext(Dispatchers.IO) {
+                    ProductImageHelper.saveProductImageToInternalStorage(dialogContext, uri)
+                } ?: uri.toString()
+                imageUri = savedUri
+                if (!galleryImages.contains(savedUri)) {
+                    galleryImages = listOf(savedUri) + galleryImages
+                }
             }
         }
     }
@@ -660,10 +668,16 @@ fun ProductFormDialog(
         contract = ActivityResultContracts.PickMultipleVisualMedia()
     ) { uris ->
         if (uris.isNotEmpty()) {
-            val list = uris.map { it.toString() }
-            galleryImages = (galleryImages + list).distinct()
-            if (imageUri.isBlank() && galleryImages.isNotEmpty()) {
-                imageUri = galleryImages.first()
+            dialogScope.launch {
+                val savedList = withContext(Dispatchers.IO) {
+                    uris.map { uri ->
+                        ProductImageHelper.saveProductImageToInternalStorage(dialogContext, uri) ?: uri.toString()
+                    }
+                }
+                galleryImages = (galleryImages + savedList).distinct()
+                if (imageUri.isBlank() && galleryImages.isNotEmpty()) {
+                    imageUri = galleryImages.first()
+                }
             }
         }
     }

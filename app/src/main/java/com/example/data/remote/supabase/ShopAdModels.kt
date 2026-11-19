@@ -617,6 +617,15 @@ object ShopAdStorage {
             if (compressed != null) {
                 return Uri.fromFile(compressed).toString() to compressed
             }
+            val rawFallback = com.example.util.KonabImageOptimizer.copyRawImageFallback(
+                context = context,
+                sourceUri = sourceUri,
+                destDir = adsDir,
+                fileNamePrefix = "ad_logo"
+            )
+            if (rawFallback != null) {
+                return Uri.fromFile(rawFallback).toString() to rawFallback
+            }
             null
         } catch (e: Exception) {
             android.util.Log.e("ShopAdStorage", "Erreur copie logo pub: ${e.message}", e)

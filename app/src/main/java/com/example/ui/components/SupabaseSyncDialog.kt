@@ -30,6 +30,8 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.data.remote.pocketbase.CloudBackendProvider
+import com.example.data.remote.pocketbase.PocketBaseConfig
 import com.example.data.remote.supabase.SupabaseConfig
 import com.example.data.remote.supabase.SupabaseSyncState
 import com.example.ui.theme.KonabGreen
@@ -41,6 +43,8 @@ fun SupabaseSyncDialog(
     syncState: SupabaseSyncState,
     onTestConnection: (url: String?, key: String?) -> Unit = { _, _ -> },
     onSaveAndSync: (url: String, key: String) -> Unit = { _, _ -> },
+    onSelectProvider: (CloudBackendProvider) -> Unit = {},
+    onSavePocketBaseUrl: (url: String) -> Unit = {},
     onSyncNow: () -> Unit = {},
     onSyncFullStore: () -> Unit = {},
     onToggleAutoSync: (Boolean) -> Unit = {},
@@ -49,13 +53,18 @@ fun SupabaseSyncDialog(
 ) {
     val context = LocalContext.current
     var showSqlSchemaModal by remember { mutableStateOf(false) }
-    var showCredentialsFields by remember { mutableStateOf(!syncState.isConfigured) }
+    var selectedProvider by remember { mutableStateOf(PocketBaseConfig.provider) }
+    val isPocketBase = selectedProvider == CloudBackendProvider.POCKETBASE
+    var showCredentialsFields by remember { mutableStateOf(!syncState.isConfigured || isPocketBase) }
 
     var inputUrl by remember {
         mutableStateOf(SupabaseConfig.rawUrl)
     }
     var inputKey by remember {
         mutableStateOf(SupabaseConfig.rawAnonKey)
+    }
+    var inputPbUrl by remember {
+        mutableStateOf(PocketBaseConfig.rawUrl)
     }
     var showKeyPassword by remember { mutableStateOf(false) }
 
@@ -95,12 +104,45 @@ fun SupabaseSyncDialog(
                     }
                     Spacer(modifier = Modifier.width(12.dp))
                     Column {
-                        Text("Base de Données Supabase", fontWeight = FontWeight.Bold, fontSize = 17.sp)
-                        Text("Synchronisation automatique de la configuration d'entreprise", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            if (isPocketBase) "Serveur PocketBase" else "Base de Données Supabase",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 17.sp
+                        )
+                        Text(
+                            if (isPocketBase) "SQLite temps réel, auth app_users & fichiers /api/files" else "Synchronisation automatique de la configuration d'entreprise",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
                 IconButton(onClick = onDismiss, modifier = Modifier.testTag("btn_close_supabase_modal")) {
                     Icon(Icons.Default.Close, contentDescription = "Fermer")
+                }
+            }
+
+            // Provider Switcher (Supabase / PocketBase)
+            SingleChoiceSegmentedButtonRow(
+                modifier = Modifier.fillMaxWidth().testTag("segmented_cloud_provider")
+            ) {
+                CloudBackendProvider.entries.forEachIndexed { index, provider ->
+                    SegmentedButton(
+                        selected = selectedProvider == provider,
+                        onClick = {
+                            selectedProvider = provider
+                            onSelectProvider(provider)
+                            if (provider == CloudBackendProvider.POCKETBASE) {
+                                showCredentialsFields = true
+                            }
+                        },
+                        shape = SegmentedButtonDefaults.itemShape(
+                            index = index,
+                            count = CloudBackendProvider.entries.size
+                        ),
+                        modifier = Modifier.testTag("btn_provider_${provider.name.lowercase()}")
+                    ) {
+                        Text(provider.displayName, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                    }
                 }
             }
 
@@ -163,8 +205,8 @@ fun SupabaseSyncDialog(
                             Text(
                                 text = when {
                                     syncState.isSyncing -> "Test / Synchro en cours..."
-                                    syncState.isError -> "Échec du Test Supabase"
-                                    syncState.isConfigured -> "Supabase Opérationnel"
+                                    syncState.isError -> "Échec du Test ${selectedProvider.displayName}"
+                                    syncState.isConfigured -> "${selectedProvider.displayName} Opérationnel"
                                     else -> "Configuration requise"
                                 },
                                 fontWeight = FontWeight.Bold,
@@ -265,7 +307,7 @@ fun SupabaseSyncDialog(
                         Spacer(modifier = Modifier.width(10.dp))
                         Column {
                             Text(
-                                text = if (isAuth) (authUser?.name ?: "Utilisateur Cloud") else "Compte Utilisateur Supabase",
+                                text = if (isAuth) (authUser?.name ?: "Utilisateur Cloud") else "Compte Utilisateur ${selectedProvider.displayName}",
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 13.sp
                             )
@@ -358,7 +400,11 @@ fun SupabaseSyncDialog(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.Key, contentDescription = null, tint = KonabGreen, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Identifiants du Projet Supabase", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text(
+                                if (isPocketBase) "Serveur PocketBase" else "Identifiants du Projet Supabase",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp
+                            )
                         }
                         IconButton(
                             onClick = { showCredentialsFields = !showCredentialsFields },
@@ -373,70 +419,101 @@ fun SupabaseSyncDialog(
 
                     AnimatedVisibility(visible = showCredentialsFields) {
                         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            // URL Field
-                            OutlinedTextField(
-                                value = inputUrl,
-                                onValueChange = { inputUrl = it },
-                                label = { Text("URL du Projet Supabase", fontSize = 12.sp) },
-                                placeholder = { Text("https://xxxxxxxx.supabase.co", fontSize = 12.sp) },
-                                singleLine = true,
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-                                modifier = Modifier.fillMaxWidth().testTag("input_supabase_url"),
-                                trailingIcon = {
-                                    IconButton(onClick = {
-                                        val clip = (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).primaryClip
-                                        if (clip != null && clip.itemCount > 0) {
-                                            val pasted = clip.getItemAt(0).text?.toString() ?: ""
-                                            if (pasted.startsWith("http")) {
-                                                inputUrl = pasted.trim()
-                                                Toast.makeText(context, "URL collée !", Toast.LENGTH_SHORT).show()
-                                            }
-                                        }
-                                    }) {
-                                        Icon(Icons.Default.ContentPaste, contentDescription = "Coller URL", modifier = Modifier.size(18.dp))
-                                    }
-                                }
-                            )
-
-                            // Anon Key Field
-                            OutlinedTextField(
-                                value = inputKey,
-                                onValueChange = { inputKey = it },
-                                label = { Text("Clé Publique Anon (API Key)", fontSize = 12.sp) },
-                                placeholder = { Text("eyJhbGciOiJIUzI1NiIsInR5cCI6...", fontSize = 12.sp) },
-                                singleLine = true,
-                                visualTransformation = if (showKeyPassword) VisualTransformation.None else PasswordVisualTransformation(),
-                                modifier = Modifier.fillMaxWidth().testTag("input_supabase_key"),
-                                trailingIcon = {
-                                    Row {
-                                        IconButton(onClick = { showKeyPassword = !showKeyPassword }) {
-                                            Icon(
-                                                if (showKeyPassword) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                                contentDescription = "Afficher/Masquer",
-                                                modifier = Modifier.size(18.dp)
-                                            )
-                                        }
+                            if (isPocketBase) {
+                                OutlinedTextField(
+                                    value = inputPbUrl,
+                                    onValueChange = { inputPbUrl = it },
+                                    label = { Text("URL du Serveur PocketBase", fontSize = 12.sp) },
+                                    placeholder = { Text("https://mon-pos.pockethost.io ou http://10.0.2.2:8090", fontSize = 12.sp) },
+                                    singleLine = true,
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                                    modifier = Modifier.fillMaxWidth().testTag("input_pocketbase_url"),
+                                    trailingIcon = {
                                         IconButton(onClick = {
                                             val clip = (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).primaryClip
                                             if (clip != null && clip.itemCount > 0) {
                                                 val pasted = clip.getItemAt(0).text?.toString() ?: ""
-                                                if (pasted.isNotBlank()) {
-                                                    inputKey = pasted.trim()
-                                                    Toast.makeText(context, "Clé Anon collée !", Toast.LENGTH_SHORT).show()
+                                                if (pasted.startsWith("http")) {
+                                                    inputPbUrl = pasted.trim()
+                                                    Toast.makeText(context, "URL PocketBase collée !", Toast.LENGTH_SHORT).show()
                                                 }
                                             }
                                         }) {
-                                            Icon(Icons.Default.ContentPaste, contentDescription = "Coller Clé", modifier = Modifier.size(18.dp))
+                                            Icon(Icons.Default.ContentPaste, contentDescription = "Coller URL PocketBase", modifier = Modifier.size(18.dp))
                                         }
                                     }
-                                }
-                            )
+                                )
+                                Text(
+                                    "Aucune clé API secrète requise côté client : PocketBase sécurise chaque collection par API Rules et jetons app_users.",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            } else {
+                                // URL Field
+                                OutlinedTextField(
+                                    value = inputUrl,
+                                    onValueChange = { inputUrl = it },
+                                    label = { Text("URL du Projet Supabase", fontSize = 12.sp) },
+                                    placeholder = { Text("https://xxxxxxxx.supabase.co", fontSize = 12.sp) },
+                                    singleLine = true,
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                                    modifier = Modifier.fillMaxWidth().testTag("input_supabase_url"),
+                                    trailingIcon = {
+                                        IconButton(onClick = {
+                                            val clip = (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).primaryClip
+                                            if (clip != null && clip.itemCount > 0) {
+                                                val pasted = clip.getItemAt(0).text?.toString() ?: ""
+                                                if (pasted.startsWith("http")) {
+                                                    inputUrl = pasted.trim()
+                                                    Toast.makeText(context, "URL collée !", Toast.LENGTH_SHORT).show()
+                                                }
+                                            }
+                                        }) {
+                                            Icon(Icons.Default.ContentPaste, contentDescription = "Coller URL", modifier = Modifier.size(18.dp))
+                                        }
+                                    }
+                                )
 
-                            Text(
-                                "Ces paramètres sont enregistrés de façon sécurisée sur votre appareil et dans vos variables d'environnement.",
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                                // Anon Key Field
+                                OutlinedTextField(
+                                    value = inputKey,
+                                    onValueChange = { inputKey = it },
+                                    label = { Text("Clé Publique Anon (API Key)", fontSize = 12.sp) },
+                                    placeholder = { Text("eyJhbGciOiJIUzI1NiIsInR5cCI6...", fontSize = 12.sp) },
+                                    singleLine = true,
+                                    visualTransformation = if (showKeyPassword) VisualTransformation.None else PasswordVisualTransformation(),
+                                    modifier = Modifier.fillMaxWidth().testTag("input_supabase_key"),
+                                    trailingIcon = {
+                                        Row {
+                                            IconButton(onClick = { showKeyPassword = !showKeyPassword }) {
+                                                Icon(
+                                                    if (showKeyPassword) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                                    contentDescription = "Afficher/Masquer",
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                            }
+                                            IconButton(onClick = {
+                                                val clip = (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).primaryClip
+                                                if (clip != null && clip.itemCount > 0) {
+                                                    val pasted = clip.getItemAt(0).text?.toString() ?: ""
+                                                    if (pasted.isNotBlank()) {
+                                                        inputKey = pasted.trim()
+                                                        Toast.makeText(context, "Clé Anon collée !", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                }
+                                            }) {
+                                                Icon(Icons.Default.ContentPaste, contentDescription = "Coller Clé", modifier = Modifier.size(18.dp))
+                                            }
+                                        }
+                                    }
+                                )
+
+                                Text(
+                                    "Ces paramètres sont enregistrés de façon sécurisée sur votre appareil et dans vos variables d'environnement.",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                     }
                 }
@@ -450,9 +527,13 @@ fun SupabaseSyncDialog(
                 // Test Button
                 OutlinedButton(
                     onClick = {
-                        val testUrl = inputUrl.trim().takeIf { it.isNotBlank() }
-                        val testKey = inputKey.trim().takeIf { it.isNotBlank() }
-                        onTestConnection(testUrl, testKey)
+                        if (isPocketBase) {
+                            onTestConnection(inputPbUrl.trim().takeIf { it.isNotBlank() }, null)
+                        } else {
+                            val testUrl = inputUrl.trim().takeIf { it.isNotBlank() }
+                            val testKey = inputKey.trim().takeIf { it.isNotBlank() }
+                            onTestConnection(testUrl, testKey)
+                        }
                     },
                     enabled = !syncState.isSyncing,
                     modifier = Modifier
@@ -475,15 +556,27 @@ fun SupabaseSyncDialog(
                 // Sync / Save & Sync Button
                 Button(
                     onClick = {
-                        val targetUrl = inputUrl.trim()
-                        val targetKey = inputKey.trim()
-                        if (targetUrl.isNotBlank() && targetKey.isNotBlank()) {
-                            onSaveAndSync(targetUrl, targetKey)
+                        if (isPocketBase) {
+                            val cleanPb = inputPbUrl.trim()
+                            if (cleanPb.isNotBlank()) {
+                                onSavePocketBaseUrl(cleanPb)
+                            } else {
+                                onSyncNow()
+                            }
                         } else {
-                            onSyncNow()
+                            val targetUrl = inputUrl.trim()
+                            val targetKey = inputKey.trim()
+                            if (targetUrl.isNotBlank() && targetKey.isNotBlank()) {
+                                onSaveAndSync(targetUrl, targetKey)
+                            } else {
+                                onSyncNow()
+                            }
                         }
                     },
-                    enabled = !syncState.isSyncing && (syncState.isConfigured || (inputUrl.isNotBlank() && inputKey.isNotBlank())),
+                    enabled = !syncState.isSyncing && (
+                        if (isPocketBase) inputPbUrl.isNotBlank() || syncState.isConfigured
+                        else syncState.isConfigured || (inputUrl.isNotBlank() && inputKey.isNotBlank())
+                    ),
                     colors = ButtonDefaults.buttonColors(containerColor = KonabGreen),
                     modifier = Modifier
                         .weight(1.3f)
@@ -493,7 +586,11 @@ fun SupabaseSyncDialog(
                 ) {
                     Icon(Icons.Default.Sync, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Sync Entreprise", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        if (isPocketBase) "Activer & Sync" else "Sync Entreprise",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
 
@@ -512,7 +609,7 @@ fun SupabaseSyncDialog(
                 Text("Synchroniser Tout le Magasin (Produits, Ventes, Caisse)", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
             }
 
-            // SQL Schema Section
+            // Schema Section (SQL Supabase or pb_collections.json PocketBase)
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp),
@@ -527,17 +624,27 @@ fun SupabaseSyncDialog(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.DataObject, contentDescription = null, tint = KonabGreen)
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Script SQL Supabase", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text(
+                                if (isPocketBase) "Schéma PocketBase (36 collections)" else "Script SQL Supabase",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp
+                            )
                         }
-                        TextButton(
-                            onClick = { showSqlSchemaModal = true },
-                            modifier = Modifier.testTag("btn_show_sql_schema")
-                        ) {
-                            Text("Afficher & Copier", fontSize = 12.sp, color = KonabGreen, fontWeight = FontWeight.Bold)
+                        if (!isPocketBase) {
+                            TextButton(
+                                onClick = { showSqlSchemaModal = true },
+                                modifier = Modifier.testTag("btn_show_sql_schema")
+                            ) {
+                                Text("Afficher & Copier", fontSize = 12.sp, color = KonabGreen, fontWeight = FontWeight.Bold)
+                            }
                         }
                     }
                     Text(
-                        "Générez les 11 tables (produits, ventes, tickets, clients, fournisseurs, achats, caisse, notifications, catégories) et règles RLS dans votre console Supabase en 1 clic.",
+                        if (isPocketBase) {
+                            "Importez pb_collections.json dans votre Admin UI PocketBase (Paramètres > Import collections) pour créer les 28 collections métier, app_users, media_assets et les 7 vues allégées."
+                        } else {
+                            "Générez les tables (produits, ventes, tickets, clients, fournisseurs, achats, caisse, notifications, catégories) et règles RLS dans votre console Supabase en 1 clic."
+                        },
                         fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

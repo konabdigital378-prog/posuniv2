@@ -30,6 +30,8 @@ fun ItemVariantCustomizerDialog(
     product: ProductEntity,
     initialNote: String = "",
     businessType: String = "Boutique",
+    initialOperator: String = "",
+    initialContextMode: String = "",
     onDismiss: () -> Unit,
     onConfirm: (customNote: String) -> Unit
 ) {
@@ -52,10 +54,12 @@ fun ItemVariantCustomizerDialog(
     var selectedTechDiagnostic by remember { mutableStateOf("") }
     var selectedJewelryMetal by remember { mutableStateOf("") }
     var selectedWashFinish by remember { mutableStateOf("") }
+    var selectedTransportDetail by remember { mutableStateOf("") }
+    var selectedContextMode by remember { mutableStateOf(initialContextMode) }
     var selectedUnitChoice by remember { mutableStateOf("") }
     var selectedBrokerService by remember { mutableStateOf("") }
     var selectedCoiffureGender by remember { mutableStateOf("") }
-    var selectedStylist by remember { mutableStateOf("") }
+    var selectedStylist by remember { mutableStateOf(initialOperator) }
     var freeTextNote by remember { mutableStateOf(initialNote) }
 
     val sizes = listOf("XS", "S", "M", "L", "XL", "XXL", "Sur-mesure")
@@ -72,15 +76,17 @@ fun ItemVariantCustomizerDialog(
     val techDiagnostics = listOf("Écran fissuré", "Batterie HS", "Connecteur de charge", "Système bloqué / Déblocage", "Sauvegarde données", "Garantie 3 mois")
     val jewelryMetals = listOf("Or jaune 18k", "Or blanc 18k", "Argent massif 925", "Plaqué or 24k", "Perles de culture", "Gravure offerte")
     val washFinishes = listOf("Mousse active karcher", "Lustrage carrosserie", "Brillant pneus", "Sent-bon vanille", "Shampooing sièges")
+    val transportDetails = listOf("Course urbaine", "Colis fragile", "Express 1h", "Aller-retour", "Livraison domicile")
     val brokerServices = listOf("Frais de visite", "Commission courtage", "Frais de dossier", "Contrat / Bail", "Acompte réservation")
     val coiffureGenders = listOf("Homme", "Femme")
     val stylists = listOf("Fatou", "Moussa", "Sarah", "Ibrahim")
 
     val buildFinalNote: () -> String = {
         val parts = mutableListOf<String>()
+        if (selectedContextMode.isNotBlank()) parts.add("Mode: $selectedContextMode")
         if (selectedUnitChoice.isNotBlank()) parts.add("Unité: $selectedUnitChoice")
         if (selectedCoiffureGender.isNotBlank()) parts.add("Client: $selectedCoiffureGender")
-        if (selectedStylist.isNotBlank()) parts.add("Coiffeur: $selectedStylist")
+        if (selectedStylist.isNotBlank()) parts.add("${sectorPreset.operatorRoleLabel}: $selectedStylist")
         if (selectedBrokerService.isNotBlank()) parts.add("Acte: $selectedBrokerService")
         if (selectedSize.isNotBlank()) parts.add("Taille: $selectedSize")
         if (selectedColor.isNotBlank()) parts.add("Couleur: $selectedColor")
@@ -96,6 +102,7 @@ fun ItemVariantCustomizerDialog(
         if (selectedTechDiagnostic.isNotBlank()) parts.add("Diagnostic: $selectedTechDiagnostic")
         if (selectedJewelryMetal.isNotBlank()) parts.add("Métal: $selectedJewelryMetal")
         if (selectedWashFinish.isNotBlank()) parts.add("Lavage: $selectedWashFinish")
+        if (selectedTransportDetail.isNotBlank()) parts.add("Transport: $selectedTransportDetail")
         if (freeTextNote.isNotBlank()) parts.add(freeTextNote.trim())
         parts.joinToString(" • ")
     }
@@ -148,8 +155,32 @@ fun ItemVariantCustomizerDialog(
                     }
                 }
 
-                // Coiffure (Homme / Femme + Coiffeur)
-                if (businessType.equals("Coiffure", ignoreCase = true) || features.hasOperatorStylist) {
+                // Modes rapides du secteur
+                if (sectorPreset.quickContextModes.isNotEmpty()) {
+                    Text(
+                        text = "Mode / Contexte (${sectorPreset.title}) :",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        items(sectorPreset.quickContextModes) { mode ->
+                            val isSel = selectedContextMode == mode
+                            FilterChip(
+                                selected = isSel,
+                                onClick = { selectedContextMode = if (isSel) "" else mode },
+                                label = { Text(mode, fontSize = 11.sp, fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = Color(sectorPreset.accentColorHex),
+                                    selectedLabelColor = Color.White
+                                )
+                            )
+                        }
+                    }
+                }
+
+                // Coiffure (Homme / Femme uniquement pour Coiffure)
+                if (businessType.equals("Coiffure", ignoreCase = true)) {
                     Text(
                         text = "Clientèle Coiffure (Homme / Femme) :",
                         fontWeight = FontWeight.Bold,
@@ -170,8 +201,12 @@ fun ItemVariantCustomizerDialog(
                             )
                         }
                     }
+                }
+
+                // Opérateur / Praticien / Tailleur / Mécanicien / Technicien / Laveur
+                if (features.hasOperatorStylist) {
                     Text(
-                        text = "Praticien / Coiffeur :",
+                        text = "${sectorPreset.operatorRoleLabel} :",
                         fontWeight = FontWeight.Bold,
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurface
@@ -184,7 +219,7 @@ fun ItemVariantCustomizerDialog(
                                 onClick = { selectedStylist = if (isSel) "" else st },
                                 label = { Text(st, fontSize = 11.sp) },
                                 colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = Color(0xFF9333EA),
+                                    selectedContainerColor = Color(sectorPreset.accentColorHex),
                                     selectedLabelColor = Color.White
                                 )
                             )
@@ -545,6 +580,30 @@ fun ItemVariantCustomizerDialog(
                         }
                     }
                 }
+                // Transport & Livraison
+                if (businessType.contains("Transport", ignoreCase = true) || product.category.contains("Course", ignoreCase = true) || product.category.contains("Colis", ignoreCase = true)) {
+                    Text(
+                        text = "Modalité de transport & livraison :",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        items(transportDetails) { trp ->
+                            val isSel = selectedTransportDetail == trp
+                            FilterChip(
+                                selected = isSel,
+                                onClick = { selectedTransportDetail = if (isSel) "" else trp },
+                                label = { Text(trp, fontSize = 11.sp, fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = Color(0xFF0369A1),
+                                    selectedLabelColor = Color.White
+                                )
+                            )
+                        }
+                    }
+                }
+
                 OutlinedTextField(
                     value = freeTextNote,
                     onValueChange = { freeTextNote = it },

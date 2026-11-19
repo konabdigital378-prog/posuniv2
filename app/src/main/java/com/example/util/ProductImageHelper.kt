@@ -1,5 +1,7 @@
 package com.example.util
 
+import android.content.Context
+import android.net.Uri
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -10,7 +12,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -20,6 +21,9 @@ import coil.request.CachePolicy
 import coil.request.ImageRequest
 import com.example.R
 import com.example.data.local.entity.ProductEntity
+import com.example.data.remote.supabase.SupabaseConfig
+import java.io.File
+import java.io.FileOutputStream
 
 data class ProductPresetImage(
     val key: String,
@@ -97,6 +101,115 @@ object ProductImageHelper {
         }
     }
 
+    fun normalizeProductImageUri(
+        imageUri: String?,
+        supabaseBaseUrl: String = SupabaseConfig.rawUrl
+    ): String {
+        val clean = imageUri?.trim().orEmpty()
+        if (clean.isBlank() ||
+            clean.equals("null", ignoreCase = true) ||
+            clean.equals("undefined", ignoreCase = true)
+        ) {
+            return ""
+        }
+        val base = supabaseBaseUrl.trim().trimEnd('/')
+        if (base.isNotBlank()) {
+            if (clean.startsWith("/storage/v1/")) return "$base$clean"
+            if (clean.startsWith("storage/v1/")) return "$base/$clean"
+            if (clean.startsWith("product-images/") ||
+                clean.startsWith("shop-logos/") ||
+                clean.startsWith("shop-ads/")
+            ) {
+                return "$base/storage/v1/object/public/$clean"
+            }
+        }
+        return clean
+    }
+
+    fun isLocalUnpublishedProductImageUri(uri: String?): Boolean {
+        val clean = normalizeProductImageUri(uri)
+        if (clean.isBlank()) return false
+        if (resolveDrawableRes(clean) != null) return false
+        if (clean.startsWith("http://", ignoreCase = true) ||
+            clean.startsWith("https://", ignoreCase = true) ||
+            clean.startsWith("data:image/", ignoreCase = true) ||
+            clean.startsWith("drawable:", ignoreCase = true)
+        ) {
+            return false
+        }
+        return clean.startsWith("content://", ignoreCase = true) ||
+            clean.startsWith("file://", ignoreCase = true) ||
+            clean.startsWith("/")
+    }
+
+    private fun ensureProductImagesDir(context: Context): File {
+        val dir = File(context.filesDir, "product_images")
+        if (!dir.exists()) dir.mkdirs()
+        return dir
+    }
+
+    fun getLocalFileIfExists(uri: String?): File? {
+        val clean = uri?.trim().orEmpty()
+        if (clean.isBlank() ||
+            clean.startsWith("http://", ignoreCase = true) ||
+            clean.startsWith("https://", ignoreCase = true) ||
+            clean.startsWith("data:image/", ignoreCase = true) ||
+            clean.startsWith("drawable:", ignoreCase = true) ||
+            clean.startsWith("content://", ignoreCase = true)
+        ) {
+            return null
+        }
+        return try {
+            val path = if (clean.startsWith("file://")) clean.removePrefix("file://") else clean
+            val f = File(path)
+            if (f.exists() && f.isFile && f.length() > 0L) f else null
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    fun saveProductImageToInternalStorage(context: Context, sourceUri: Uri): String? {
+        return try {
+            val dir = ensureProductImagesDir(context)
+            val webpFile = KonabImageOptimizer.compressUriToWebpFile(
+                context = context,
+                sourceUri = sourceUri,
+                destDir = dir,
+                fileNamePrefix = "prod",
+                maxDimPx = 720,
+                quality = 80
+            )
+            if (webpFile != null && webpFile.exists() && webpFile.length() > 0L) {
+                return Uri.fromFile(webpFile).toString()
+            }
+            val destFile = File(dir, "prod_${System.currentTimeMillis()}.jpg")
+            context.contentResolver.openInputStream(sourceUri)?.use { input ->
+                FileOutputStream(destFile).use { output ->
+                    input.copyTo(output)
+                }
+            } ?: return null
+            if (destFile.exists() && destFile.length() > 0L) Uri.fromFile(destFile).toString() else null
+        } catch (e: Exception) {
+            android.util.Log.e("ProductImageHelper", "Erreur sauvegarde photo produit: ${e.message}", e)
+            null
+        }
+    }
+
+    fun getUploadableProductImageFile(context: Context, imageUri: String?): File? {
+        val clean = normalizeProductImageUri(imageUri)
+        if (!isLocalUnpublishedProductImageUri(clean)) return null
+        return try {
+            if (clean.startsWith("content://", ignoreCase = true)) {
+                val saved = saveProductImageToInternalStorage(context, Uri.parse(clean)) ?: return null
+                getLocalFileIfExists(saved)
+            } else {
+                getLocalFileIfExists(clean)
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     /**
      * Finds the most relevant high-resolution image for any product
      * based on its category, name, or unit.
@@ -167,11 +280,12 @@ fun ProductThumbnail(
             .background(MaterialTheme.colorScheme.surfaceVariant),
         contentAlignment = Alignment.Center
     ) {
-        val uri = product.imageUri.trim()
-        val isExternalUri = uri.startsWith("content://") || 
-                            uri.startsWith("http://") || 
-                            uri.startsWith("https://") || 
-                            uri.startsWith("file://")
+        val uri = ProductImageHelper.normalizeProductImageUri(product.imageUri)
+        val isExternalUri = uri.startsWith("content://") ||
+                            uri.startsWith("http://") ||
+                            uri.startsWith("https://") ||
+                            uri.startsWith("file://") ||
+                            uri.startsWith("/")
 
         if (isExternalUri) {
             val context = LocalContext.current

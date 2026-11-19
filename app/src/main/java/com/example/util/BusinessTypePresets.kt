@@ -30,7 +30,9 @@ data class BusinessTypeInfo(
     val quickActionHint: String = "Caisse rapide & reçus clients",
     val isServiceSector: Boolean = false,
     val dailyTip: String = "Suivez chaque vente et vos seuils d'alerte pour optimiser votre marge.",
-    val unitGuidance: String = "Unités de vente adaptées à votre secteur"
+    val unitGuidance: String = "Unités de vente adaptées à votre secteur",
+    val quickContextModes: List<String> = emptyList(),
+    val operatorRoleLabel: String = "Opérateur"
 ) {
     val label: String get() = title
 }
@@ -57,6 +59,7 @@ object BusinessTypePresets {
         "Librairie",
         "Bijouterie",
         "Lavage Auto-Moto",
+        "Transport",
         "Maçonnerie",
         "Menuiserie",
         "Soudure",
@@ -560,6 +563,41 @@ object BusinessTypePresets {
                 )
             )
 
+            "Transport" -> BusinessTypeInfo(
+                id = "Transport",
+                title = "Transport, Livraison & Logistique",
+                iconName = "local_shipping",
+                description = "Courses moto-taxi, livraison de colis, messagerie express, transport marchandises et location",
+                defaultCategories = listOf("Courses & Livraisons", "Colis & Messagerie", "Fret & Déménagement", "Location Véhicule"),
+                quickUnits = listOf("course", "colis", "voyage", "kg", "jour", "forfait"),
+                sectorFeatures = SectorFeatures(hasNomadMode = true, hasJobSiteQuotes = true, hasSpeedCashShortcuts = true),
+                emoji = "🚚",
+                defaultProducts = listOf(
+                    ProductEntity(name = "Course livraison express intra-urbaine", category = "Courses & Livraisons", buyPrice = 200, sellPrice = 1000, stockQuantity = 200, minStockAlert = 1, unit = "course", imageUri = "img_prod_quincaillerie"),
+                    ProductEntity(name = "Envoi colis interurbain standard (<10kg)", category = "Colis & Messagerie", buyPrice = 500, sellPrice = 2500, stockQuantity = 100, minStockAlert = 1, unit = "colis", imageUri = "img_prod_quincaillerie"),
+                    ProductEntity(name = "Transport marchandise tricycle / camionnette", category = "Fret & Déménagement", buyPrice = 2000, sellPrice = 10000, stockQuantity = 50, minStockAlert = 1, unit = "voyage", imageUri = "img_prod_quincaillerie"),
+                    ProductEntity(name = "Location véhicule utilitaire journée", category = "Location Véhicule", buyPrice = 5000, sellPrice = 35000, stockQuantity = 15, minStockAlert = 1, unit = "jour", imageUri = "img_prod_quincaillerie"),
+                    ProductEntity(name = "Forfait ramassage & distribution boutique", category = "Courses & Livraisons", buyPrice = 1000, sellPrice = 5000, stockQuantity = 60, minStockAlert = 1, unit = "forfait", imageUri = "img_prod_quincaillerie")
+                )
+            )
+
+            "Autre" -> BusinessTypeInfo(
+                id = "Autre",
+                title = "Autre Activité / Sur-Mesure",
+                iconName = "category",
+                description = "Commerce polyvalent, prestations libres, vente au détail, en gros ou sur devis personnalisé",
+                defaultCategories = listOf("Produits", "Prestations & Services", "Fournitures", "Divers"),
+                quickUnits = listOf("pièce", "service", "forfait", "lot", "kg", "heure"),
+                sectorFeatures = SectorFeatures(hasSpeedCashShortcuts = true, hasFractionalUnits = true, hasJobSiteQuotes = true),
+                emoji = "✨",
+                defaultProducts = listOf(
+                    ProductEntity(name = "Article standard ou marchandise", category = "Produits", buyPrice = 1000, sellPrice = 2000, stockQuantity = 25, minStockAlert = 5, unit = "pièce", imageUri = "img_prod_epicerie"),
+                    ProductEntity(name = "Prestation de service sur mesure", category = "Prestations & Services", buyPrice = 0, sellPrice = 5000, stockQuantity = 50, minStockAlert = 1, unit = "service", imageUri = "img_prod_epicerie"),
+                    ProductEntity(name = "Pack / Lot promotionnel", category = "Produits", buyPrice = 2500, sellPrice = 4000, stockQuantity = 15, minStockAlert = 3, unit = "lot", imageUri = "img_prod_epicerie"),
+                    ProductEntity(name = "Forfait intervention ou accompagnement", category = "Prestations & Services", buyPrice = 0, sellPrice = 10000, stockQuantity = 30, minStockAlert = 1, unit = "forfait", imageUri = "img_prod_epicerie")
+                )
+            )
+
             else -> BusinessTypeInfo(
                 id = "Commerce général",
                 title = "Commerce général & Épicerie",
@@ -589,7 +627,8 @@ object BusinessTypePresets {
                 quickActionLabel = "Nouvelle vente Mode",
                 quickActionHint = "Tailles, couleurs, paires & pièces",
                 dailyTip = "Spécifiez taille et couleur à la caisse pour suivre les modèles qui partent le plus vite.",
-                unitGuidance = "Vente à la pièce, paire, ensemble, lot ou au mètre de tissu"
+                unitGuidance = "Vente à la pièce, paire, ensemble, lot ou au mètre de tissu",
+                quickContextModes = listOf("Taille / Coupe", "Emballage cadeau", "Lot / Gros")
             )
             "Restaurant" -> info.copy(
                 accentColorHex = 0xFFEA580C,
@@ -610,7 +649,8 @@ object BusinessTypePresets {
                 quickActionLabel = "Vente Flash Nomade",
                 quickActionHint = "Carrefours, sachets, tas & monnaie express",
                 dailyTip = "Sélectionnez votre zone de tournée et encaissez au tas, sachet ou pièce avec un forfait réduit dédié.",
-                unitGuidance = "Unités nomades : pièce, sachet, tas, paquet ou bouteille"
+                unitGuidance = "Unités nomades : pièce, sachet, tas, paquet ou bouteille",
+                quickContextModes = listOf("🚶 Carrefour", "🏪 Marché", "🚌 Arrêt", "🏠 Tournée", "🎪 Événement")
             )
             "Courtier" -> info.copy(
                 accentColorHex = 0xFF0F766E,
@@ -618,7 +658,8 @@ object BusinessTypePresets {
                 quickActionHint = "Honoraires, visites, baux & devis courtage",
                 isServiceSector = true,
                 dailyTip = "Enregistrez vos frais de visite, dossiers et commissions dès la signature pour un suivi transparent.",
-                unitGuidance = "Unités courtage : commission, dossier, visite, contrat ou forfait"
+                unitGuidance = "Unités courtage : commission, dossier, visite, contrat ou forfait",
+                quickContextModes = listOf("Visite", "Commission", "Dossier", "Bail / Contrat")
             )
             "Coiffure" -> info.copy(
                 accentColorHex = 0xFFDB2777,
@@ -626,21 +667,24 @@ object BusinessTypePresets {
                 quickActionHint = "Tarifs Homme & Femme + produits capillaires",
                 isServiceSector = true,
                 dailyTip = "Définissez librement le montant de chaque coiffure Homme ou Femme et associez le coiffeur et les produits.",
-                unitGuidance = "Prestations (service) pour les coiffures • Pot, flacon, paquet, tube pour les produits"
+                unitGuidance = "Prestations (service) pour les coiffures • Pot, flacon, paquet, tube pour les produits",
+                operatorRoleLabel = "Coiffeur"
             )
             "Pharmacie" -> info.copy(
                 accentColorHex = 0xFF16A34A,
                 quickActionLabel = "Délivrer Ordonnance / Produit",
                 quickActionHint = "Boîtes, plaquettes, flacons & posologie",
                 dailyTip = "Ajoutez la posologie sur la ligne de vente et surveillez vos stocks critiques de premiers soins.",
-                unitGuidance = "Unités médicales : boîte, plaquette, flacon, tube, sachet, ampoule"
+                unitGuidance = "Unités médicales : boîte, plaquette, flacon, tube, sachet, ampoule",
+                quickContextModes = listOf("Ordonnance", "Conseil comptoir", "Urgence", "Renouvellement")
             )
             "Quincaillerie" -> info.copy(
                 accentColorHex = 0xFFD97706,
                 quickActionLabel = "Vente Matériaux & Devis",
                 quickActionHint = "Sacs, mètres, kg, barres & proformas",
                 dailyTip = "Vendez au mètre, au kg ou au sac et générez un devis WhatsApp en 1 clic pour vos clients.",
-                unitGuidance = "Unités matériaux : sac, kg, mètre, litre, barre, rouleau, boîte"
+                unitGuidance = "Unités matériaux : sac, kg, mètre, litre, barre, rouleau, boîte",
+                quickContextModes = listOf("Comptoir", "Livraison chantier", "Devis proforma", "En gros")
             )
             "Maçonnerie" -> info.copy(
                 accentColorHex = 0xFFC2410C,
@@ -648,7 +692,8 @@ object BusinessTypePresets {
                 quickActionHint = "Sacs, voyages, m², m³ & main d'œuvre",
                 isServiceSector = true,
                 dailyTip = "Combinez matériaux (ciment, voyages, fers) et journées ou m² de pose dans un seul devis chantier.",
-                unitGuidance = "Unités BTP : sac, voyage, brouette, m³, m², brique, barre, journée"
+                unitGuidance = "Unités BTP : sac, voyage, brouette, m³, m², brique, barre, journée",
+                quickContextModes = listOf("Fourniture + Pose", "Main d'œuvre", "Gros œuvre", "Finition m²")
             )
             "Menuiserie" -> info.copy(
                 accentColorHex = 0xFF92400E,
@@ -656,7 +701,8 @@ object BusinessTypePresets {
                 quickActionHint = "Planches, chevrons, feuilles & confections",
                 isServiceSector = true,
                 dailyTip = "Précisez l'essence et les dimensions dans les spécifications d'article pour suivre chaque chantier.",
-                unitGuidance = "Unités atelier : planche, chevron, feuille, mètre, pièce, forfait"
+                unitGuidance = "Unités atelier : planche, chevron, feuille, mètre, pièce, forfait",
+                quickContextModes = listOf("Atelier", "Fourniture + Pose", "Sur-mesure", "Vernis / Finition")
             )
             "Soudure" -> info.copy(
                 accentColorHex = 0xFF0369A1,
@@ -664,7 +710,8 @@ object BusinessTypePresets {
                 quickActionHint = "Barres, tôles, électrodes & pose",
                 isServiceSector = true,
                 dailyTip = "Distinguez le coût des barres/tôles et le forfait fabrication/pose sur vos devis métalliques.",
-                unitGuidance = "Unités métal : barre, paquet, tôle, kg, mètre, pièce, forfait"
+                unitGuidance = "Unités métal : barre, paquet, tôle, kg, mètre, pièce, forfait",
+                quickContextModes = listOf("Fabrication", "Fourniture + Pose", "Dépannage", "Scellement")
             )
             "Plomberie" -> info.copy(
                 accentColorHex = 0xFF0891B2,
@@ -672,7 +719,8 @@ object BusinessTypePresets {
                 quickActionHint = "Tuyaux, raccords, dépannages & forfaits",
                 isServiceSector = true,
                 dailyTip = "Facturez vos dépannages d'urgence et les pièces posées (barres PVC, vannes) sur le même ticket.",
-                unitGuidance = "Unités plomberie : pièce, barre, rouleau, pot, mètre, dépannage"
+                unitGuidance = "Unités plomberie : pièce, barre, rouleau, pot, mètre, dépannage",
+                quickContextModes = listOf("Dépannage urgent", "Fourniture + Pose", "Sanitaire", "Chantier neuf")
             )
             "Électricité" -> info.copy(
                 accentColorHex = 0xFFCA8A04,
@@ -680,7 +728,8 @@ object BusinessTypePresets {
                 quickActionHint = "Rouleaux, mètres, kits solaires & câblage",
                 isServiceSector = true,
                 dailyTip = "Vendez les câbles au rouleau ou au mètre et éditez vos devis d'installation solaire sur mesure.",
-                unitGuidance = "Unités électricité : pièce, rouleau, mètre, kit, ampoule, forfait"
+                unitGuidance = "Unités électricité : pièce, rouleau, mètre, kit, ampoule, forfait",
+                quickContextModes = listOf("Kit Solaire", "Câblage + Pose", "Dépannage", "Comptoir")
             )
             "Mécanique" -> info.copy(
                 accentColorHex = 0xFFDC2626,
@@ -688,14 +737,17 @@ object BusinessTypePresets {
                 quickActionHint = "Vidanges, bidons, pièces & mécaniciens",
                 isServiceSector = true,
                 dailyTip = "Assignez le mécanicien à chaque révision et contrôlez les stocks d'huiles, filtres et bougies.",
-                unitGuidance = "Unités garage : bidon, pièce, litre, paire, service, forfait"
+                unitGuidance = "Unités garage : bidon, pièce, litre, paire, service, forfait",
+                quickContextModes = listOf("Vidange", "Réparation", "Diagnostic", "Pièce seule"),
+                operatorRoleLabel = "Mécanicien"
             )
             "Boulangerie" -> info.copy(
                 accentColorHex = 0xFFD97706,
                 quickActionLabel = "Encaisser Fournée & Pâtisserie",
                 quickActionHint = "Baguettes, croissants, gâteaux & sacs",
                 dailyTip = "Utilisez la Monnaie Express pour les ventes rapides du matin et notez les parfums de gâteaux.",
-                unitGuidance = "Unités fournil : baguette, croissant, miche, gâteau, part, sac"
+                unitGuidance = "Unités fournil : baguette, croissant, miche, gâteau, part, sac",
+                quickContextModes = listOf("Comptoir", "Commande Gâteau", "Fournée chaude", "Revendeur")
             )
             "Couture" -> info.copy(
                 accentColorHex = 0xFF8B5CF6,
@@ -703,7 +755,9 @@ object BusinessTypePresets {
                 quickActionHint = "Tenues, mètres de bazin, bobines & styliste",
                 isServiceSector = true,
                 dailyTip = "Notez la finition (broderie, sur-mesure, délai) sur chaque fiche client et facturez au mètre ou à la tenue.",
-                unitGuidance = "Unités couture : tenue, confection, mètre, bobine, retouche, forfait"
+                unitGuidance = "Unités couture : tenue, confection, mètre, bobine, retouche, forfait",
+                quickContextModes = listOf("Sur-mesure", "Retouche", "Broderie", "Urgent 24h"),
+                operatorRoleLabel = "Tailleur"
             )
             "Pressing" -> info.copy(
                 accentColorHex = 0xFF0284C7,
@@ -711,49 +765,57 @@ object BusinessTypePresets {
                 quickActionHint = "Costumes, couettes, lavage au kilo & express",
                 isServiceSector = true,
                 dailyTip = "Sélectionnez le traitement (lavage à sec, vapeur, détachage) et pesez le linge au kilo si besoin.",
-                unitGuidance = "Unités pressing : pièce, costume, couette, drap, kg, forfait"
+                unitGuidance = "Unités pressing : pièce, costume, couette, drap, kg, forfait",
+                quickContextModes = listOf("Lavage à sec", "Vapeur", "Détachage", "Express 24h")
             )
             "Boucherie" -> info.copy(
                 accentColorHex = 0xFFDC2626,
                 quickActionLabel = "Pesée & Vente Viande",
                 quickActionHint = "Vente au kg, demi-kg, morceaux & découpe",
                 dailyTip = "Indiquez la découpe souhaitée (avec os, sans os, grillade) et encaissez au kilo ou demi-kilo.",
-                unitGuidance = "Unités boucherie : kg, demi-kg, morceau, gigot, barquette, tas"
+                unitGuidance = "Unités boucherie : kg, demi-kg, morceau, gigot, barquette, tas",
+                quickContextModes = listOf("Avec os", "Sans os", "Découpé", "Grillade")
             )
             "Poissonnerie" -> info.copy(
                 accentColorHex = 0xFF0891B2,
                 quickActionLabel = "Vente Poisson au Kg / Carton",
                 quickActionHint = "Frais au kg, fumé au tas & cartons",
                 dailyTip = "Vendez au kg au détail ou au carton pour vos revendeurs et notez les préférences de nettoyage.",
-                unitGuidance = "Unités halieutiques : kg, carton, tas, pièce, barquette, sachet"
+                unitGuidance = "Unités halieutiques : kg, carton, tas, pièce, barquette, sachet",
+                quickContextModes = listOf("Frais entier", "Nettoyé / Écaillé", "Fumé / Tas", "Carton gros")
             )
             "Agro-pastoral" -> info.copy(
                 accentColorHex = 0xFF15803D,
                 quickActionLabel = "Vente Provende & Intrants",
                 quickActionHint = "Sacs 50kg, tonnes, blocs & vrac au kg",
                 dailyTip = "Suivez vos gros volumes par sac, bloc ou tonne et établissez des factures proforma pour les fermes.",
-                unitGuidance = "Unités agro : sac, kg, tonne, bloc, boîte, bidon, flacon"
+                unitGuidance = "Unités agro : sac, kg, tonne, bloc, boîte, bidon, flacon",
+                quickContextModes = listOf("Détail (kg)", "Sac / Gros", "Ferme / Devis", "Livraison")
             )
             "Informatique" -> info.copy(
                 accentColorHex = 0xFF2563EB,
                 quickActionLabel = "Vente Tech & Réparation SAV",
                 quickActionHint = "Téléphones, accessoires, diagnostics & écrans",
                 dailyTip = "Enregistrez le diagnostic technique (écran, batterie, flash) avec le nom du technicien réparateur.",
-                unitGuidance = "Unités tech : pièce, unité, forfait, câble, écran, réparation"
+                unitGuidance = "Unités tech : pièce, unité, forfait, câble, écran, réparation",
+                quickContextModes = listOf("Réparation SAV", "Accessoires", "Déblocage", "Garantie 3 mois"),
+                operatorRoleLabel = "Technicien"
             )
             "Librairie" -> info.copy(
                 accentColorHex = 0xFF4F46E5,
                 quickActionLabel = "Vente Papeterie & Copies",
                 quickActionHint = "Cahiers, rames, copies & reliures rapides",
                 dailyTip = "Comptez facilement les lots de copies, reliures et fournitures de rentrée scolaire.",
-                unitGuidance = "Unités librairie : cahier, rame, pièce, paquet, boîte, copie, reliure"
+                unitGuidance = "Unités librairie : cahier, rame, pièce, paquet, boîte, copie, reliure",
+                quickContextModes = listOf("Fournitures", "Copies / Impression", "Reliure", "Liste scolaire")
             )
             "Bijouterie" -> info.copy(
                 accentColorHex = 0xFFB45309,
                 quickActionLabel = "Vente Bijoux & Or au Gramme",
                 quickActionHint = "Or au gramme, parures, montres & gravures",
                 dailyTip = "Pesez l'or au gramme et précisez le métal ou poinçon (18k, 925) sur le reçu client.",
-                unitGuidance = "Unités joaillerie : gramme, pièce, parure, paire, forfait, service"
+                unitGuidance = "Unités joaillerie : gramme, pièce, parure, paire, forfait, service",
+                quickContextModes = listOf("Or 18k", "Argent 925", "Gravure", "Cérémonie")
             )
             "Lavage Auto-Moto" -> info.copy(
                 accentColorHex = 0xFF0D9488,
@@ -761,7 +823,26 @@ object BusinessTypePresets {
                 quickActionHint = "Moto, voiture, 4x4, laveur & finitions",
                 isServiceSector = true,
                 dailyTip = "Associez le laveur à chaque passage moto ou voiture pour suivre le rendement journalier.",
-                unitGuidance = "Unités station : lavage, forfait, service, passage, pièce"
+                unitGuidance = "Unités station : lavage, forfait, service, passage, pièce",
+                quickContextModes = listOf("Moto", "Citadine", "4x4 / SUV", "Intérieur + Ext."),
+                operatorRoleLabel = "Laveur"
+            )
+            "Transport" -> info.copy(
+                accentColorHex = 0xFF0369A1,
+                quickActionLabel = "Course, Colis & Livraison",
+                quickActionHint = "Courses urbaines, colis, fret & location",
+                isServiceSector = true,
+                dailyTip = "Précisez la destination ou le destinataire sur le reçu client et calculez vos courses en 1 clic.",
+                unitGuidance = "Unités transport : course, colis, voyage, kg, jour, forfait",
+                quickContextModes = listOf("🚚 Course Ville", "📦 Colis Express", "🚛 Fret / Voyage", "🔑 Location Jour")
+            )
+            "Autre" -> info.copy(
+                accentColorHex = 0xFF475569,
+                quickActionLabel = "Nouvelle Vente / Prestation",
+                quickActionHint = "Articles, services, unités libres & devis",
+                dailyTip = "Personnalisez librement vos unités de vente (pièce, service, forfait, kg) selon votre activité.",
+                unitGuidance = "Unités libres : pièce, service, forfait, lot, kg, heure",
+                quickContextModes = listOf("Produit", "Service", "Sur devis", "Livraison")
             )
             else -> info.copy(
                 accentColorHex = 0xFF0D9488,

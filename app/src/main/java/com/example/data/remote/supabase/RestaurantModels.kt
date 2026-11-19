@@ -88,11 +88,12 @@ data class RestaurantTableRecord(
     val isActive: Boolean = true,
     val updatedAt: Long = System.currentTimeMillis()
 ) {
-    fun buildQrUri(shopName: String): String {
+    fun buildQrUri(shopName: String, webBaseUrl: String? = null): String {
         return RestaurantQrParser.buildTableQrUri(
             shopId = shopId,
             shopName = shopName,
-            tableName = tableNumber
+            tableName = tableNumber,
+            webBaseUrl = webBaseUrl
         )
     }
 
@@ -321,16 +322,81 @@ data class RemoteStaffLoginResult(
 
 object RestaurantQrParser {
     private const val SCHEME_PREFIX = "konabpos://menu"
+    private const val WEB_PREFS_NAME = "konab_restaurant_sync_prefs"
+    private const val KEY_WEB_PORTAL_URL = "netlify_web_portal_url"
+    private const val DEFAULT_WEB_PORTAL_URL = "https://konabrestmenu.netlify.app"
+
+    @Volatile
+    private var cachedWebPortalUrl: String = DEFAULT_WEB_PORTAL_URL
+
+    fun ensureInitialized(context: Context) {
+        try {
+            val prefs = context.getSharedPreferences(WEB_PREFS_NAME, Context.MODE_PRIVATE)
+            if (prefs.contains(KEY_WEB_PORTAL_URL)) {
+                val saved = normalizeWebPortalUrl(prefs.getString(KEY_WEB_PORTAL_URL, ""))
+                if (saved.equals("https://dankanbb.netlify.app", ignoreCase = true) ||
+                    saved.equals("http://dankanbb.netlify.app", ignoreCase = true)
+                ) {
+                    cachedWebPortalUrl = DEFAULT_WEB_PORTAL_URL
+                    prefs.edit().putString(KEY_WEB_PORTAL_URL, DEFAULT_WEB_PORTAL_URL).apply()
+                } else {
+                    cachedWebPortalUrl = saved
+                }
+            } else {
+                cachedWebPortalUrl = DEFAULT_WEB_PORTAL_URL
+            }
+        } catch (_: Exception) {}
+    }
+
+    fun normalizeWebPortalUrl(raw: String?): String {
+        var clean = raw?.trim().orEmpty()
+        if (clean.isBlank()) return ""
+        clean = clean.substringBefore('#').substringBefore('?').trim()
+        if (!clean.startsWith("http://", ignoreCase = true) &&
+            !clean.startsWith("https://", ignoreCase = true)
+        ) {
+            clean = "https://$clean"
+        }
+        clean = clean.trimEnd('/')
+        val hostPart = clean.substringAfter("://", "")
+        if (hostPart.isBlank() || !hostPart.contains('.')) return ""
+        return clean
+    }
+
+    fun getWebPortalUrl(context: Context? = null): String {
+        if (context != null) ensureInitialized(context)
+        return cachedWebPortalUrl
+    }
+
+    fun saveWebPortalUrl(context: Context, rawUrl: String): String {
+        val normalized = normalizeWebPortalUrl(rawUrl)
+        cachedWebPortalUrl = normalized
+        try {
+            val prefs = context.getSharedPreferences(WEB_PREFS_NAME, Context.MODE_PRIVATE)
+            prefs.edit().putString(KEY_WEB_PORTAL_URL, normalized).apply()
+        } catch (_: Exception) {}
+        return normalized
+    }
 
     fun buildTableQrUri(
         shopId: Long,
         shopName: String,
-        tableName: String
+        tableName: String,
+        webBaseUrl: String? = null
     ): String {
         val cleanShop = shopName.trim().take(48)
         val cleanTable = tableName.trim().ifBlank { "Table 1" }.take(24)
         val encShop = URLEncoder.encode(cleanShop, "UTF-8")
         val encTable = URLEncoder.encode(cleanTable, "UTF-8")
+
+        val base = normalizeWebPortalUrl(webBaseUrl).ifBlank { cachedWebPortalUrl }
+        if (base.isNotBlank()) {
+            // Compact universal HTTPS link so iPhone Camera opens Safari directly & QrCodeHelper stays fast/crisp (<= 200 bytes)
+            val coreUrl = "$base/?s=$shopId&t=$encTable"
+            val shortShop = URLEncoder.encode(cleanShop.take(24), "UTF-8")
+            val withName = "$coreUrl&n=$shortShop"
+            return if (withName.toByteArray(Charsets.UTF_8).size <= 200) withName else coreUrl
+        }
         return "$SCHEME_PREFIX?shopId=$shopId&shop=$encShop&table=$encTable"
     }
 
@@ -363,15 +429,15 @@ object RestaurantQrParser {
         }
 
         val lower = clean.lowercase(Locale.ROOT)
-        if (lower.startsWith("konabpos://couture")) return null
+        if (lower.startsWith("konabpos://couture") || lower.startsWith("konabpos://join")) return null
 
-        val queryPart = when {
+        val queryPartRaw = when {
             lower.startsWith(SCHEME_PREFIX) -> {
                 val idx = clean.indexOf('?')
                 if (idx >= 0) clean.substring(idx + 1) else ""
             }
-            (lower.contains("konab") || lower.contains("menu=1") || lower.contains("mode=menu")) &&
-                (lower.contains("table=") || lower.contains("t=") || lower.contains("shopid=") || lower.contains("shop=")) -> {
+            (lower.contains("konab") || lower.contains("netlify") || lower.contains("menu=1") || lower.contains("mode=menu")) &&
+                (lower.contains("table=") || lower.contains("t=") || lower.contains("shopid=") || lower.contains("s=") || lower.contains("shop=") || lower.contains("n=")) -> {
                 val idx = clean.indexOf('?')
                 if (idx >= 0) clean.substring(idx + 1) else clean
             }
@@ -383,6 +449,7 @@ object RestaurantQrParser {
             else -> return null
         }
 
+        val queryPart = queryPartRaw.substringBefore('#')
         if (queryPart.isBlank()) return null
         val params = mutableMapOf<String, String>()
         queryPart.split("&").forEach { pair ->

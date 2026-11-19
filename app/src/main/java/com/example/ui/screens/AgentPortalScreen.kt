@@ -61,7 +61,9 @@ import com.example.util.BusinessTypePresets
 import com.example.util.LicenseHelper
 import com.example.util.ShopLogoAvatar
 import com.example.util.ShopLogoHelper
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -178,16 +180,30 @@ fun AgentPortalScreen(
         state.syncShopProfile(shopProfile)
     }
 
-    val photoPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia()
-    ) { uri: Uri? ->
-        if (uri != null) {
-            val savedPath = ShopLogoHelper.saveLogoToInternalStorage(context, uri)
+    fun handlePickedPortalLogo(uri: Uri?) {
+        if (uri == null) return
+        coroutineScope.launch {
+            val savedPath = withContext(Dispatchers.IO) {
+                ShopLogoHelper.saveLogoToInternalStorage(context, uri)
+            }
             if (savedPath != null) {
                 state.configLogoUri = savedPath
                 Toast.makeText(context, "Logo importé avec succès !", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(context, "Impossible de charger ce logo.", Toast.LENGTH_SHORT).show()
             }
         }
+    }
+
+    val photoPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri: Uri? ->
+        handlePickedPortalLogo(uri)
+    }
+    val fallbackLogoPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        handlePickedPortalLogo(uri)
     }
 
     LaunchedEffect(state.currentAgent) {
@@ -252,9 +268,13 @@ fun AgentPortalScreen(
     if (state.showLogoDialog) {
         AgentPortalLogoDialog(
             onPickFromGallery = {
-                photoPickerLauncher.launch(
-                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                )
+                try {
+                    photoPickerLauncher.launch(
+                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                    )
+                } catch (_: Exception) {
+                    runCatching { fallbackLogoPickerLauncher.launch("image/*") }
+                }
                 state.showLogoDialog = false
             },
             onSelectPreset = { key ->
@@ -1450,7 +1470,7 @@ private fun AgentPortalShopConfigTab(
                             FilterChip(
                                 selected = configBusinessType == t,
                                 onClick = { onConfigBusinessTypeChange(t) },
-                                label = { Text("${preset.emoji} $t", fontSize = 10.sp, maxLines = 1) },
+                                label = { Text("${preset.emoji} $t", fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                                 modifier = Modifier.weight(1f)
                             )
                         }

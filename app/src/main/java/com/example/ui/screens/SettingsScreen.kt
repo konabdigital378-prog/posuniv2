@@ -44,8 +44,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import com.example.R
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -90,6 +92,8 @@ fun SettingsScreen(
     onToggleAutoSync: (Boolean) -> Unit = {},
     onTestSupabase: (String?, String?) -> Unit = { _, _ -> },
     onSaveSupabaseCredentials: (String, String) -> Unit = { _, _ -> },
+    onSelectCloudProvider: (com.example.data.remote.pocketbase.CloudBackendProvider) -> Unit = {},
+    onSavePocketBaseUrl: (String) -> Unit = {},
     supabaseAuthState: com.example.data.remote.supabase.SupabaseAuthManager.AuthState = com.example.data.remote.supabase.SupabaseAuthManager.AuthState.Unauthenticated,
     onSignInSupabase: (String, String) -> Unit = { _, _ -> },
     onSignUpSupabase: (String, String, String, String, String, String) -> Unit = { _, _, _, _, _, _ -> },
@@ -145,21 +149,36 @@ fun SettingsScreen(
     var showHelpDialog by remember { mutableStateOf(false) }
     var showBluetoothPrinterModal by remember { mutableStateOf(false) }
     var showSupabaseAuthModal by remember { mutableStateOf(false) }
+    var showCloudConfigModal by remember { mutableStateOf(false) }
     var showSectorDialog by remember { mutableStateOf(false) }
     var showShopAdConfigModal by remember { mutableStateOf(false) }
     var partnerShopsForAds by remember { mutableStateOf<List<ShopProfileEntity>>(emptyList()) }
 
-    val photoPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia()
-    ) { uri: Uri? ->
-        if (uri != null && shopProfile != null) {
-            val savedPath = ShopLogoHelper.saveLogoToInternalStorage(context, uri)
+    fun handlePickedShopLogo(uri: Uri?) {
+        if (uri == null || shopProfile == null) return
+        scope.launch {
+            val savedPath = withContext(Dispatchers.IO) {
+                ShopLogoHelper.saveLogoToInternalStorage(context, uri)
+            }
             if (savedPath != null) {
                 val updated = shopProfile.copy(logoUri = savedPath)
                 onUpdateProfile(updated)
                 Toast.makeText(context, "Logo de la boutique mis à jour avec succès !", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(context, "Impossible de charger ce logo.", Toast.LENGTH_SHORT).show()
             }
         }
+    }
+
+    val photoPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri: Uri? ->
+        handlePickedShopLogo(uri)
+    }
+    val fallbackLogoPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        handlePickedShopLogo(uri)
     }
 
     Scaffold(
@@ -464,7 +483,7 @@ fun SettingsScreen(
                 }
 
                 SettingsModernRow(
-                    icon = Icons.Default.Category,
+                    icon = com.example.util.SectorUiHelper.getIcon(shopProfile?.businessType ?: "Boutique"),
                     iconTint = Color(currentSectorPreset.accentColorHex),
                     iconBg = Color(currentSectorPreset.accentColorHex).copy(alpha = 0.14f),
                     title = "Secteur d'activité & Unités Métier",
@@ -629,6 +648,27 @@ fun SettingsScreen(
                     badgeColor = Color(0xFF10B981),
                     onClick = { onSyncWithSupabase() },
                     testTag = "row_sync_now"
+                )
+
+                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+                val activeProviderName = com.example.data.remote.pocketbase.PocketBaseConfig.provider.displayName
+                val isPbActive = com.example.data.remote.pocketbase.PocketBaseConfig.isPocketBaseActive
+                SettingsModernRow(
+                    icon = Icons.Default.Storage,
+                    iconTint = if (isPbActive) Color(0xFF0EA5E9) else Color(0xFF10B981),
+                    iconBg = if (isPbActive) Color(0xFFE0F2FE) else Color(0xFFD1FAE5),
+                    title = "Serveur & Base Cloud",
+                    subtitle = if (isPbActive) {
+                        com.example.data.remote.pocketbase.PocketBaseConfig.rawUrl.ifBlank { "Configurer l'URL PocketBase" }
+                    } else {
+                        "Supabase Cloud • Basculer vers PocketBase"
+                    },
+                    trailingValue = "Configurer",
+                    badgeText = activeProviderName.uppercase(),
+                    badgeColor = if (isPbActive) Color(0xFF0284C7) else Color(0xFF059669),
+                    onClick = { showCloudConfigModal = true },
+                    testTag = "row_cloud_backend_config"
                 )
 
                 HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
@@ -937,9 +977,13 @@ fun SettingsScreen(
         SettingsLogoDialog(
             shopProfile = shopProfile,
             onPickFromGallery = {
-                photoPickerLauncher.launch(
-                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                )
+                try {
+                    photoPickerLauncher.launch(
+                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                    )
+                } catch (_: Exception) {
+                    runCatching { fallbackLogoPickerLauncher.launch("image/*") }
+                }
                 showLogoDialog = false
             },
             onUpdateProfile = onUpdateProfile,
@@ -1014,6 +1058,24 @@ fun SettingsScreen(
             onRecoverPassword = onRecoverSupabasePassword,
             onRefreshSession = onRefreshSupabaseSession,
             onDismiss = { showSupabaseAuthModal = false }
+        )
+    }
+
+    if (showCloudConfigModal) {
+        com.example.ui.components.SupabaseSyncDialog(
+            syncState = supabaseSyncState ?: com.example.data.remote.supabase.SupabaseSyncState(),
+            onTestConnection = onTestSupabase,
+            onSaveAndSync = onSaveSupabaseCredentials,
+            onSelectProvider = onSelectCloudProvider,
+            onSavePocketBaseUrl = onSavePocketBaseUrl,
+            onSyncNow = onSyncWithSupabase,
+            onSyncFullStore = onSyncFullStore,
+            onToggleAutoSync = onToggleAutoSync,
+            onOpenAuth = {
+                showCloudConfigModal = false
+                showSupabaseAuthModal = true
+            },
+            onDismiss = { showCloudConfigModal = false }
         )
     }
 

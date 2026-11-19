@@ -28,8 +28,10 @@ import com.example.ui.theme.KonabBlue
 import com.example.ui.theme.KonabGreen
 import com.example.ui.theme.KonabOrange
 import com.example.util.BusinessTypePresets
+import com.example.util.SectorUiHelper
 import com.example.util.SubscriptionPricingHelper
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SectorCustomizationDialog(
     currentSector: String,
@@ -111,7 +113,7 @@ fun SectorCustomizationDialog(
                         .testTag("input_search_sector")
                 )
 
-                val sectorGroups = listOf("Tous", "Commerce", "Alimentation", "Artisanat & BTP", "Services & Tech")
+                val sectorGroups = remember { SectorUiHelper.getSectorGroups() }
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     items(sectorGroups) { group ->
                         val isGroupSel = selectedGroupFilter == group
@@ -135,13 +137,7 @@ fun SectorCustomizationDialog(
                                 info.title.contains(sectorSearchQuery, ignoreCase = true) ||
                                 info.description.contains(sectorSearchQuery, ignoreCase = true)
 
-                        val matchGroup = when (selectedGroupFilter) {
-                            "Commerce" -> sectorName in listOf("Boutique", "Commerce général", "Kiosque", "Vendeur ambulant", "Courtier", "Bijouterie", "Librairie")
-                            "Alimentation" -> sectorName in listOf("Restaurant", "Boulangerie", "Boucherie", "Poissonnerie", "Commerce général", "Kiosque")
-                            "Artisanat & BTP" -> sectorName in listOf("Maçonnerie", "Menuiserie", "Soudure", "Plomberie", "Électricité", "Quincaillerie", "Agro-pastoral")
-                            "Services & Tech" -> sectorName in listOf("Coiffure", "Couture", "Pressing", "Courtier", "Informatique", "Lavage Auto-Moto", "Mécanique", "Pharmacie")
-                            else -> true
-                        }
+                        val matchGroup = SectorUiHelper.matchesGroup(sectorName, selectedGroupFilter)
                         matchSearch && matchGroup
                     }
                 }
@@ -151,59 +147,8 @@ fun SectorCustomizationDialog(
                     val pricing = remember(sectorName) { SubscriptionPricingHelper.getPricingProfile(sectorName) }
                     val isSelected = selectedSector.equals(sectorName, ignoreCase = true)
 
-                    val sectorIcon: ImageVector = when (sectorName) {
-                        "Boutique" -> Icons.Default.ShoppingBag
-                        "Restaurant" -> Icons.Default.Restaurant
-                        "Kiosque" -> Icons.Default.Storefront
-                        "Vendeur ambulant" -> Icons.Default.DirectionsWalk
-                        "Courtier" -> Icons.Default.Handshake
-                        "Pharmacie" -> Icons.Default.LocalPharmacy
-                        "Quincaillerie" -> Icons.Default.Build
-                        "Coiffure" -> Icons.Default.ContentCut
-                        "Commerce général" -> Icons.Default.Storefront
-                        "Boulangerie" -> Icons.Default.BakeryDining
-                        "Couture" -> Icons.Default.Checkroom
-                        "Pressing" -> Icons.Default.LocalLaundryService
-                        "Boucherie" -> Icons.Default.Restaurant
-                        "Poissonnerie" -> Icons.Default.SetMeal
-                        "Agro-pastoral" -> Icons.Default.Agriculture
-                        "Informatique" -> Icons.Default.Smartphone
-                        "Librairie" -> Icons.Default.MenuBook
-                        "Bijouterie" -> Icons.Default.Diamond
-                        "Lavage Auto-Moto" -> Icons.Default.LocalCarWash
-                        "Électricité" -> Icons.Default.Bolt
-                        "Maçonnerie", "Menuiserie", "Soudure", "Plomberie", "Mécanique" -> Icons.Default.Build
-                        else -> Icons.Default.Category
-                    }
-
-                    val accentColor = when (sectorName) {
-                        "Restaurant" -> Color(0xFFEA580C)
-                        "Pharmacie" -> Color(0xFF16A34A)
-                        "Boutique" -> Color(0xFF7C3AED)
-                        "Quincaillerie" -> Color(0xFFD97706)
-                        "Coiffure" -> Color(0xFFDB2777)
-                        "Kiosque" -> Color(0xFF0284C7)
-                        "Vendeur ambulant" -> Color(0xFFE11D48)
-                        "Courtier" -> Color(0xFF0F766E)
-                        "Commerce général" -> Color(0xFF0D9488)
-                        "Boulangerie" -> Color(0xFFD97706)
-                        "Couture" -> Color(0xFF8B5CF6)
-                        "Pressing" -> Color(0xFF0284C7)
-                        "Boucherie" -> Color(0xFFDC2626)
-                        "Poissonnerie" -> Color(0xFF0891B2)
-                        "Agro-pastoral" -> Color(0xFF15803D)
-                        "Informatique" -> Color(0xFF2563EB)
-                        "Librairie" -> Color(0xFF4F46E5)
-                        "Bijouterie" -> Color(0xFFEAB308)
-                        "Lavage Auto-Moto" -> Color(0xFF0D9488)
-                        "Maçonnerie" -> Color(0xFFC2410C)
-                        "Menuiserie" -> Color(0xFF92400E)
-                        "Soudure" -> Color(0xFF0369A1)
-                        "Plomberie" -> Color(0xFF0891B2)
-                        "Électricité" -> Color(0xFFCA8A04)
-                        "Mécanique" -> Color(0xFFDC2626)
-                        else -> KonabBlue
-                    }
+                    val sectorIcon: ImageVector = SectorUiHelper.getIcon(sectorName)
+                    val accentColor = SectorUiHelper.getAccentColor(sectorName)
 
                     Surface(
                         shape = RoundedCornerShape(12.dp),
@@ -300,31 +245,14 @@ fun SectorCustomizationDialog(
                                     )
                                 }
 
-                                // Feature Badges
-                                Row(
+                                // Feature Badges (wrapped cleanly across lines)
+                                FlowRow(
                                     modifier = Modifier.padding(top = 4.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
-                                    if (info.sectorFeatures.hasTables) {
-                                        SectorTagChip("Tables & Bons Cuisine")
-                                    }
-                                    if (info.sectorFeatures.hasVariations) {
-                                        SectorTagChip("Tailles & Couleurs")
-                                    }
-                                    if (info.sectorFeatures.hasPrescriptionExpiry) {
-                                        SectorTagChip("Ordonnances & Péremptions")
-                                    }
-                                    if (info.sectorFeatures.hasFractionalUnits) {
-                                        SectorTagChip("Vente Vrac (m, kg, L)")
-                                    }
-                                    if (info.sectorFeatures.hasOperatorStylist) {
-                                        SectorTagChip("Praticiennes & Soins")
-                                    }
-                                    if (info.sectorFeatures.hasJobSiteQuotes) {
-                                        SectorTagChip("Devis & Chantiers PME")
-                                    }
-                                    if (info.sectorFeatures.hasNomadMode) {
-                                        SectorTagChip("Vente Nomade & Express")
+                                    SectorUiHelper.getFeatureBadges(info.sectorFeatures).forEach { badge ->
+                                        SectorTagChip(badge)
                                     }
                                 }
                             }

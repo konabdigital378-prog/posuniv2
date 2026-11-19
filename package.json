@@ -11,5 +11,9 @@
     "konab",
     "admin",
     "dashboard"
-  ]
+  ],
+  "dependencies": {
+    "@neon/config": "^1.14.3",
+    "@neon/env": "^2.1.6"
+  }
 }

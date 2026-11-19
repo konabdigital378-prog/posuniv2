@@ -44,6 +44,6 @@ class SupabaseConfigUnitTest {
         assertTrue(SupabaseConfig.isConfigured)
         assertTrue(SupabaseConfig.rawUrl.startsWith("https://"))
         assertTrue(SupabaseConfig.rawAnonKey.isNotBlank())
-        assertEquals("https://ttvjrkqkbnktyvpbmwdg.supabase.co", SupabaseConfig.rawUrl)
+        assertEquals("https://hckbvflqimqanmmohxyc.supabase.co", SupabaseConfig.rawUrl)
     }
 }

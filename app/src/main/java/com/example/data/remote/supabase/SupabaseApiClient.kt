@@ -1,6 +1,8 @@
 package com.example.data.remote.supabase
 
 import com.example.data.local.entity.*
+import com.example.data.remote.pocketbase.PocketBaseAdapter
+import com.example.data.remote.pocketbase.PocketBaseConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -74,6 +76,15 @@ class SupabaseApiClient(
         extraHeaders: Map<String, String> = emptyMap(),
         block: (okhttp3.Response) -> T
     ): T {
+        if (PocketBaseConfig.isPocketBaseActive) {
+            return PocketBaseAdapter.executeRestShim(
+                client = client,
+                endpoint = endpoint,
+                method = method,
+                bodyString = bodyString,
+                authToken = SupabaseAuthManager.currentToken
+            ).use(block)
+        }
         val hadUserToken = SupabaseAuthManager.currentToken != null
         val primaryReq = buildRequest(endpoint, method, bodyString, extraHeaders, forceAnon = false)
         client.newCall(primaryReq).execute().use { response ->
@@ -91,6 +102,9 @@ class SupabaseApiClient(
         customUrl: String? = null,
         customKey: String? = null
     ): Result<String> = withContext(Dispatchers.IO) {
+        if (PocketBaseConfig.isPocketBaseActive) {
+            return@withContext PocketBaseAdapter.testConnection(client, customUrl)
+        }
         val targetUrl = (customUrl?.trim()?.takeIf { it.isNotBlank() } ?: SupabaseConfig.rawUrl).trimEnd('/')
         val targetKey = (customKey?.trim()?.takeIf { it.isNotBlank() } ?: SupabaseConfig.rawAnonKey).trim()
 
@@ -1884,6 +1898,16 @@ class SupabaseApiClient(
         remotePath: String,
         contentType: String
     ): Result<String> = withContext(Dispatchers.IO) {
+        if (PocketBaseConfig.isPocketBaseActive) {
+            return@withContext PocketBaseAdapter.uploadToMediaAssets(
+                client = client,
+                bucket = bucket,
+                file = file,
+                remotePath = remotePath,
+                contentType = contentType,
+                authToken = SupabaseAuthManager.currentToken
+            )
+        }
         if (!SupabaseConfig.isConfigured) {
             return@withContext Result.failure(IllegalStateException("Supabase non configuré"))
         }
@@ -1922,7 +1946,7 @@ class SupabaseApiClient(
             client.newCall(buildUploadReq(forceAnon = false, usePut = false)).execute().use { resp ->
                 if (resp.isSuccessful) {
                     return@withContext Result.success(publicUrl)
-                } else if (resp.code == 401 && hadUserToken) {
+                } else if (hadUserToken && (resp.code == 400 || resp.code == 401 || resp.code == 403)) {
                     SupabaseAuthManager.clearExpiredSessionIfNeeded()
                     shouldRetryAnon = true
                 } else if (resp.code == 409) {
@@ -1964,12 +1988,21 @@ class SupabaseApiClient(
         file: File,
         remotePath: String,
         contentType: String
-    ): Result<String> = uploadToStorageBucket(
-        bucket = "shop-ads",
-        file = file,
-        remotePath = remotePath,
-        contentType = contentType
-    )
+    ): Result<String> {
+        val primary = uploadToStorageBucket(
+            bucket = "shop-ads",
+            file = file,
+            remotePath = remotePath,
+            contentType = contentType
+        )
+        if (primary.isSuccess) return primary
+        return uploadToStorageBucket(
+            bucket = "shop-logos",
+            file = file,
+            remotePath = "ads/$remotePath",
+            contentType = contentType
+        )
+    }
 
     /**
      * Uploads a compressed shop logo (WebP/JPEG) into the dedicated public `shop-logos` Storage bucket
@@ -2001,6 +2034,52 @@ class SupabaseApiClient(
             bucket = "shop-ads",
             file = file,
             remotePath = "shop-logos/$fileName",
+            contentType = effectiveType
+        ).map { "$it$bustSuffix" }
+    }
+
+    /**
+     * Uploads a compressed product/dish photo to Supabase Storage (`product-images`, falling back
+     * to `shop-logos/products/...` and `shop-ads/products/...`) so iPhone/Web menus always display
+     * real uploaded dish photos instead of unreachable device `content://` or `file://` URIs.
+     */
+    suspend fun uploadProductImageMedia(
+        file: File,
+        shopId: Long,
+        productKey: String,
+        contentType: String = "image/webp"
+    ): Result<String> {
+        val safeShopId = shopId.coerceAtLeast(1L)
+        val safeKey = productKey.replace(Regex("[^a-zA-Z0-9_-]"), "_").ifBlank { "item_${System.currentTimeMillis()}" }
+        val ext = if (contentType.contains("webp", ignoreCase = true) || file.extension.equals("webp", ignoreCase = true)) {
+            "webp"
+        } else {
+            "jpg"
+        }
+        val effectiveType = if (ext == "webp") "image/webp" else contentType
+        val remoteName = "shop_${safeShopId}_${safeKey}.$ext"
+        val bustSuffix = "?v=${System.currentTimeMillis()}"
+
+        val primary = uploadToStorageBucket(
+            bucket = "product-images",
+            file = file,
+            remotePath = "${safeShopId}/${safeKey}.$ext",
+            contentType = effectiveType
+        )
+        if (primary.isSuccess) return primary.map { "$it$bustSuffix" }
+
+        val viaLogos = uploadToStorageBucket(
+            bucket = "shop-logos",
+            file = file,
+            remotePath = "products/$remoteName",
+            contentType = effectiveType
+        )
+        if (viaLogos.isSuccess) return viaLogos.map { "$it$bustSuffix" }
+
+        return uploadToStorageBucket(
+            bucket = "shop-ads",
+            file = file,
+            remotePath = "products/$remoteName",
             contentType = effectiveType
         ).map { "$it$bustSuffix" }
     }

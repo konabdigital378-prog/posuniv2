@@ -24,8 +24,10 @@ import com.example.data.remote.supabase.RestaurantStaffRole
 import com.example.ui.components.KonabEmptyState
 import com.example.ui.components.KonabSearchField
 import com.example.ui.theme.*
+import com.example.util.BtSyncStatus
 import com.example.util.CurrencyFormatter
 import com.example.util.ProductThumbnail
+import com.example.util.RestaurantBluetoothMode
 
 @Composable
 fun RestaurantMenuOfDayTab(
@@ -189,7 +191,9 @@ fun RestaurantTeamSyncTab(
     onSwitchActiveStaff: (RestaurantStaffAccount) -> Unit,
     onSaveStaff: (RestaurantStaffAccount) -> Unit,
     onDeleteStaff: (String) -> Unit,
-    canManageTeam: Boolean = true
+    canManageTeam: Boolean = true,
+    btSyncStatus: BtSyncStatus = BtSyncStatus(),
+    onOpenBluetoothTeamSetup: (initialTab: Int) -> Unit = {}
 ) {
     var editingStaff by remember { mutableStateOf<RestaurantStaffAccount?>(null) }
     var showCreateStaffDialog by remember { mutableStateOf(false) }
@@ -251,6 +255,94 @@ fun RestaurantTeamSyncTab(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
                             )
+                        }
+                    }
+                }
+            }
+        }
+
+        item {
+            val btAccent = when {
+                btSyncStatus.mode == RestaurantBluetoothMode.HUB && btSyncStatus.isRunning -> KonabGreen
+                btSyncStatus.mode == RestaurantBluetoothMode.CLIENT && btSyncStatus.isConnected -> KonabBlue
+                else -> Color(0xFF0F766E)
+            }
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = btAccent.copy(alpha = 0.07f)),
+                border = BorderStroke(1.2.dp, btAccent.copy(alpha = 0.45f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(Icons.Default.BluetoothConnected, contentDescription = null, tint = btAccent)
+                            Text(
+                                text = "Installation Équipe & Bluetooth Local",
+                                fontFamily = OutfitFontFamily,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.5.sp
+                            )
+                        }
+                        Surface(color = btAccent, shape = RoundedCornerShape(8.dp)) {
+                            Text(
+                                text = if (btSyncStatus.mode == RestaurantBluetoothMode.HUB && btSyncStatus.isRunning) {
+                                    "HUB • ${btSyncStatus.connectedPeers.size}"
+                                } else {
+                                    btSyncStatus.mode.shortBadge
+                                },
+                                color = Color.White,
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 10.sp,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                            )
+                        }
+                    }
+                    Text(
+                        text = "Configurez Cuisine, Serveur, Caissier et Gérant en 1 scan QR code, échangez en local par Bluetooth même sans Internet, et synchronisez vers le Cloud dès qu'un téléphone capte le réseau.",
+                        fontSize = 11.5.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        lineHeight = 16.sp
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = { onOpenBluetoothTeamSetup(0) },
+                            colors = ButtonDefaults.buttonColors(containerColor = btAccent),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 48.dp)
+                                .testTag("btn_team_open_bluetooth")
+                        ) {
+                            Icon(Icons.Default.Bluetooth, contentDescription = null, modifier = Modifier.size(17.dp))
+                            Spacer(modifier = Modifier.width(5.dp))
+                            Text("Réseau BT", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
+                        OutlinedButton(
+                            onClick = { onOpenBluetoothTeamSetup(1) },
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 48.dp)
+                                .testTag("btn_team_open_install_qr")
+                        ) {
+                            Icon(Icons.Default.QrCode2, contentDescription = null, modifier = Modifier.size(17.dp))
+                            Spacer(modifier = Modifier.width(5.dp))
+                            Text("Installer (QR)", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                         }
                     }
                 }

@@ -71,7 +71,7 @@ class SupabaseAuthUnitTest {
     fun testDiagnosticResultStructure() {
         val result = SupabaseAuthManager.DiagnosticResult(
             isSuccessful = true,
-            url = "https://ttvjrkqkbnktyvpbmwdg.supabase.co",
+            url = "https://hckbvflqimqanmmohxyc.supabase.co",
             latencyMs = 85L,
             authStatus = "Opérationnel",
             databaseStatus = "Connecté",

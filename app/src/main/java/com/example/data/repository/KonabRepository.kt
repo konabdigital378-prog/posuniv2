@@ -615,6 +615,97 @@ class KonabRepository(
     }
 
     /**
+     * Applique un bundle reçu par Bluetooth (installation directe hors-ligne ou mise à jour menu/produits).
+     */
+    suspend fun applyBluetoothSyncBundle(
+        shopName: String,
+        slogan: String,
+        phone: String,
+        address: String,
+        city: String,
+        currency: String,
+        businessType: String,
+        adminPin: String,
+        cashierPin: String,
+        logoUri: String?,
+        adminName: String,
+        products: List<ProductEntity>,
+        forceReplaceShop: Boolean = false
+    ) {
+        val currentProfile = dao.getShopProfileOnce()
+        val isNewOrDifferentShop = forceReplaceShop ||
+            currentProfile == null ||
+            !currentProfile.isConfigured ||
+            currentProfile.name.isBlank() ||
+            !currentProfile.name.equals(shopName.trim(), ignoreCase = true)
+
+        if (isNewOrDifferentShop) {
+            dao.deleteAllProducts()
+            dao.deleteAllSales()
+            dao.deleteAllSaleItems()
+            dao.deleteAllCustomers()
+            dao.deleteAllSuppliers()
+            dao.deleteAllCashMovements()
+            dao.deleteAllCashSessions()
+            dao.deleteAllPurchases()
+        }
+
+        val effectiveLogo = logoUri?.takeIf { it.isNotBlank() } ?: currentProfile?.logoUri
+        val updatedProfile = ShopProfileEntity(
+            id = 1,
+            name = shopName.trim().ifBlank { currentProfile?.name ?: "Mon Restaurant" },
+            slogan = slogan.trim().ifBlank { currentProfile?.slogan.orEmpty() },
+            phone = phone.trim().ifBlank { currentProfile?.phone.orEmpty() },
+            address = address.trim().ifBlank { currentProfile?.address.orEmpty() },
+            city = city.trim().ifBlank { currentProfile?.city.orEmpty() },
+            currency = currency.trim().ifBlank { "FCFA" },
+            businessType = businessType.trim().ifBlank { "Restaurant" },
+            adminPin = adminPin.trim().ifBlank { "1234" },
+            cashierPin = cashierPin.trim().ifBlank { "0000" },
+            subscriptionTier = currentProfile?.subscriptionTier ?: "Pro",
+            isConfigured = true,
+            logoUri = effectiveLogo
+        )
+        dao.saveShopProfile(updatedProfile)
+
+        dataStore.saveSetupWizardData(
+            shopName = updatedProfile.name,
+            slogan = updatedProfile.slogan,
+            shopPhone = updatedProfile.phone,
+            address = updatedProfile.address,
+            city = updatedProfile.city,
+            businessType = updatedProfile.businessType,
+            adminName = adminName.ifBlank { "Gérant" },
+            adminPhone = updatedProfile.phone,
+            adminPin = updatedProfile.adminPin,
+            currency = updatedProfile.currency
+        )
+
+        if (products.isNotEmpty()) {
+            if (isNewOrDifferentShop) {
+                dao.insertProducts(products)
+            } else {
+                val existing = dao.getAllProductsOnce()
+                val existingById = existing.associateBy { it.id }
+                val existingByName = existing.associateBy { it.name.trim().lowercase(Locale.ROOT) }
+                val toInsertOrUpdate = products.map { remote ->
+                    val match = existingById[remote.id]
+                        ?: existingByName[remote.name.trim().lowercase(Locale.ROOT)]
+                    if (match != null) {
+                        remote.copy(
+                            id = match.id,
+                            imageUri = remote.imageUri.ifBlank { match.imageUri }
+                        )
+                    } else {
+                        remote.copy(id = if (remote.id > 0L) remote.id else nextUniqueLocalId())
+                    }
+                }
+                dao.insertProducts(toInsertOrUpdate)
+            }
+        }
+    }
+
+    /**
      * Fusionne les nouveautés distantes (produits, ventes, lignes de vente, caisse, sessions, fournisseurs, achats)
      * sans écraser les opérations locales non encore poussées.
      */

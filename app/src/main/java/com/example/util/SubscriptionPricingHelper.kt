@@ -56,6 +56,7 @@ object SubscriptionPricingHelper {
         "Coiffure",
         "Couture",
         "Lavage Auto-Moto",
+        "Transport",
         "Librairie"
     )
 
